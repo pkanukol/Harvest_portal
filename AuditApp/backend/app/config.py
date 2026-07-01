@@ -10,13 +10,13 @@ class Settings(BaseSettings):
     #APP_URL: str = "https://harvest-ta.onrender.com"
     APP_URL: str = "https://harvest-dlp-portal.onrender.com"
 
-    #RESEND_API_KEY: str = ""
-    #RESEND_FROM_EMAIL: str = ""
-    SMTP_HOST: str = "smtp.gmail.com"
-    SMTP_PORT: int = 587
-    SMTP_USERNAME: str = ""
-    SMTP_PASSWORD: str = ""
-    SMTP_FROM_EMAIL: str = ""
+    RESEND_API_KEY: str = ""
+    RESEND_FROM_EMAIL: str = ""
+    #SMTP_HOST: str = "smtp.gmail.com"
+    #SMTP_PORT: int = 587
+    #SMTP_USERNAME: str = ""
+    #SMTP_PASSWORD: str = ""
+    #SMTP_FROM_EMAIL: str = ""
 
     SUPABASE_URL: str = "https://aouvxdfamzprykezeovl.supabase.co"
     SUPABASE_ANON_KEY: str = "sb_publishable_rIfo8DPrbyOmU006ii3onw_sDRWJwvE"
