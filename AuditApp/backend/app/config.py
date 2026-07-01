@@ -20,7 +20,7 @@ class Settings(BaseSettings):
 
     SUPABASE_URL: str = "https://aouvxdfamzprykezeovl.supabase.co"
     SUPABASE_ANON_KEY: str = "sb_publishable_rIfo8DPrbyOmU006ii3onw_sDRWJwvE"
-    PORTAL_URL: str = "https://dlp-portal-s7e0.onrender.com"
+    PORTAL_URL: str = "https://dlp-portal-s7e0.onrender.com/portal/login.html"
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 
