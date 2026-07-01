@@ -8,7 +8,7 @@ class Settings(BaseSettings):
 
     ANTHROPIC_API_KEY: str = ""
     #APP_URL: str = "https://harvest-ta.onrender.com"
-    APP_URL: str = "http://localhost:5173"
+    APP_URL: str = "https://harvest-dlp-portal.onrender.com"
 
     #RESEND_API_KEY: str = ""
     #RESEND_FROM_EMAIL: str = ""
@@ -20,7 +20,7 @@ class Settings(BaseSettings):
 
     SUPABASE_URL: str = "https://aouvxdfamzprykezeovl.supabase.co"
     SUPABASE_ANON_KEY: str = "sb_publishable_rIfo8DPrbyOmU006ii3onw_sDRWJwvE"
-    PORTAL_URL: str = "http://localhost:3000/portal/login.html"
+    PORTAL_URL: str = "https://dlp-portal-s7e0.onrender.com"
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 
