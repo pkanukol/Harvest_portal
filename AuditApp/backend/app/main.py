@@ -11,7 +11,8 @@ from sqlalchemy.orm import Session
 
 from .config import settings
 from .database import engine, Base, get_db
-from . import models, schemas, crud, auth, email_service, ai_service
+from . import models, schemas, crud, auth, ai_service
+from . import email_service_resend as email_service
 
 Base.metadata.create_all(bind=engine)
 
