@@ -1,0 +1,501 @@
+INFO:     127.0.0.1:54423 - "POST /api/auth/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54429 - "GET /api/users/teachers?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54426 - "GET /api/dashboard?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54435 - "GET /api/observations/teacher/11 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54438 - "GET /1ff8a52b-afeb-4f4c-891c-ecc67be3dece.jpeg HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:54441 - "GET /api/dashboard?location=Attibele HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54444 - "GET /api/users/teachers?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54447 - "GET /api/dashboard?location=Attibele HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54450 - "GET /api/dashboard?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54453 - "GET /api/users/teachers?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54456 - "GET /api/dashboard?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54459 - "GET /api/dashboard?location=Attibele HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54462 - "GET /api/users/teachers?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54465 - "GET /api/dashboard?location=Attibele HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54468 - "GET /api/observations/teacher/13 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54471 - "GET /api/dashboard?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54474 - "GET /api/users/teachers?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54477 - "GET /api/dashboard?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64237 - "GET /api/dashboard?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64239 - "GET /api/users/teachers?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64241 - "GET /api/dashboard?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64243 - "GET /api/users/teachers?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64400 - "POST /api/auth/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64405 - "GET /api/dashboard?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64406 - "GET /api/users/teachers?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64410 - "GET /api/dashboard?location=Attibele HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64413 - "GET /api/users/teachers?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64416 - "GET /api/dashboard?location=Attibele HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64419 - "GET /api/dashboard?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64422 - "GET /api/users/teachers?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64425 - "GET /api/dashboard?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59807 - "POST /api/auth/login HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:59810 - "POST /api/auth/login HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:59820 - "POST /api/auth/login HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:59957 - "POST /api/auth/login HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:60080 - "POST /api/auth/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60083 - "GET /api/dashboard?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60086 - "GET /api/users/teachers?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60092 - "GET /api/users/teachers?location=Attibele HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60096 - "POST /api/observations HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60100 - "GET /api/dashboard?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60104 - "GET /api/dashboard?location=Attibele HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60106 - "GET /api/users/teachers?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60109 - "GET /api/dashboard?location=Attibele HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60114 - "GET /api/observations/teacher/14 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60120 - "PUT /api/observations/3/draft HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60123 - "POST /api/observations/3/finalise HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60126 - "GET /api/dashboard?location=Attibele HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60338 - "GET /api/dashboard?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60341 - "GET /api/users/teachers?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60344 - "GET /api/dashboard?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60350 - "GET /api/dashboard?location=Attibele HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60353 - "GET /api/users/teachers?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60356 - "GET /api/dashboard?location=Attibele HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60386 - "GET /api/dashboard?location=Attibele HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60387 - "GET /api/users/teachers?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60393 - "GET /api/dashboard?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60396 - "GET /api/users/teachers?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60399 - "GET /api/dashboard?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60402 - "GET /api/users/teachers?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60408 - "GET /api/users/teachers?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60407 - "GET /api/dashboard?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60412 - "GET /api/dashboard?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60415 - "GET /api/users/teachers?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60417 - "GET /api/alerts HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60420 - "GET /api/dashboard?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60423 - "GET /api/users/teachers?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60426 - "GET /api/alerts HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60432 - "GET /api/users/teachers?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60429 - "GET /api/dashboard?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60435 - "GET /api/alerts HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60465 - "POST /api/auth/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60468 - "GET /api/dashboard?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60472 - "GET /api/users/teachers?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60474 - "GET /api/alerts HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60479 - "GET /api/dashboard?location=Attibele HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60482 - "GET /api/users/teachers?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60483 - "GET /api/alerts HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60486 - "GET /api/dashboard?location=Attibele HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60489 - "GET /api/users/teachers?location=Attibele HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60492 - "POST /api/observations HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60495 - "GET /api/dashboard?location=Attibele HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60499 - "GET /api/observations/teacher/14 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60502 - "PUT /api/observations/4/draft HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60505 - "POST /api/observations/4/finalise HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60508 - "GET /api/dashboard?location=Attibele HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60524 - "GET /api/observations/teacher/14 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60537 - "POST /api/auth/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60539 - "GET /api/dashboard?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60541 - "GET /api/users/teachers?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60543 - "GET /api/alerts HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60546 - "GET /api/dashboard?location=Attibele HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60550 - "GET /api/users/teachers?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60552 - "GET /api/alerts HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60555 - "GET /api/dashboard?location=Attibele HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60560 - "GET /api/observations/teacher/14 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60564 - "GET /api/observations/teacher/14 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60596 - "POST /api/auth/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60600 - "GET /api/observations/teacher/14 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60602 - "GET /api/alerts HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60608 - "GET /api/observations/teacher/14 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60612 - "POST /api/observations/4/remarks HTTP/1.1" 200 OK
+
+============================================================
+EMAIL TRIGGERED
+  From    : your-gmail@gmail.com
+  To      : pavani.k@harvestinternationalschool.in
+  Subject : Audit Response | Remarks submitted by Teacher Four
+============================================================
+
+INFO:     127.0.0.1:60615 - "GET /api/observations/teacher/14 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60685 - "POST /api/auth/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60688 - "GET /api/dashboard?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60691 - "GET /api/users/teachers?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60694 - "GET /api/alerts HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60698 - "GET /api/dashboard?location=Attibele HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60702 - "GET /api/users/teachers?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60705 - "GET /api/alerts HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60707 - "GET /api/dashboard?location=Attibele HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60710 - "GET /api/users/teachers?location=Attibele HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60713 - "POST /api/observations HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60716 - "GET /api/dashboard?location=Attibele HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60719 - "GET /api/observations/teacher/14 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60722 - "POST /api/dashboard/compare HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60728 - "PUT /api/observations/5/draft HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60731 - "POST /api/observations/5/finalise HTTP/1.1" 200 OK
+
+============================================================
+EMAIL TRIGGERED
+  From    : your-gmail@gmail.com
+  To      : kp.pavani@gmail.com
+  Subject : Attibele | Audit Report of Grade 6 Section A
+============================================================
+
+INFO:     127.0.0.1:60734 - "GET /api/dashboard?location=Attibele HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60835 - "POST /api/auth/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60841 - "GET /api/dashboard?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60843 - "GET /api/users/teachers?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60844 - "GET /api/alerts HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60852 - "GET /api/users/teachers?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60854 - "GET /api/alerts HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60848 - "GET /api/dashboard?location=Attibele HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60859 - "GET /api/dashboard?location=Attibele HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60862 - "GET /api/users/teachers?location=Attibele HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60866 - "POST /api/observations HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60869 - "GET /api/dashboard?location=Attibele HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60873 - "GET /api/observations/teacher/14 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60876 - "POST /api/dashboard/compare HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60880 - "PUT /api/observations/6/draft HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60883 - "POST /api/observations/6/finalise HTTP/1.1" 200 OK
+
+============================================================
+EMAIL TRIGGERED
+  From    : SME Two via Harvest AuditApp <pavani.k@harvestinternationalschool.in>
+  To      : kp.pavani@gmail.com
+  Reply-To: pavani.k@harvestinternationalschool.in
+  Subject : Attibele | Audit Report of Grade 6 Section D
+============================================================
+
+INFO:     127.0.0.1:60886 - "GET /api/dashboard?location=Attibele HTTP/1.1" 200 OK
+  SMTP ERROR: [WinError 10060] A connection attempt failed because the connected party did not properly respond after a period of time, or established connection failed because connected host has failed to respond
+
+INFO:     127.0.0.1:60156 - "POST /api/auth/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60163 - "GET /api/dashboard?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60164 - "GET /api/users/teachers?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60165 - "GET /api/alerts HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60168 - "GET /api/dashboard?location=Attibele HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60174 - "GET /api/alerts HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60173 - "GET /api/users/teachers?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60177 - "GET /api/dashboard?location=Attibele HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60180 - "GET /api/users/teachers?location=Attibele HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60183 - "POST /api/observations HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60186 - "GET /api/dashboard?location=Attibele HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60191 - "GET /api/observations/teacher/14 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60194 - "PUT /api/observations/7/draft HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60197 - "POST /api/observations/7/finalise HTTP/1.1" 200 OK
+
+============================================================
+EMAIL TRIGGERED
+  From    : SME Two via Harvest AuditApp <pavani.k@harvestinternationalschool.in>
+  To      : kp.pavani@gmail.com
+  Reply-To: pavani.k@harvestinternationalschool.in
+  Subject : Attibele | Audit Report of Grade 5 Section B
+============================================================
+
+INFO:     127.0.0.1:60200 - "GET /api/dashboard?location=Attibele HTTP/1.1" 200 OK
+  SMTP ERROR: [WinError 10060] A connection attempt failed because the connected party did not properly respond after a period of time, or established connection failed because connected host has failed to respond
+
+INFO:     127.0.0.1:60414 - "POST /api/auth/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60421 - "GET /api/users/teachers?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60418 - "GET /api/dashboard?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60423 - "GET /api/alerts HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60428 - "GET /api/dashboard/audit-list?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60431 - "GET /api/dashboard/audit-list?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60434 - "GET /api/dashboard/subject-summary?location=Kodathi&subject=Biology HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60442 - "POST /api/observations HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60446 - "GET /api/dashboard?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60451 - "GET /api/observations/teacher/12 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60454 - "PUT /api/observations/8/draft HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60457 - "POST /api/observations/8/finalise HTTP/1.1" 200 OK
+
+============================================================
+EMAIL TRIGGERED
+  From    : Auditor Pavani via Harvest AuditApp <pavani.k@harvestinternationalschool.in>
+  To      : teacher2@harvest.com
+  Reply-To: auditor@harvest.com
+  Subject : Kodathi | Audit Report of Grade 7 Section A
+============================================================
+
+INFO:     127.0.0.1:60460 - "GET /api/dashboard?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60464 - "GET /api/observations/teacher/12 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60467 - "GET /api/observations/teacher/12 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60470 - "GET /api/dashboard/subject-summary?location=Kodathi&subject=Physics HTTP/1.1" 200 OK
+  SMTP ERROR: [WinError 10060] A connection attempt failed because the connected party did not properly respond after a period of time, or established connection failed because connected host has failed to respond
+
+INFO:     127.0.0.1:60474 - "GET /api/observations/teacher/11 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60477 - "GET /1ff8a52b-afeb-4f4c-891c-ecc67be3dece.jpeg HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:60482 - "PUT /api/observations/1/draft HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60485 - "POST /api/observations/1/finalise HTTP/1.1" 200 OK
+
+============================================================
+EMAIL TRIGGERED
+  From    : Auditor Pavani via Harvest AuditApp <pavani.k@harvestinternationalschool.in>
+  To      : teacher1@harvest.com
+  Reply-To: auditor@harvest.com
+  Subject : Kodathi | Audit Report of Grade 7 Section A
+============================================================
+
+INFO:     127.0.0.1:60488 - "GET /api/dashboard?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60492 - "GET /api/dashboard/audit-list?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60495 - "GET /api/dashboard/subject-summary?location=Kodathi&subject=Physics HTTP/1.1" 200 OK
+  SMTP ERROR: [WinError 10060] A connection attempt failed because the connected party did not properly respond after a period of time, or established connection failed because connected host has failed to respond
+
+INFO:     127.0.0.1:60498 - "GET /api/dashboard/subject-summary?location=Kodathi&subject=Biology HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60501 - "GET /api/dashboard?location=Attibele HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60504 - "GET /api/users/teachers?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60507 - "GET /api/alerts HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60510 - "GET /api/dashboard?location=Attibele HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60514 - "GET /api/observations/teacher/14 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60519 - "POST /api/dashboard/compare HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60523 - "GET /api/observations/teacher/14 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60526 - "GET /api/observations/teacher/14 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60537 - "GET /api/observations/teacher/14 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63954 - "GET /api/dashboard?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63957 - "GET /api/alerts HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63959 - "GET /api/dashboard?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63961 - "GET /api/alerts HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63955 - "GET /api/users/teachers?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63963 - "GET /api/users/teachers?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64025 - "GET /api/dashboard/audit-list?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64028 - "GET /api/dashboard/audit-list?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64032 - "GET /api/users/teachers?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64034 - "GET /api/alerts HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64040 - "GET /api/users/teachers?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64037 - "GET /api/dashboard/audit-list?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64043 - "GET /api/alerts HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64046 - "GET /api/dashboard/audit-list?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64057 - "POST /api/auth/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64065 - "GET /api/users/teachers?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64066 - "GET /api/alerts HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64064 - "GET /api/dashboard/audit-list?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64069 - "GET /api/dashboard/audit-list?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64072 - "GET /api/observations/teacher/12 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64075 - "GET /api/observations/teacher/11 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64078 - "GET /1ff8a52b-afeb-4f4c-891c-ecc67be3dece.jpeg HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:64081 - "GET /api/dashboard/subject-summary?location=Kodathi&subject=Physics HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64084 - "GET /api/dashboard/audit-list?location=Attibele HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64087 - "GET /api/dashboard/subject-summary?location=Attibele&subject=Social%20Science HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64090 - "GET /api/dashboard/subject-summary?location=Attibele&subject=Physics HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64093 - "GET /api/dashboard/audit-list?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64096 - "GET /api/dashboard/audit-list?location=Attibele HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64109 - "POST /api/auth/login HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:64112 - "POST /api/auth/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64116 - "GET /api/observations/teacher/14 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64118 - "GET /api/alerts HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64128 - "POST /api/auth/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64136 - "GET /api/users/teachers?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64137 - "GET /api/alerts HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64135 - "GET /api/dashboard/audit-list?location=Attibele HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64140 - "GET /api/dashboard/audit-list?location=Attibele HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64143 - "GET /api/observations/teacher/14 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64146 - "GET /api/observations/teacher/14 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64149 - "GET /api/observations/teacher/14 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64152 - "GET /api/observations/teacher/14 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64165 - "GET /api/observations/teacher/14 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64168 - "GET /api/observations/teacher/14 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64171 - "GET /api/observations/teacher/14 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64176 - "GET /api/observations/teacher/14 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60100 - "GET /api/users/teachers?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60102 - "GET /api/alerts HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60105 - "GET /api/users/teachers?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60108 - "GET /api/alerts HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60111 - "GET /api/dashboard/audit-list?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60120 - "GET /api/dashboard/audit-list?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60216 - "GET /api/dashboard/audit-list?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60218 - "GET /api/users/teachers?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60221 - "GET /api/alerts HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60226 - "GET /api/users/teachers?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60229 - "GET /api/alerts HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60232 - "GET /api/dashboard/audit-list?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60238 - "GET /api/alerts HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60235 - "GET /api/users/teachers?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60241 - "GET /api/dashboard/audit-list?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60249 - "GET /api/dashboard/audit-list?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60252 - "GET /api/dashboard/audit-list?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60414 - "GET /api/users/teachers?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60416 - "GET /api/alerts HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60418 - "GET /api/dashboard/audit-list?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60421 - "GET /api/users/teachers?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60422 - "GET /api/alerts HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60424 - "GET /api/dashboard/audit-list?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60453 - "POST /api/auth/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60458 - "GET /api/dashboard/audit-list?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60461 - "GET /api/users/teachers?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60462 - "GET /api/alerts HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60465 - "GET /api/dashboard/audit-list?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60472 - "GET /api/observations/8 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60475 - "GET /api/dashboard/subject-summary?location=Kodathi&subject=Physics HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60478 - "GET /api/dashboard/audit-list?location=Attibele HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60486 - "GET /api/observations/7 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60489 - "GET /api/observations/6 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60492 - "POST /api/dashboard/compare HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60501 - "POST /api/dashboard/compare HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60507 - "GET /api/dashboard/subject-summary?location=Attibele&subject=Social%20Science HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60510 - "GET /api/dashboard/subject-summary?location=Attibele&subject=Physics HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60522 - "GET /api/users/teachers?location=Attibele HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60531 - "POST /api/observations HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60534 - "GET /api/dashboard/audit-list?location=Attibele HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60537 - "GET /api/dashboard/audit-list?location=Attibele HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60540 - "GET /api/observations/9 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60544 - "PUT /api/observations/9/draft HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60547 - "POST /api/observations/9/finalise HTTP/1.1" 200 OK
+
+============================================================
+EMAIL TRIGGERED
+  From    : Auditor Pavani via Harvest AuditApp <pavani.k@harvestinternationalschool.in>
+  To      : guru@harvestinternationalschool.in
+  Reply-To: auditor@harvest.com
+  Subject : Attibele | Audit Report of Grade 5 Section E
+============================================================
+
+INFO:     127.0.0.1:60550 - "GET /api/dashboard/audit-list?location=Attibele HTTP/1.1" 200 OK
+  SMTP ERROR: (535, b'5.7.8 Username and Password not accepted. For more information, go to\n5.7.8  https://support.google.com/mail/?p=BadCredentials d9443c01a7336-2c4328abe7bsm101104515ad.49 - gsmtp')
+
+INFO:     127.0.0.1:60672 - "POST /api/auth/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60678 - "GET /api/alerts HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60677 - "GET /api/observations/teacher/14 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60682 - "GET /api/observations/6 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60685 - "POST /api/observations/6/remarks HTTP/1.1" 200 OK
+
+============================================================
+EMAIL TRIGGERED
+  From    : Teacher Four via Harvest AuditApp <pavani.k@harvestinternationalschool.in>
+  To      : pavani.k@harvestinternationalschool.in
+  Reply-To: guru@harvestinternationalschool.in
+  Subject : Audit Response | Remarks submitted by Teacher Four
+============================================================
+
+INFO:     127.0.0.1:60688 - "GET /api/observations/teacher/14 HTTP/1.1" 200 OK
+  SMTP ERROR: (534, b'5.7.9 Application-specific password required. For more information, go to\n5.7.9  https://support.google.com/mail/?p=InvalidSecondFactor d2e1a72fcca58-8434accac96sm11414371b3a.14 - gsmtp')
+
+INFO:     127.0.0.1:60692 - "GET /api/observations/5 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60695 - "POST /api/observations/5/remarks HTTP/1.1" 200 OK
+
+============================================================
+EMAIL TRIGGERED
+  From    : Teacher Four via Harvest AuditApp <pavani.k@harvestinternationalschool.in>
+  To      : pavani.k@harvestinternationalschool.in
+  Reply-To: guru@harvestinternationalschool.in
+  Subject : Audit Response | Remarks submitted by Teacher Four
+============================================================
+
+INFO:     127.0.0.1:60699 - "GET /api/observations/teacher/14 HTTP/1.1" 200 OK
+  SMTP ERROR: (534, b'5.7.9 Application-specific password required. For more information, go to\n5.7.9  https://support.google.com/mail/?p=InvalidSecondFactor 98e67ed59e1d1-37c522a251dsm32377a91.16 - gsmtp')
+
+INFO:     127.0.0.1:60784 - "POST /api/auth/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60792 - "GET /api/users/teachers?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60793 - "GET /api/alerts HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60791 - "GET /api/dashboard/audit-list?location=Attibele HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60796 - "GET /api/dashboard/audit-list?location=Attibele HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60803 - "POST /api/observations HTTP/1.1" 500 Internal Server Error
+INFO:     127.0.0.1:60812 - "POST /api/observations HTTP/1.1" 500 Internal Server Error
+INFO:     127.0.0.1:60824 - "POST /api/auth/login HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:60827 - "POST /api/auth/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60834 - "GET /api/dashboard/audit-list?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60836 - "GET /api/users/teachers?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60837 - "GET /api/alerts HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60840 - "GET /api/dashboard/audit-list?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60843 - "POST /api/observations HTTP/1.1" 500 Internal Server Error
+INFO:     127.0.0.1:60859 - "GET /api/dashboard/audit-list?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60862 - "GET /api/dashboard/audit-list?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60865 - "POST /api/auth/login HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:60866 - "POST /api/observations HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:60867 - "POST /api/auth/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60868 - "POST /api/observations HTTP/1.1" 500 Internal Server Error
+INFO:     127.0.0.1:60912 - "POST /api/observations HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60915 - "GET /api/dashboard/audit-list?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60918 - "GET /api/dashboard/audit-list?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60921 - "GET /api/observations/10 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60924 - "PUT /api/observations/10/draft HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60927 - "POST /api/observations/10/finalise HTTP/1.1" 200 OK
+
+============================================================
+EMAIL TRIGGERED
+  From    : Auditor Pavani via Harvest AuditApp <pavani.k@harvestinternationalschool.in>
+  To      : kp.pavani@gmail.com
+  Reply-To: auditor@harvest.com
+  Subject : Kodathi | Audit Report of Grade 3 Section B
+============================================================
+
+INFO:     127.0.0.1:60930 - "GET /api/dashboard/audit-list?location=Kodathi HTTP/1.1" 200 OK
+  SMTP ERROR: (534, b'5.7.9 Application-specific password required. For more information, go to\n5.7.9  https://support.google.com/mail/?p=InvalidSecondFactor d2e1a72fcca58-8434ac9df57sm10843937b3a.7 - gsmtp')
+
+INFO:     127.0.0.1:61132 - "POST /api/auth/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61135 - "GET /api/dashboard/audit-list?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61141 - "GET /api/alerts HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61144 - "GET /api/dashboard/audit-list?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61138 - "GET /api/users/teachers?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61148 - "POST /api/observations HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61151 - "GET /api/dashboard/audit-list?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61154 - "GET /api/dashboard/audit-list?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61157 - "GET /api/observations/11 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61161 - "PUT /api/observations/11/draft HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61164 - "POST /api/observations/11/finalise HTTP/1.1" 200 OK
+
+============================================================
+EMAIL TRIGGERED
+  From    : Auditor Pavani via Harvest AuditApp <pavani.k@harvestinternationalschool.in>
+  To      : kp.pavani@gmail.com
+  Reply-To: auditor@harvest.com
+  Subject : Kodathi | Audit Report of Grade 7 Section A
+============================================================
+
+INFO:     127.0.0.1:61167 - "GET /api/dashboard/audit-list?location=Kodathi HTTP/1.1" 200 OK
+  SMTP ERROR: (534, b'5.7.9 Application-specific password required. For more information, go to\n5.7.9  https://support.google.com/mail/?p=InvalidSecondFactor 98e67ed59e1d1-37c521ef7e3sm134852a91.10 - gsmtp')
+
+INFO:     127.0.0.1:61378 - "POST /api/auth/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61381 - "GET /api/dashboard/audit-list?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61386 - "GET /api/users/teachers?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61387 - "GET /api/alerts HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61390 - "GET /api/dashboard/audit-list?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61394 - "POST /api/observations HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61397 - "GET /api/dashboard/audit-list?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61400 - "GET /api/dashboard/audit-list?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61403 - "GET /api/observations/12 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61406 - "PUT /api/observations/12/draft HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61409 - "POST /api/observations/12/finalise HTTP/1.1" 200 OK
+
+============================================================
+EMAIL TRIGGERED
+  From    : Auditor Pavani via Harvest AuditApp <pavani.k@harvestinternationalschool.in>
+  To      : kp.pavani@gmail.com
+  Reply-To: auditor@harvest.com
+  Subject : Kodathi | Audit Report of Grade 7 Section A
+============================================================
+
+INFO:     127.0.0.1:61412 - "GET /api/dashboard/audit-list?location=Kodathi HTTP/1.1" 200 OK
+  SMTP ERROR: (534, b'5.7.9 Application-specific password required. For more information, go to\n5.7.9  https://support.google.com/mail/?p=InvalidSecondFactor d2e1a72fcca58-8434afc825csm10421257b3a.36 - gsmtp')
+
+INFO:     127.0.0.1:61449 - "GET /api/dashboard/audit-list?location=Attibele HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61452 - "GET /api/users/teachers?location=Attibele HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61458 - "POST /api/observations HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61461 - "GET /api/dashboard/audit-list?location=Attibele HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61464 - "GET /api/dashboard/audit-list?location=Attibele HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61467 - "GET /api/observations/13 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61470 - "PUT /api/observations/13/draft HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61473 - "POST /api/observations/13/finalise HTTP/1.1" 200 OK
+
+============================================================
+EMAIL TRIGGERED
+  From    : Auditor Pavani via Harvest AuditApp <pavani.k@harvestinternationalschool.in>
+  To      : guru@harvestinternationalschool.in
+  Reply-To: auditor@harvest.com
+  Subject : Attibele | Audit Report of Grade 4 Section A
+============================================================
+
+INFO:     127.0.0.1:61477 - "GET /api/dashboard/audit-list?location=Attibele HTTP/1.1" 200 OK
+  SMTP ERROR: (534, b'5.7.9 Application-specific password required. For more information, go to\n5.7.9  https://support.google.com/mail/?p=InvalidSecondFactor 98e67ed59e1d1-37c522136cesm177013a91.14 - gsmtp')
+
+INFO:     127.0.0.1:60366 - "GET /api/users/teachers?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60368 - "GET /api/alerts HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60370 - "GET /api/dashboard/audit-list?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60378 - "GET /api/dashboard/audit-list?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60374 - "GET /api/users/teachers?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60376 - "GET /api/alerts HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63570 - "POST /api/auth/login HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:63574 - "POST /api/auth/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63577 - "GET /api/dashboard/audit-list?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63580 - "GET /api/users/teachers?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63583 - "GET /api/alerts HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63586 - "GET /api/dashboard/audit-list?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63589 - "GET /api/dashboard/audit-list?location=Attibele HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63593 - "GET /api/observations/13 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63596 - "GET /api/dashboard/subject-summary?location=Attibele&subject=Social%20Science HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63599 - "POST /api/dashboard/compare HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63604 - "POST /api/dashboard/compare HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64033 - "POST /api/auth/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64040 - "GET /api/users/teachers?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64039 - "GET /api/dashboard/audit-list?location=Kodathi HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64042 - "GET /api/alerts HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64045 - "GET /api/dashboard/audit-list?location=Kodathi HTTP/1.1" 200 OK
