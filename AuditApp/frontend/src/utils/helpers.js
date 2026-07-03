@@ -44,13 +44,14 @@ export function esc(text) {
 export function calculateScores(formScores) {
   const d1 = formScores.p11 + formScores.p12;
   const d2 = formScores.p21;
-  const d3 = formScores.p31 + formScores.p32 + formScores.p33 + formScores.p34;
-  const total = d1 + d2 + d3;
+  // p34 (Technology) is excluded from the domain 3 total — scored separately
+  const d3 = formScores.p31 + formScores.p32 + formScores.p33;
+  const total = d1 + d2 + d3; // max 24
 
   let rating = "BEGINNING";
-  if (total >= 23) rating = "DISTINGUISHED";
-  else if (total >= 17) rating = "PROFICIENT";
-  else if (total >= 12) rating = "DEVELOPING";
+  if (total >= 20) rating = "DISTINGUISHED";
+  else if (total >= 15) rating = "PROFICIENT";
+  else if (total >= 10) rating = "DEVELOPING";
 
   return { d1, d2, d3, total, rating };
 }
@@ -79,4 +80,4 @@ export const SUBJECTS = [
 ];
 
 export const GRADES = Array.from({ length: 10 }, (_, i) => `Grade ${i + 1}`);
-export const SECTIONS = ["Section A", "Section B", "Section C", "Section D", "Section E"];
+export const SECTIONS = ["Section A", "Section B", "Section C", "Section D", "Section E", "Section F"];
