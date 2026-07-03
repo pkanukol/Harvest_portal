@@ -86,7 +86,7 @@ export const api = {
   getAlerts: (token) => request("/alerts", { token }),
 
   ssoLogin: (supabaseToken) =>
-    request("/auth/sso", { method: "POST", body: { supabase_token: supabaseToken } }),
+    request("/api/auth/sso", { method: "POST", body: { supabase_token: supabaseToken } }),
 
   getAuditList: (token, location) =>
     request(`/dashboard/audit-list?location=${encodeURIComponent(location)}`, { token }),
