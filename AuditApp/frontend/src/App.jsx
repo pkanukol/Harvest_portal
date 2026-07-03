@@ -125,7 +125,7 @@ export default function App() {
     logout();
     setDrawerOpen(false);
     // Opened as a new window from portal — close it and return to portal
-    const portalUrl = import.meta.env.VITE_PORTAL_URL || "http://localhost:3000/portal/index.html";
+    const portalUrl = import.meta.env.VITE_PORTAL_URL || "https://harvest-portal.onrender.com/portal/login.html";
     if (window.opener) {
       window.close();
     } else {
