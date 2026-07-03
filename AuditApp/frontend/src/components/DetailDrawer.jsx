@@ -27,6 +27,22 @@ function ScoreSelect({ paramKey, value, onChange }) {
   );
 }
 
+function ScoreSelectP34({ value, onChange }) {
+  return (
+    <select
+      className="input-text"
+      style={{ padding: "4px 8px", fontSize: "13px", width: "100px" }}
+      value={value}
+      onChange={(e) => onChange("p34", parseInt(e.target.value, 10))}
+    >
+      <option value={0}>N/A</option>
+      {[1, 2, 3, 4].map((v) => (
+        <option key={v} value={v}>{v}/4</option>
+      ))}
+    </select>
+  );
+}
+
 function handlePrint(obs, isTeacher) {
   const ratingColor = { DISTINGUISHED: "#1a7f37", PROFICIENT: "#0969da", DEVELOPING: "#9a6700", BEGINNING: "#cf222e" };
   const color = ratingColor[obs.rating] || "#333";
@@ -41,8 +57,9 @@ function handlePrint(obs, isTeacher) {
   const domainRows = [
     { label: "Domain 1 — Instructional Preparation", params: ["p11","p12"], score: obs.domain1_score, max: 8, remarks: obs.domain1_remarks },
     { label: "Domain 2 — Classroom Management", params: ["p21"], score: obs.domain2_score, max: 4, remarks: obs.domain2_remarks },
-    { label: "Domain 3 — Instructional Delivery", params: ["p31","p32","p33","p34"], score: obs.domain3_score, max: 16, remarks: obs.domain3_remarks },
+    { label: "Domain 3 — Instructional Delivery", params: ["p31","p32","p33"], score: obs.domain3_score, max: 12, remarks: obs.domain3_remarks },
   ];
+  const p34Tech = obs.p34 > 0 ? obs.p34 : null;
 
   const escHtml = (s) => (s || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/\n/g,"<br>");
 
@@ -138,12 +155,13 @@ function handlePrint(obs, isTeacher) {
 </div>
 
 <div class="score-banner">
-  <div><span class="score-big">${obs.overall_score}</span><span class="score-denom">/28</span></div>
+  <div><span class="score-big">${obs.overall_score}</span><span class="score-denom">/24</span></div>
   <div class="rating-badge">${obs.rating}</div>
   <div class="domain-pills">
     <span class="dpill">D1: ${obs.domain1_score}/8</span>
     <span class="dpill">D2: ${obs.domain2_score}/4</span>
-    <span class="dpill">D3: ${obs.domain3_score}/16</span>
+    <span class="dpill">D3: ${obs.domain3_score}/12</span>
+    ${p34Tech !== null ? `<span class="dpill" style="color:#9a6700;border-color:#c8a830">3.4 Tech: ${p34Tech}/4</span>` : `<span class="dpill" style="color:#888">3.4 Tech: N/A</span>`}
   </div>
 </div>
 
@@ -194,6 +212,7 @@ export default function DetailDrawer({ open, token, user, obsId, onClose, onUpda
   const [witnessDesignation, setWitnessDesignation] = useState("");
   const [actionError, setActionError] = useState("");
   const [actionLoading, setActionLoading] = useState(false);
+  const [savedMsg, setSavedMsg] = useState("");
 
   useEffect(() => {
     if (!open || !obsId) return;
@@ -227,7 +246,6 @@ export default function DetailDrawer({ open, token, user, obsId, onClose, onUpda
   const isTeacherRemarking = obs && isTeacher && !obs.is_draft && !obs.remarks_saved;
 
   const showActionPanel = isDraftEditable || isTeacherRemarking;
-  const actionLabel = isDraftEditable ? "Finalise Audit & Send Notification" : "Save My Remarks";
 
   // Finalize disabled for SME until acknowledged with name + designation filled
   const smeAckComplete = acknowledged && witnessName.trim() && witnessDesignation.trim();
@@ -237,39 +255,64 @@ export default function DetailDrawer({ open, token, user, obsId, onClose, onUpda
     setEditedScores((prev) => ({ ...prev, [key]: val }));
   };
 
-  // Live recalculate scores for display
+  // Live recalculate scores for display (p34 excluded from total — shown separately)
   const liveD1 = (editedScores.p11 || 0) + (editedScores.p12 || 0);
   const liveD2 = editedScores.p21 || 0;
-  const liveD3 = (editedScores.p31 || 0) + (editedScores.p32 || 0) + (editedScores.p33 || 0) + (editedScores.p34 || 0);
-  const liveTotal = liveD1 + liveD2 + liveD3;
+  const liveD3 = (editedScores.p31 || 0) + (editedScores.p32 || 0) + (editedScores.p33 || 0);
+  const liveTotal = liveD1 + liveD2 + liveD3; // max 24
 
-  const handleAction = async () => {
+  const draftPayload = () => ({
+    objective_observations: editedObjectiveObs,
+    ai_feedback: editedFeedback,
+    domain1_remarks: editedDomain1Remarks,
+    domain2_remarks: editedDomain2Remarks,
+    domain3_remarks: editedDomain3Remarks,
+    ...editedScores,
+  });
+
+  const handleSaveDraft = async () => {
     if (!obs) return;
     setActionError("");
+    setSavedMsg("");
     setActionLoading(true);
     try {
-      if (isDraftEditable) {
-        await api.updateDraft(token, obs.id, {
-          objective_observations: editedObjectiveObs,
-          ai_feedback: editedFeedback,
-          domain1_remarks: editedDomain1Remarks,
-          domain2_remarks: editedDomain2Remarks,
-          domain3_remarks: editedDomain3Remarks,
-          ...editedScores,
-        });
-        await api.finaliseObservation(token, obs.id);
-        onClose();
-        onUpdated();
-      } else if (isTeacherRemarking) {
-        if (!editedRemarks.trim()) {
-          setActionError("Remarks cannot be empty.");
-          setActionLoading(false);
-          return;
-        }
-        await api.saveRemarks(token, obs.id, editedRemarks.trim());
-        onClose();
-        onUpdated();
-      }
+      await api.updateDraft(token, obs.id, draftPayload());
+      setSavedMsg("Draft saved successfully.");
+      setTimeout(() => setSavedMsg(""), 4000);
+      onUpdated();
+    } catch (err) {
+      setActionError(err.message);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleFinalise = async () => {
+    if (!obs) return;
+    setActionError("");
+    setSavedMsg("");
+    setActionLoading(true);
+    try {
+      await api.updateDraft(token, obs.id, draftPayload());
+      await api.finaliseObservation(token, obs.id);
+      onClose();
+      onUpdated();
+    } catch (err) {
+      setActionError(err.message);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleSaveRemarks = async () => {
+    if (!obs) return;
+    setActionError("");
+    if (!editedRemarks.trim()) { setActionError("Remarks cannot be empty."); return; }
+    setActionLoading(true);
+    try {
+      await api.saveRemarks(token, obs.id, editedRemarks.trim());
+      onClose();
+      onUpdated();
     } catch (err) {
       setActionError(err.message);
     } finally {
@@ -314,7 +357,7 @@ export default function DetailDrawer({ open, token, user, obsId, onClose, onUpda
               {/* Score + status header */}
               <div className="drawer-score-row">
                 <div className="drawer-score-big">
-                  {isDraftEditable ? liveTotal : obs.overall_score}/28
+                  {isDraftEditable ? liveTotal : obs.overall_score}/24
                 </div>
                 <div className="drawer-score-meta">
                   <div className={`drawer-rating-tag ${ratingClass(obs.rating)}`}>{obs.rating}</div>
@@ -337,8 +380,13 @@ export default function DetailDrawer({ open, token, user, obsId, onClose, onUpda
                   <div className="hc-params-grid">
                     {DRAWER_PARAM_LABELS.map(([key, label]) => (
                       <div className="hc-param-item" key={key} style={{ justifyContent: "space-between" }}>
-                        <span>{label}</span>
-                        <ScoreSelect paramKey={key} value={editedScores[key] || 1} onChange={handleScoreChange} />
+                        <span>
+                          {label}
+                          {key === "p34" && <span style={{ fontSize: "10px", color: "var(--harvest-amber)", marginLeft: "6px" }}>(separate)</span>}
+                        </span>
+                        {key === "p34"
+                          ? <ScoreSelectP34 value={editedScores.p34 || 0} onChange={handleScoreChange} />
+                          : <ScoreSelect paramKey={key} value={editedScores[key] || 1} onChange={handleScoreChange} />}
                       </div>
                     ))}
                   </div>
@@ -353,12 +401,19 @@ export default function DetailDrawer({ open, token, user, obsId, onClose, onUpda
                   </div>
                 )}
 
-                {/* Domain totals */}
+                {/* Domain totals — p34 shown separately, not in total */}
                 <div className="domain-totals-row">
                   <span className="domain-total-pill">D1: {isDraftEditable ? liveD1 : obs.domain1_score}/8</span>
                   <span className="domain-total-pill">D2: {isDraftEditable ? liveD2 : obs.domain2_score}/4</span>
-                  <span className="domain-total-pill">D3: {isDraftEditable ? liveD3 : obs.domain3_score}/16</span>
-                  <span className="domain-total-pill total">Total: {isDraftEditable ? liveTotal : obs.overall_score}/28</span>
+                  <span className="domain-total-pill">D3: {isDraftEditable ? liveD3 : obs.domain3_score}/12</span>
+                  {(isDraftEditable ? editedScores.p34 : obs.p34) > 0 ? (
+                    <span className="domain-total-pill" style={{ background: "rgba(232,160,28,0.12)", color: "var(--harvest-amber)", border: "1px solid rgba(232,160,28,0.3)" }}>
+                      3.4 Tech: {isDraftEditable ? editedScores.p34 : obs.p34}/4
+                    </span>
+                  ) : (
+                    <span className="domain-total-pill" style={{ color: "#888", background: "rgba(0,0,0,0.04)" }}>3.4 Tech: N/A</span>
+                  )}
+                  <span className="domain-total-pill total">Total: {isDraftEditable ? liveTotal : obs.overall_score}/24</span>
                 </div>
 
                 {/* Domain remarks — shown to all, editable by draft creator */}
@@ -541,20 +596,45 @@ export default function DetailDrawer({ open, token, user, obsId, onClose, onUpda
                   {actionError && (
                     <div className="error-banner" style={{ marginBottom: "12px" }}>{actionError}</div>
                   )}
-                  <button
-                    className="btn-submit-large"
-                    style={{ width: "100%", opacity: finalizeDisabled ? 0.5 : 1 }}
-                    disabled={finalizeDisabled}
-                    onClick={handleAction}
-                  >
-                    {actionLoading
-                      ? <><span className="spinner" />Processing...</>
-                      : actionLabel}
-                  </button>
-                  {isDraftEditable && isSME && !smeAckComplete && (
-                    <div style={{ textAlign: "center", fontSize: "12px", color: "var(--text-muted)", marginTop: "8px" }}>
-                      Complete the acknowledgment section above to enable this button.
+                  {savedMsg && (
+                    <div style={{ marginBottom: "12px", padding: "8px 14px", borderRadius: "8px", background: "rgba(45,106,45,0.1)", border: "1px solid rgba(45,106,45,0.3)", color: "var(--harvest-green)", fontSize: "13px", textAlign: "center" }}>
+                      {savedMsg}
                     </div>
+                  )}
+                  {isDraftEditable && (
+                    <>
+                      <button
+                        className="btn-save-draft-lg"
+                        disabled={actionLoading}
+                        onClick={handleSaveDraft}
+                        style={{ width: "100%", marginBottom: "10px" }}
+                      >
+                        {actionLoading ? <><span className="spinner" />Saving...</> : "Save as Draft"}
+                      </button>
+                      <button
+                        className="btn-submit-large"
+                        style={{ width: "100%", opacity: finalizeDisabled ? 0.5 : 1 }}
+                        disabled={finalizeDisabled}
+                        onClick={handleFinalise}
+                      >
+                        {actionLoading ? <><span className="spinner" />Processing...</> : "Finalise Audit & Send Notification"}
+                      </button>
+                      {isSME && !smeAckComplete && (
+                        <div style={{ textAlign: "center", fontSize: "12px", color: "var(--text-muted)", marginTop: "8px" }}>
+                          Complete the acknowledgment section above to enable finalisation.
+                        </div>
+                      )}
+                    </>
+                  )}
+                  {isTeacherRemarking && (
+                    <button
+                      className="btn-submit-large"
+                      style={{ width: "100%" }}
+                      disabled={actionLoading}
+                      onClick={handleSaveRemarks}
+                    >
+                      {actionLoading ? <><span className="spinner" />Processing...</> : "Save My Remarks"}
+                    </button>
                   )}
                 </div>
               )}
