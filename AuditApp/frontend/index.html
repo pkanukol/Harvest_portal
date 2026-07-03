@@ -21,7 +21,7 @@
         }
         // Block React from loading until SSO completes
         document.addEventListener("DOMContentLoaded", function () {}, false);
-        fetch("/api/auth/sso", {
+        fetch("%VITE_API_URL%/api/auth/sso", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ supabase_token: ssoToken }),
