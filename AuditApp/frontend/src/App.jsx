@@ -12,6 +12,9 @@ import { useAuth } from "./context/AuthContext";
 
 export default function App() {
   const { user, token, login, logout, isAuthenticated } = useAuth();
+  const [ssoLoading, setSsoLoading] = useState(() =>
+    !!new URLSearchParams(window.location.search).get("sso")
+  );
   const [view, setView] = useState("login");
   const [location, setLocation] = useState("Kodathi");
   const [teachers, setTeachers] = useState([]);
@@ -87,7 +90,7 @@ export default function App() {
         window.location.replace(window.location.pathname);
       })
       .catch(() => {
-        window.location.href = import.meta.env.VITE_PORTAL_URL || "http://localhost:3000/portal/login.html";
+        setSsoLoading(false);
       });
   }, []);
 
@@ -134,6 +137,7 @@ export default function App() {
     setSubmitError("");
     if (!payload.teacher_id) { setSubmitError("Please select a teacher."); return; }
     for (const key of Object.keys(EMPTY_SCORES)) {
+      if (key === "p34" && payload.p34_na) continue;
       if (!payload[key]) { setSubmitError("Please evaluate all rubrics before saving draft."); return; }
     }
     setSubmitting(true);
@@ -187,7 +191,15 @@ export default function App() {
 
       <div className="app-container">
         {!isAuthenticated ? (
-          <LoginView onSuccess={handleLoginSuccess} />
+          ssoLoading ? (
+            <div className="sso-loading-screen">
+              <img src="/logo.png" alt="Harvest" className="sso-loading-logo" />
+              <div className="sso-loading-text">Loading your workspace…</div>
+              <div className="sso-loading-sub">Signing you in via the school portal</div>
+            </div>
+          ) : (
+            <LoginView onSuccess={handleLoginSuccess} />
+          )
         ) : (
           <>
             {view === "form" && (
