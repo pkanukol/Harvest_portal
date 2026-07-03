@@ -31,10 +31,12 @@ function RubricParameter({ param, score, onSelect }) {
             onClick={() => onSelect(param.key, level.score)}
           >
             <input type="radio" name={param.key} value={level.score} readOnly checked={score === level.score} />
-            <div className="custom-radio"></div>
-            <div className="rubric-score-tag">
-              <span className="rst-num">{level.score}</span>
-              {level.label}
+            <div className="rubric-card-header">
+              <div className="custom-radio"></div>
+              <div className="rubric-score-tag">
+                <span className="rst-num">{level.score}</span>
+                <span className="rst-label">{level.label}</span>
+              </div>
             </div>
             <div className="rubric-desc">{level.desc}</div>
           </label>
@@ -69,6 +71,7 @@ export default function ObservationForm({
   const [domain2Remarks, setDomain2Remarks] = useState("");
   const [domain3Remarks, setDomain3Remarks] = useState("");
   const [liveNote, setLiveNote] = useState("");
+  const [p34Na, setP34Na] = useState(true);
 
   const { d1, d2, d3, total, rating } = calculateScores(formScores);
 
@@ -108,17 +111,19 @@ export default function ObservationForm({
       domain2_remarks: domain2Remarks.trim(),
       domain3_remarks: domain3Remarks.trim(),
       ...formScores,
+      p34: p34Na ? 0 : formScores.p34,
+      p34_na: p34Na,
     });
   };
 
   const ratingStyle = (() => {
-    if (total >= 23) {
+    if (total >= 20) {
       return { color: "#4ff57f", background: "rgba(79, 255, 127, 0.1)", borderColor: "rgba(79, 255, 127, 0.3)" };
     }
-    if (total >= 17) {
+    if (total >= 15) {
       return { color: "var(--harvest-blue)", background: "rgba(41, 171, 226, 0.1)", borderColor: "rgba(41, 171, 226, 0.3)" };
     }
-    if (total >= 12) {
+    if (total >= 10) {
       return { color: "var(--harvest-amber)", background: "rgba(232, 160, 28, 0.1)", borderColor: "rgba(232, 160, 28, 0.3)" };
     }
     return { color: "var(--harvest-red)", background: "rgba(232, 64, 28, 0.1)", borderColor: "rgba(232, 64, 28, 0.3)" };
@@ -260,14 +265,64 @@ export default function ObservationForm({
                   >
                     {domain.domain}
                   </h3>
-                  {domain.params.map((param) => (
-                    <RubricParameter
-                      key={param.key}
-                      param={param}
-                      score={formScores[param.key]}
-                      onSelect={(key, score) => setFormScores((prev) => ({ ...prev, [key]: score }))}
-                    />
-                  ))}
+                  {domain.params.map((param) => {
+                    if (param.key === "p34") {
+                      return (
+                        <div className="param-block" key={param.key}>
+                          <div className="param-header">
+                            <div className="param-title">
+                              <span className="param-code-badge">{param.code}</span>
+                              {param.title}
+                            </div>
+                            {p34Na ? (
+                              <div className="param-score-pill flex-center" style={{ background: "rgba(150,150,150,0.12)", color: "#888", border: "1px solid rgba(150,150,150,0.25)" }}>N/A</div>
+                            ) : (
+                              <div className={`param-score-pill flex-center${formScores.p34 ? ` active-${formScores.p34}` : ""}`}>{formScores.p34 || "—"}</div>
+                            )}
+                          </div>
+                          <div className="p34-toggle-row">
+                            <label className={`p34-toggle-opt${p34Na ? " p34-active" : ""}`}>
+                              <input type="radio" name="p34_mode" checked={p34Na} onChange={() => { setP34Na(true); setFormScores((prev) => ({ ...prev, p34: 0 })); }} />
+                              <span>N/A — Technology not applicable for this class</span>
+                            </label>
+                            <label className={`p34-toggle-opt${!p34Na ? " p34-active" : ""}`}>
+                              <input type="radio" name="p34_mode" checked={!p34Na} onChange={() => setP34Na(false)} />
+                              <span>Score — Technology was used; evaluate this parameter</span>
+                            </label>
+                          </div>
+                          {!p34Na && (
+                            <div className="rubric-list">
+                              {param.levels.map((level) => (
+                                <label
+                                  key={level.score}
+                                  className={`rubric-card${formScores.p34 === level.score ? ` selected-${level.score}` : ""}`}
+                                  onClick={() => setFormScores((prev) => ({ ...prev, p34: level.score }))}
+                                >
+                                  <input type="radio" name={param.key} value={level.score} readOnly checked={formScores.p34 === level.score} />
+                                  <div className="rubric-card-header">
+                                    <div className="custom-radio"></div>
+                                    <div className="rubric-score-tag">
+                                      <span className="rst-num">{level.score}</span>
+                                      <span className="rst-label">{level.label}</span>
+                                    </div>
+                                  </div>
+                                  <div className="rubric-desc">{level.desc}</div>
+                                </label>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    }
+                    return (
+                      <RubricParameter
+                        key={param.key}
+                        param={param}
+                        score={formScores[param.key]}
+                        onSelect={(key, score) => setFormScores((prev) => ({ ...prev, [key]: score }))}
+                      />
+                    );
+                  })}
                   <div className="form-group" style={{ marginTop: "12px" }}>
                     <label className="field-label" style={{ fontSize: "12px", color: "var(--text-muted)" }}>
                       Remarks for {domain.domain.split(":")[0]}
@@ -360,55 +415,58 @@ export default function ObservationForm({
 
       <div className="live-strip">
         <div className="live-strip-inner">
-          <div className="live-top">
-            <div className="live-score-display">
-              <div className="live-score-big">{total}</div>
-              <div className="live-score-denom">/ 28</div>
+          <div className="live-strip-row">
+            {/* Score + rating */}
+            <div className="live-score-block">
+              <div className="live-score-display">
+                <span className="live-score-big">{total}</span>
+                <span className="live-score-denom">/ 24</span>
+              </div>
+              <div className="live-rating-txt" style={ratingStyle}>{rating}</div>
+              {!p34Na && formScores.p34 > 0 && (
+                <div className="live-p34-badge">3.4: {formScores.p34}/4</div>
+              )}
             </div>
-            <div className="live-rating-txt" style={ratingStyle}>
-              {rating}
+
+            {/* Progress bars */}
+            <div className="live-progress-bars" style={{ gridTemplateColumns: `repeat(${p34Na ? 4 : 5}, 1fr)` }}>
+              <div className="lbar-col">
+                <div className="lbar-lbl">D1</div>
+                <div className="lbar-val">{d1}/8</div>
+                <div className="lbar-track"><div className="lbar-fill" style={{ width: `${(d1 / 8) * 100}%` }}></div></div>
+              </div>
+              <div className="lbar-col">
+                <div className="lbar-lbl">D2</div>
+                <div className="lbar-val">{d2}/4</div>
+                <div className="lbar-track"><div className="lbar-fill" style={{ width: `${(d2 / 4) * 100}%` }}></div></div>
+              </div>
+              <div className="lbar-col">
+                <div className="lbar-lbl">D3</div>
+                <div className="lbar-val">{d3}/12</div>
+                <div className="lbar-track"><div className="lbar-fill" style={{ width: `${(d3 / 12) * 100}%` }}></div></div>
+              </div>
+              {!p34Na && (
+                <div className="lbar-col">
+                  <div className="lbar-lbl" style={{ color: "var(--harvest-amber)" }}>3.4</div>
+                  <div className="lbar-val" style={{ color: "var(--harvest-amber)" }}>{formScores.p34 || "—"}/4</div>
+                  <div className="lbar-track"><div className="lbar-fill" style={{ width: `${((formScores.p34 || 0) / 4) * 100}%`, background: "var(--harvest-amber)" }}></div></div>
+                </div>
+              )}
+              <div className="lbar-col">
+                <div className="lbar-lbl">Total</div>
+                <div className="lbar-val">{total}/24</div>
+                <div className="lbar-track"><div className="lbar-fill" style={{ width: `${(total / 24) * 100}%` }}></div></div>
+              </div>
+            </div>
+
+            {/* Save button */}
+            <div className="live-strip-action">
+              {submitError && <div className="error-banner" style={{ marginBottom: "6px", fontSize: "12px" }}>{submitError}</div>}
+              <button className="btn-submit-audit" disabled={submitting} onClick={handleSubmit}>
+                {submitting ? <><span className="spinner"></span>Saving...</> : "Save as Draft"}
+              </button>
             </div>
           </div>
-          <div className="live-progress-bars">
-            <div className="lbar-col">
-              <div className="lbar-lbl">D1</div>
-              <div className="lbar-val">{d1}/8</div>
-              <div className="lbar-track">
-                <div className="lbar-fill" style={{ width: `${(d1 / 8) * 100}%` }}></div>
-              </div>
-            </div>
-            <div className="lbar-col">
-              <div className="lbar-lbl">D2</div>
-              <div className="lbar-val">{d2}/4</div>
-              <div className="lbar-track">
-                <div className="lbar-fill" style={{ width: `${(d2 / 4) * 100}%` }}></div>
-              </div>
-            </div>
-            <div className="lbar-col">
-              <div className="lbar-lbl">D3</div>
-              <div className="lbar-val">{d3}/16</div>
-              <div className="lbar-track">
-                <div className="lbar-fill" style={{ width: `${(d3 / 16) * 100}%` }}></div>
-              </div>
-            </div>
-            <div className="lbar-col">
-              <div className="lbar-lbl">Total</div>
-              <div className="lbar-val">{total}/28</div>
-              <div className="lbar-track">
-                <div className="lbar-fill" style={{ width: `${(total / 28) * 100}%` }}></div>
-              </div>
-            </div>
-          </div>
-          {submitError && <div className="error-banner" style={{ marginBottom: "10px" }}>{submitError}</div>}
-          <button className="btn-submit-audit" disabled={submitting} onClick={handleSubmit}>
-            {submitting ? (
-              <>
-                <span className="spinner"></span>Generating AI feedback and saving draft...
-              </>
-            ) : (
-              "Save Observation Report as Draft"
-            )}
-          </button>
         </div>
       </div>
     </>
