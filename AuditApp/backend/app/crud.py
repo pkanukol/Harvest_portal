@@ -35,19 +35,19 @@ def create_user(db: Session, user: schemas.UserCreate):
 def calculate_scores_and_rating(p11: int, p12: int, p21: int, p31: int, p32: int, p33: int, p34: int):
     d1 = p11 + p12
     d2 = p21
-    d3 = p31 + p32 + p33 + p34
-    overall = d1 + d2 + d3
-    
-    # Rating threshold: >= 23 scale
-    if overall >= 23:
+    # p34 (Technology) is stored but excluded from domain3 total — shown separately
+    d3 = p31 + p32 + p33  # max 12
+    overall = d1 + d2 + d3  # max 24
+
+    if overall >= 20:
         rating = "DISTINGUISHED"
-    elif overall >= 17:
+    elif overall >= 15:
         rating = "PROFICIENT"
-    elif overall >= 12:
+    elif overall >= 10:
         rating = "DEVELOPING"
     else:
         rating = "BEGINNING"
-        
+
     return d1, d2, d3, overall, rating
 
 def generate_unique_id(teacher_name: str, auditor_name: str) -> str:
