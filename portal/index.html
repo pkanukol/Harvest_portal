@@ -281,12 +281,36 @@
     padding: 14px 20px;
     border-bottom: 1px solid #e8eaed;
     flex-shrink: 0;
+    gap: 12px;
   }
+
+  .modal-header-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+  }
+
+  .modal-back {
+    background: none;
+    border: none;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--blue);
+    cursor: pointer;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .modal-back:hover { text-decoration: underline; }
 
   .modal-title {
     font-family: "DM Serif Display", serif;
     font-size: 16px;
     color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .modal-close {
@@ -296,16 +320,56 @@
     line-height: 1;
     cursor: pointer;
     color: var(--muted);
+    flex-shrink: 0;
   }
 
   .modal-close:hover { color: var(--red); }
 
-  .modal-body { flex: 1; }
+  .modal-body { flex: 1; overflow-y: auto; }
 
   .modal-body iframe {
     width: 100%;
     height: 100%;
     border: none;
+  }
+
+  .doc-list { padding: 10px; }
+
+  .doc-list-item {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 14px 12px;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+
+  .doc-list-item:hover { background: var(--gray); }
+
+  .doc-list-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: rgba(41,171,226,0.10);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    flex-shrink: 0;
+  }
+
+  .doc-list-title {
+    font-family: "DM Serif Display", serif;
+    font-size: 14px;
+    color: var(--text);
+  }
+
+  .doc-list-desc {
+    font-size: 12px;
+    color: var(--muted);
+    line-height: 1.5;
+    margin-top: 2px;
   }
 </style>
 </head>
@@ -341,12 +405,13 @@
 <div class="modal-overlay" id="previewModal">
   <div class="modal-box">
     <div class="modal-header">
-      <div class="modal-title" id="previewTitle"></div>
+      <div class="modal-header-left">
+        <button class="modal-back" id="modalBackBtn" style="display:none" onclick="backToList()">← Back</button>
+        <div class="modal-title" id="previewTitle"></div>
+      </div>
       <button class="modal-close" onclick="closePreview()">&times;</button>
     </div>
-    <div class="modal-body">
-      <iframe id="previewFrame" src="" allow="autoplay"></iframe>
-    </div>
+    <div class="modal-body" id="previewBody"></div>
   </div>
 </div>
 
@@ -410,15 +475,21 @@
       btnLabel: 'Open Form →'
     },
     {
-      id: 'cct-sop',
-      title: 'CCT SOP',
-      desc: 'End-to-end process for scheduling, conducting and reporting Concept Clarity Test (CCT) results for students in Grades 5 through 12.',
+      id: 'sop-documents',
+      title: 'SOP Documents',
+      desc: 'Standard Operating Procedure documents for school processes.',
       icon: '📄',
       color: 'blue',
-      previewUrl: 'https://drive.google.com/file/d/1tnXbwhA3Wh7jm2ETqo21Bta6cNSWA6XH/preview',
-      isPreview: true,
+      isList: true,
       roles: 'all',
-      btnLabel: 'View SOP →'
+      btnLabel: 'View Documents →',
+      documents: [
+        {
+          title: 'CCT SOP',
+          desc: 'End-to-end process for scheduling, conducting and reporting Concept Clarity Test (CCT) results for students in Grades 5 through 12.',
+          previewUrl: 'https://drive.google.com/file/d/1tnXbwhA3Wh7jm2ETqo21Bta6cNSWA6XH/preview'
+        }
+      ]
     }
   ];
 
@@ -476,20 +547,63 @@
     }
   }
 
-  function openPreview(app) {
+  let activeListApp = null;
+
+  function openDocList(app) {
+    activeListApp = app;
+    document.getElementById('modalBackBtn').style.display = 'none';
     document.getElementById('previewTitle').textContent = app.title;
-    document.getElementById('previewFrame').src = app.previewUrl;
+    renderDocList(app.documents);
     document.getElementById('previewModal').classList.add('show');
+  }
+
+  function renderDocList(documents) {
+    const body = document.getElementById('previewBody');
+    body.innerHTML = '';
+    const list = document.createElement('div');
+    list.className = 'doc-list';
+    documents.forEach(doc => {
+      const item = document.createElement('div');
+      item.className = 'doc-list-item';
+      item.innerHTML = `
+        <div class="doc-list-icon">📄</div>
+        <div>
+          <div class="doc-list-title">${doc.title}</div>
+          <div class="doc-list-desc">${doc.desc}</div>
+        </div>
+      `;
+      item.addEventListener('click', () => openDocFromList(doc));
+      list.appendChild(item);
+    });
+    body.appendChild(list);
+  }
+
+  function openDocFromList(doc) {
+    document.getElementById('previewTitle').textContent = doc.title;
+    document.getElementById('modalBackBtn').style.display = 'inline-block';
+    const body = document.getElementById('previewBody');
+    body.innerHTML = '';
+    const iframe = document.createElement('iframe');
+    iframe.src = doc.previewUrl;
+    iframe.setAttribute('allow', 'autoplay');
+    body.appendChild(iframe);
+  }
+
+  function backToList() {
+    document.getElementById('modalBackBtn').style.display = 'none';
+    document.getElementById('previewTitle').textContent = activeListApp.title;
+    renderDocList(activeListApp.documents);
   }
 
   function closePreview() {
     document.getElementById('previewModal').classList.remove('show');
-    document.getElementById('previewFrame').src = '';
+    document.getElementById('previewBody').innerHTML = '';
+    activeListApp = null;
   }
 
   async function openApp(app) {
-    if (app.isPreview) {
-      openPreview(app);
+    if (app.isList) {
+      openDocList(app);
       return;
     }
     if (app.sso) {
