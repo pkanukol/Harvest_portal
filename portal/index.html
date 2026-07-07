@@ -248,6 +248,65 @@
     color: #aaa;
     letter-spacing: 0.04em;
   }
+
+  .modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.6);
+    z-index: 1000;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+
+  .modal-overlay.show { display: flex; }
+
+  .modal-box {
+    background: #fff;
+    border-radius: 14px;
+    width: 100%;
+    max-width: 900px;
+    height: 85vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+  }
+
+  .modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 20px;
+    border-bottom: 1px solid #e8eaed;
+    flex-shrink: 0;
+  }
+
+  .modal-title {
+    font-family: "DM Serif Display", serif;
+    font-size: 16px;
+    color: var(--text);
+  }
+
+  .modal-close {
+    background: none;
+    border: none;
+    font-size: 22px;
+    line-height: 1;
+    cursor: pointer;
+    color: var(--muted);
+  }
+
+  .modal-close:hover { color: var(--red); }
+
+  .modal-body { flex: 1; }
+
+  .modal-body iframe {
+    width: 100%;
+    height: 100%;
+    border: none;
+  }
 </style>
 </head>
 <body>
@@ -278,6 +337,18 @@
 <main>
   <div class="card-grid" id="cardGrid"></div>
 </main>
+
+<div class="modal-overlay" id="previewModal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <div class="modal-title" id="previewTitle"></div>
+      <button class="modal-close" onclick="closePreview()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <iframe id="previewFrame" src="" allow="autoplay"></iframe>
+    </div>
+  </div>
+</div>
 
 <footer>
   © 2025 Harvest International School &nbsp;·&nbsp; Education Beyond Classrooms
@@ -337,6 +408,17 @@
       href: 'https://docs.google.com/forms/d/1zA6b_o0drHV3m7866UVpYCAGQ8qAuPCLnCUHOfA9XmI/previewResponse',
       roles: ['auditor', 'sme'],
       btnLabel: 'Open Form →'
+    },
+    {
+      id: 'cct-sop',
+      title: 'CCT SOP',
+      desc: 'End-to-end process for scheduling, conducting and reporting Concept Clarity Test (CCT) results for students in Grades 5 through 12.',
+      icon: '📄',
+      color: 'blue',
+      previewUrl: 'https://drive.google.com/file/d/1tnXbwhA3Wh7jm2ETqo21Bta6cNSWA6XH/preview',
+      isPreview: true,
+      roles: 'all',
+      btnLabel: 'View SOP →'
     }
   ];
 
@@ -369,7 +451,7 @@
     grid.innerHTML = '';
 
     APPS.forEach(app => {
-      if (!app.roles.includes(role)) return;
+      if (app.roles !== 'all' && !app.roles.includes(role)) return;
 
       const card = document.createElement('div');
       card.className = `card card-${app.color}`;
@@ -394,7 +476,22 @@
     }
   }
 
+  function openPreview(app) {
+    document.getElementById('previewTitle').textContent = app.title;
+    document.getElementById('previewFrame').src = app.previewUrl;
+    document.getElementById('previewModal').classList.add('show');
+  }
+
+  function closePreview() {
+    document.getElementById('previewModal').classList.remove('show');
+    document.getElementById('previewFrame').src = '';
+  }
+
   async function openApp(app) {
+    if (app.isPreview) {
+      openPreview(app);
+      return;
+    }
     if (app.sso) {
       // Pass Supabase token so AuditApp can auto-login
       const session = await getSession();
