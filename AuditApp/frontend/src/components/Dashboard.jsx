@@ -2,6 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
 import { esc, formatDateStr, ratingClass, scoreColorClass } from "../utils/helpers";
 
+// Leadership/oversight designations that get the SME Activity Report button —
+// mirrors auth.LEADERSHIP_DESIGNATIONS on the backend, which actually enforces this.
+const LEADERSHIP_DESIGNATIONS = new Set(["chairman", "managing director", "apm", "principal", "curriculum head"]);
+
 export default function Dashboard({
   token,
   user,
@@ -29,6 +33,15 @@ export default function Dashboard({
   const [teacherAnalysis, setTeacherAnalysis] = useState("");
   const [teacherAnalysisLoading, setTeacherAnalysisLoading] = useState(false);
   const [teacherAnalysisError, setTeacherAnalysisError] = useState("");
+
+  // SME activity report modal (leadership-only)
+  const isLeadership = LEADERSHIP_DESIGNATIONS.has((user?.designation || "").trim().toLowerCase());
+  const [smeModal, setSmeModal] = useState(false);
+  const [smeData, setSmeData] = useState(null);
+  const [smeLoading, setSmeLoading] = useState(false);
+  const [smeError, setSmeError] = useState("");
+  const [expandedSme, setExpandedSme] = useState(null);
+  const [smeView, setSmeView] = useState("observed"); // "observed" | "notObserved"
 
   useEffect(() => {
     if (!token) return;
@@ -119,6 +132,36 @@ export default function Dashboard({
     }
   };
 
+  const loadSmeStats = () => {
+    if (!token) return;
+    setSmeLoading(true);
+    setSmeError("");
+    api
+      .getSmeActivity(token, location)
+      .then(setSmeData)
+      .catch((err) => setSmeError(err.message))
+      .finally(() => setSmeLoading(false));
+  };
+
+  const openSmeModal = () => {
+    setExpandedSme(null);
+    setSmeView("observed");
+    setSmeModal(true);
+    loadSmeStats();
+  };
+
+  // Reload if the campus toggle changes while the report is open
+  useEffect(() => {
+    if (smeModal) loadSmeStats();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location]);
+
+  // The drawer renders above modal overlays (z-index), so we can leave this modal open
+  // underneath — closing the report drawer naturally returns to the SME Activity Report.
+  const openReportFromSmeModal = (obsId) => {
+    onOpenObs(obsId);
+  };
+
   return (
     <div style={{ paddingTop: "24px" }}>
       {user?.name && (
@@ -145,6 +188,11 @@ export default function Dashboard({
           </button>
         </div>
         <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+          {isLeadership && (
+            <button className="btn btn-subject-compare" onClick={openSmeModal}>
+              SME Activity Report
+            </button>
+          )}
           <button className="btn btn-subject-compare" onClick={openSubjectModal}>
             Subject Compare
           </button>
@@ -189,7 +237,7 @@ export default function Dashboard({
               <span>&#128197; {formatDateStr(obs.date_time)}</span>
             </div>
             <div className="audit-card-footer">
-              <span className={`audit-score ${scoreColorClass(obs.rating)}`}>{obs.overall_score}<span className="audit-score-denom">/28</span></span>
+              <span className={`audit-score ${scoreColorClass(obs.rating)}`}>{obs.overall_score}<span className="audit-score-denom">/24</span></span>
               <span className={`meta-rating ${ratingClass(obs.rating)}`}>{esc(obs.rating)}</span>
             </div>
           </div>
@@ -232,7 +280,7 @@ export default function Dashboard({
               {subjectData.length > 0 && (
                 <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
                   {subjectData.map((t, idx) => {
-                    const pct = (t.avg_score / 28) * 100;
+                    const pct = (t.avg_score / 24) * 100;
                     const isExpanded = expandedTeacher === t.teacher_id;
                     return (
                       <div key={t.teacher_id} className="subject-compare-row" style={{ flexDirection: "column", alignItems: "stretch", gap: 0 }}>
@@ -241,7 +289,7 @@ export default function Dashboard({
                           <div style={{ flex: 1 }}>
                             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
                               <span style={{ fontWeight: 700, fontSize: "14px", color: "var(--text-white)" }}>{esc(t.teacher_name)}</span>
-                              <span style={{ fontSize: "13px", fontWeight: 700, color: "var(--harvest-green)" }}>{t.avg_score}/28</span>
+                              <span style={{ fontSize: "13px", fontWeight: 700, color: "var(--harvest-green)" }}>{t.avg_score}/24</span>
                             </div>
                             <div className="timeline-bar-track">
                               <div className="timeline-bar-fill tbar-green" style={{ width: `${pct}%` }}></div>
@@ -262,7 +310,7 @@ export default function Dashboard({
                             {[
                               { label: "Domain 1", value: t.domain1_avg, max: 8 },
                               { label: "Domain 2", value: t.domain2_avg, max: 4 },
-                              { label: "Domain 3", value: t.domain3_avg, max: 16 },
+                              { label: "Domain 3", value: t.domain3_avg, max: 12 },
                             ].map((d) => (
                               <div key={d.label} style={{ background: "var(--bg-card)", borderRadius: "8px", padding: "10px", textAlign: "center" }}>
                                 <div style={{ fontSize: "11px", color: "var(--text-muted)", marginBottom: "4px" }}>{d.label}</div>
@@ -334,8 +382,8 @@ export default function Dashboard({
                           <th>Subject</th>
                           <th>D1 /8</th>
                           <th>D2 /4</th>
-                          <th>D3 /16</th>
-                          <th>Total /28</th>
+                          <th>D3 /12</th>
+                          <th>Total /24</th>
                           <th>Rating</th>
                         </tr>
                       </thead>
@@ -383,6 +431,162 @@ export default function Dashboard({
                   )}
                 </>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SME Activity Report modal (leadership-only) */}
+      {smeModal && (
+        <div className="modal-overlay" onClick={() => setSmeModal(false)}>
+          <div className="modal-card modal-wide" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div>
+                <div className="modal-title">SME Activity Report</div>
+                <div className="modal-subtitle">{location} Campus · This academic year</div>
+              </div>
+              <button className="btn-close-drawer flex-center" onClick={() => setSmeModal(false)}>✕</button>
+            </div>
+            <div className="modal-body">
+              {smeLoading && <div className="msg"><span className="spinner"></span>Loading...</div>}
+              {smeError && <div className="error-banner">{smeError}</div>}
+
+              {!smeLoading && !smeError && smeData && (() => {
+                const observedSmes = smeData.smes.filter((s) => s.observation_count > 0);
+                const notObservedSmes = smeData.smes
+                  .filter((s) => s.teachers_not_observed.length > 0)
+                  .sort((a, b) => b.teachers_not_observed.length - a.teachers_not_observed.length);
+
+                return (
+                  <>
+                    <div style={{ display: "flex", gap: "12px", marginBottom: "20px" }}>
+                      <button
+                        onClick={() => setSmeView("observed")}
+                        style={{
+                          flex: 1, textAlign: "center", padding: "14px", borderRadius: "10px", cursor: "pointer",
+                          background: smeView === "observed" ? "rgba(45,106,45,0.08)" : "var(--bg-card)",
+                          border: smeView === "observed" ? "1.5px solid var(--harvest-green)" : "1.5px solid var(--border)",
+                        }}
+                      >
+                        <div style={{ fontSize: "24px", fontWeight: 800, color: "var(--harvest-green)" }}>{smeData.total_observations}</div>
+                        <div style={{ fontSize: "12px", color: "var(--text-gray)", marginTop: "2px" }}>Observations Done</div>
+                      </button>
+                      <button
+                        onClick={() => setSmeView("notObserved")}
+                        style={{
+                          flex: 1, textAlign: "center", padding: "14px", borderRadius: "10px", cursor: "pointer",
+                          background: smeView === "notObserved" ? "rgba(232,64,28,0.08)" : "var(--bg-card)",
+                          border: smeView === "notObserved" ? "1.5px solid var(--harvest-red)" : "1.5px solid var(--border)",
+                        }}
+                      >
+                        <div style={{ fontSize: "24px", fontWeight: 800, color: "var(--harvest-red)" }}>{smeData.teachers_not_observed_overall.length}</div>
+                        <div style={{ fontSize: "12px", color: "var(--text-gray)", marginTop: "2px" }}>Teachers Not Observed</div>
+                      </button>
+                    </div>
+
+                    {smeView === "observed" && (
+                      observedSmes.length === 0 ? (
+                        <div style={{ color: "var(--text-muted)", fontSize: "13px", padding: "12px", background: "var(--bg-card)", borderRadius: "8px" }}>
+                          No SME observations recorded yet for {location}.
+                        </div>
+                      ) : (
+                        <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                          {observedSmes.map((s) => {
+                            const isExpanded = expandedSme === s.sme_id;
+                            return (
+                              <div key={s.sme_id} className="subject-compare-row" style={{ flexDirection: "column", alignItems: "stretch", gap: 0 }}>
+                                <div
+                                  style={{ display: "flex", alignItems: "center", gap: "10px", cursor: "pointer" }}
+                                  onClick={() => setExpandedSme(isExpanded ? null : s.sme_id)}
+                                >
+                                  <div style={{ flex: 1, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                    <span style={{ fontWeight: 700, fontSize: "14px", color: "var(--text-white)" }}>{esc(s.sme_name)}</span>
+                                    <div style={{ display: "flex", gap: "18px" }}>
+                                      <span style={{ fontSize: "13px", fontWeight: 700, color: "var(--harvest-green)" }}>
+                                        {s.observation_count} observation{s.observation_count !== 1 ? "s" : ""}
+                                      </span>
+                                      <span style={{ fontSize: "13px", fontWeight: 700, color: "var(--harvest-green)" }}>Avg {s.avg_score}/24</span>
+                                    </div>
+                                  </div>
+                                  <button
+                                    style={{ background: "none", border: "1px solid var(--border)", borderRadius: "6px", color: "var(--text-muted)", cursor: "pointer", padding: "3px 7px", fontSize: "10px", whiteSpace: "nowrap" }}
+                                  >
+                                    {isExpanded ? "▲" : "▼"}
+                                  </button>
+                                </div>
+                                {isExpanded && (
+                                  <div style={{ marginTop: "10px", paddingTop: "10px", borderTop: "1px solid var(--border)" }}>
+                                    <div className="ctable-wrap">
+                                      <table className="ctable">
+                                        <thead>
+                                          <tr>
+                                            <th>Teacher</th>
+                                            <th>Score</th>
+                                            <th>Rating</th>
+                                            <th>Date</th>
+                                            <th></th>
+                                          </tr>
+                                        </thead>
+                                        <tbody>
+                                          {s.observations.map((o) => (
+                                            <tr key={o.obs_id}>
+                                              <td>{esc(o.teacher_name)}</td>
+                                              <td className="ctable-score">{o.overall_score}/24</td>
+                                              <td><span className={`meta-rating ${ratingClass(o.rating)}`}>{esc(o.rating)}</span></td>
+                                              <td>{formatDateStr(o.date_time)}</td>
+                                              <td>
+                                                <button
+                                                  onClick={() => openReportFromSmeModal(o.obs_id)}
+                                                  style={{ background: "none", border: "none", color: "var(--harvest-blue)", cursor: "pointer", fontSize: "12px", fontWeight: 600, textDecoration: "underline", padding: 0 }}
+                                                >
+                                                  View Report
+                                                </button>
+                                              </td>
+                                            </tr>
+                                          ))}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )
+                    )}
+
+                    {smeView === "notObserved" && (
+                      notObservedSmes.length === 0 ? (
+                        <div style={{ fontSize: "13px", color: "var(--harvest-green)", padding: "12px", background: "var(--bg-card)", borderRadius: "8px" }}>
+                          Every SME has observed all of their assigned teachers.
+                        </div>
+                      ) : (
+                        <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                          {notObservedSmes.map((s) => (
+                            <div key={s.sme_id} className="subject-compare-row" style={{ flexDirection: "column", alignItems: "stretch", gap: 0 }}>
+                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+                                <span style={{ fontWeight: 700, fontSize: "14px", color: "var(--text-white)" }}>
+                                  {esc(s.sme_name)}
+                                  {s.subject && <span style={{ fontWeight: 500, color: "var(--text-muted)" }}> — {esc(s.subject)}</span>}
+                                </span>
+                                <span style={{ fontSize: "12px", fontWeight: 700, color: "var(--harvest-red)" }}>
+                                  {s.teachers_not_observed.length} not observed
+                                </span>
+                              </div>
+                              <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                                {s.teachers_not_observed.map((t) => (
+                                  <span key={t.teacher_id} className="meta-tag" style={{ fontSize: "11px" }}>{esc(t.name)}</span>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )
+                    )}
+                  </>
+                );
+              })()}
             </div>
           </div>
         </div>
