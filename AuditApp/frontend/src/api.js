@@ -46,15 +46,12 @@ export const api = {
   createObservation: (token, payload) =>
     request("/observations", { method: "POST", token, body: payload }),
 
-  uploadImage: (token, observationId, file) => {
-    const formData = new FormData();
-    formData.append("file", file);
-    return request(`/observations/${observationId}/images`, {
+  addImageLink: (token, observationId, driveLink) =>
+    request(`/observations/${observationId}/images`, {
       method: "POST",
       token,
-      formData,
-    });
-  },
+      body: { drive_link: driveLink },
+    }),
 
   updateDraft: (token, observationId, payload) =>
     request(`/observations/${observationId}/draft`, {
@@ -63,10 +60,11 @@ export const api = {
       body: payload,
     }),
 
-  finaliseObservation: (token, observationId) =>
+  finaliseObservation: (token, observationId, witnessName = "", witnessDesignation = "") =>
     request(`/observations/${observationId}/finalise`, {
       method: "POST",
       token,
+      body: { witness_name: witnessName, witness_designation: witnessDesignation },
     }),
 
   saveRemarks: (token, observationId, teacher_remarks) =>
@@ -93,4 +91,7 @@ export const api = {
 
   getSubjectSummary: (token, location, subject) =>
     request(`/dashboard/subject-summary?location=${encodeURIComponent(location)}&subject=${encodeURIComponent(subject)}`, { token }),
+
+  getSmeActivity: (token, location) =>
+    request(`/dashboard/sme-activity?location=${encodeURIComponent(location)}`, { token }),
 };
