@@ -422,6 +422,11 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="/portal/auth.js"></script>
 <script>
+  // Classroom Observation app runs on the local Vite dev server when the portal itself
+  // is being served locally, so local testing doesn't get bounced to production.
+  const IS_LOCAL = ['localhost', '127.0.0.1'].includes(window.location.hostname);
+  const CLASSROOM_APP_URL = IS_LOCAL ? 'http://localhost:5173' : 'https://harvest-dlp-portal.onrender.com';
+
   const APPS = [
     {
       id: 'dashboard',
@@ -439,7 +444,7 @@
       desc: 'Log classroom audits, view teacher performance dashboards and send observation reports.',
       icon: '🏫',
       color: 'green',
-      href: 'https://harvest-dlp-portal.onrender.com',
+      href: CLASSROOM_APP_URL,
       roles: ['teacher', 'auditor', 'sme'],
       btnLabel: 'Open App →',
       sso: true
@@ -475,6 +480,17 @@
       btnLabel: 'Open Form →'
     },
     {
+      id: 'timetable',
+      title: 'Timetable',
+      desc: 'View your weekly schedule, or (leadership) import allocations, generate and edit the school timetable.',
+      icon: '🗓️',
+      color: 'red',
+      href: IS_LOCAL ? 'http://localhost:5174' : 'https://harvest-timetable-ui.onrender.com',
+      roles: 'all',
+      btnLabel: 'Open Timetable →',
+      sso: true
+    },
+    {
       id: 'sop-documents',
       title: 'SOP Documents',
       desc: 'Standard Operating Procedure documents for school processes.',
@@ -489,7 +505,7 @@
           desc: 'End-to-end process for scheduling, conducting and reporting Concept Clarity Test (CCT) results for students in Grades 5 through 12.',
           previewUrl: 'https://drive.google.com/file/d/1tnXbwhA3Wh7jm2ETqo21Bta6cNSWA6XH/preview'
         },
-       {
+        {
           title: 'Classroom Observation SOP',
           desc: 'End-to-end process for logging into the Classroom Observation portal, conducting and recording a classroom observation, finalising the audit.',
           previewUrl: 'https://drive.google.com/file/d/1XKypL1GcCYYT1cTiUoOMIzCQAHlN2Gvv/preview'
