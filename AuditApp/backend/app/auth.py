@@ -60,3 +60,16 @@ def require_role(allowed_roles: list):
             )
         return current_user
     return dependency
+
+# Leadership/oversight designations — not a distinct `role`, since these users are all
+# role='auditor' alongside other auditor designations (HOD, Coordinator, DLP Manager, etc.)
+# that should NOT get leadership-only views.
+LEADERSHIP_DESIGNATIONS = {"chairman", "managing director", "apm", "principal", "curriculum head"}
+
+def require_leadership(current_user: models.User = Depends(get_current_user)):
+    if (current_user.designation or "").strip().lower() not in LEADERSHIP_DESIGNATIONS:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Operation not allowed for your role"
+        )
+    return current_user
