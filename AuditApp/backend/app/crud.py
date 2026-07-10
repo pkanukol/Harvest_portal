@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from datetime import datetime
 import string
 import random
@@ -227,11 +227,15 @@ def update_observation_draft(db: Session, obs_id: int, update_in: schemas.Observ
     db.refresh(db_obs)
     return db_obs
 
-def finalise_observation(db: Session, obs_id: int):
+def finalise_observation(db: Session, obs_id: int, witness_name: str = None, witness_designation: str = None):
     db_obs = get_observation_by_id(db, obs_id)
     if not db_obs:
         return None
     db_obs.is_draft = False
+    if witness_name:
+        db_obs.witness_name = witness_name.strip()
+    if witness_designation:
+        db_obs.witness_designation = witness_designation.strip()
     db.commit()
     db.refresh(db_obs)
     return db_obs
@@ -245,6 +249,90 @@ def save_teacher_remarks(db: Session, obs_id: int, remarks_in: schemas.Observati
     db.commit()
     db.refresh(db_obs)
     return db_obs
+
+# --- LEADERSHIP / SME ACTIVITY STATS ---
+def get_leadership_sme_stats(db: Session, location: str):
+    now = datetime.utcnow()
+    # Academic year runs June -> May, relative to today.
+    academic_year_start_year = now.year if now.month >= 6 else now.year - 1
+    academic_year_start = datetime(academic_year_start_year, 6, 1)
+
+    observations = db.query(models.Observation).join(
+        models.User, models.Observation.auditor_id == models.User.id
+    ).filter(
+        models.User.role == "sme",
+        models.Observation.school == location,
+        models.Observation.date_time >= academic_year_start,
+        models.Observation.date_time <= now,
+    ).order_by(models.Observation.date_time.desc()).all()
+
+    obs_by_sme = {}
+    observed_by_anyone = set()
+    for obs in observations:
+        entry = obs_by_sme.setdefault(obs.auditor_id, {"scores": [], "observations": [], "observed_teacher_ids": set()})
+        entry["scores"].append(obs.overall_score)
+        entry["observed_teacher_ids"].add(obs.teacher_id)
+        entry["observations"].append({
+            "obs_id": obs.id,
+            "teacher_id": obs.teacher_id,
+            "teacher_name": obs.teacher.name,
+            "rating": obs.rating,
+            "overall_score": obs.overall_score,
+            "date_time": obs.date_time.isoformat(),
+            "is_draft": obs.is_draft,
+        })
+        observed_by_anyone.add(obs.teacher_id)
+
+    # Teacher roster for this branch, and every SME relevant to it (location match or 'Both') —
+    # queried independently of `observations` so an SME with zero observations still shows up
+    # with their full assigned-teacher gap in the "not observed" breakdown.
+    roster = db.query(models.User).filter(
+        models.User.role == "teacher",
+        or_(models.User.location == location, models.User.location == "Both"),
+    ).all()
+    teacher_names = {t.id: t.name for t in roster}
+
+    sme_users = db.query(models.User).filter(
+        models.User.role == "sme",
+        or_(models.User.location == location, models.User.location == "Both"),
+    ).all()
+
+    assigned_by_sme = {}
+    for a in db.query(models.TeacherSME).filter(models.TeacherSME.teacher_id.in_(teacher_names.keys())).all():
+        assigned_by_sme.setdefault(a.sme_id, set()).add(a.teacher_id)
+
+    smes = []
+    for sme in sme_users:
+        entry = obs_by_sme.get(sme.id, {"scores": [], "observations": [], "observed_teacher_ids": set()})
+        avg_score = round(sum(entry["scores"]) / len(entry["scores"]), 1) if entry["scores"] else 0
+        assigned_ids = assigned_by_sme.get(sme.id, set())
+        not_observed = sorted(
+            [{"teacher_id": tid, "name": teacher_names[tid]} for tid in assigned_ids if tid not in entry["observed_teacher_ids"]],
+            key=lambda t: t["name"],
+        )
+        smes.append({
+            "sme_id": sme.id,
+            "sme_name": sme.name,
+            "subject": sme.subject,
+            "observation_count": len(entry["observations"]),
+            "avg_score": avg_score,
+            "observations": entry["observations"],
+            "teachers_not_observed": not_observed,
+        })
+    smes.sort(key=lambda s: s["observation_count"], reverse=True)
+
+    teachers_not_observed_overall = sorted(
+        [{"teacher_id": tid, "name": name} for tid, name in teacher_names.items() if tid not in observed_by_anyone],
+        key=lambda t: t["name"],
+    )
+
+    return {
+        "academic_year_start": academic_year_start.isoformat(),
+        "total_observations": len(observations),
+        "smes": smes,
+        "teachers_not_observed_overall": teachers_not_observed_overall,
+    }
+
 
 # --- OBSERVATION IMAGES ---
 def add_observation_image(db: Session, obs_id: int, image_path: str):
