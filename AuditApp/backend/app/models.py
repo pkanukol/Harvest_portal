@@ -78,6 +78,10 @@ class Observation(Base):
     email_sent = Column(Boolean, default=False)
     remarks_saved = Column(Boolean, default=False)
 
+    # Third-party witness recorded at finalisation (SME mutual-agreement acknowledgment)
+    witness_name = Column(String, nullable=True)
+    witness_designation = Column(String, nullable=True)
+
     # Relationships
     auditor = relationship("User", foreign_keys=[auditor_id], backref="conducted_observations")
     teacher = relationship("User", foreign_keys=[teacher_id], backref="received_observations")
