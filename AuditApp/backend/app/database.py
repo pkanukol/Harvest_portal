@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from .config import settings
@@ -27,3 +27,25 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+def run_migrations():
+    """Add newly-introduced columns to already-existing tables.
+
+    Base.metadata.create_all() only creates missing tables, it never alters
+    an existing table's columns, so new nullable columns need a manual
+    idempotent ALTER TABLE here (no Alembic in this project).
+    """
+    inspector = inspect(engine)
+    if "observations" not in inspector.get_table_names():
+        return
+    existing_cols = {c["name"] for c in inspector.get_columns("observations")}
+    missing = [
+        col for col in ("witness_name", "witness_designation")
+        if col not in existing_cols
+    ]
+    if not missing:
+        return
+    with engine.begin() as conn:
+        for col in missing:
+            conn.execute(text(f"ALTER TABLE observations ADD COLUMN {col} VARCHAR"))
