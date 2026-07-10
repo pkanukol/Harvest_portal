@@ -10,11 +10,12 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 
 from .config import settings
-from .database import engine, Base, get_db
+from .database import engine, Base, get_db, run_migrations
 from . import models, schemas, crud, auth, ai_service
 from . import email_service_resend as email_service
 
 Base.metadata.create_all(bind=engine)
+run_migrations()
 
 app = FastAPI(
     title="Teachers Audit Application API",
@@ -211,6 +212,7 @@ async def update_draft(
 @app.post("/api/observations/{id}/finalise", response_model=schemas.ObservationOut)
 async def finalise_observation(
     id: int,
+    body: schemas.ObservationFinalise,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.require_role(["auditor", "sme"])),
@@ -223,7 +225,7 @@ async def finalise_observation(
     if not obs.is_draft:
         raise HTTPException(status_code=400, detail="Observation is already finalised")
 
-    finalised_obs = crud.finalise_observation(db, id)
+    finalised_obs = crud.finalise_observation(db, id, body.witness_name, body.witness_designation)
 
     background_tasks.add_task(
         email_service.send_audit_notification,
@@ -367,10 +369,15 @@ async def compare_teacher_progress(
 
 # --- IMAGE UPLOAD ---
 
+from pydantic import BaseModel as PydanticBase
+
+class ImageLinkIn(PydanticBase):
+    drive_link: str
+
 @app.post("/api/observations/{id}/images", response_model=schemas.ObservationImageOut)
-async def upload_observation_image(
+async def add_observation_image_link(
     id: int,
-    file: UploadFile = File(...),
+    body: ImageLinkIn,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.require_role(["auditor", "sme"])),
 ):
@@ -379,15 +386,7 @@ async def upload_observation_image(
         raise HTTPException(status_code=404, detail="Observation not found")
     if obs.auditor_id != current_user.id:
         raise HTTPException(status_code=403, detail="You can only add images to audits done by you")
-
-    file_ext = os.path.splitext(file.filename)[1]
-    unique_filename = f"{uuid.uuid4()}{file_ext}"
-    file_path = os.path.join(UPLOAD_DIR, unique_filename)
-
-    contents = await file.read()
-    await asyncio.to_thread(open(file_path, "wb").write, contents)
-
-    return crud.add_observation_image(db, id, f"/uploads/{unique_filename}")
+    return crud.add_observation_image(db, id, body.drive_link)
 
 
 @app.get("/api/dashboard/audit-list")
@@ -476,6 +475,15 @@ async def get_subject_summary(
         })
     result.sort(key=lambda x: x["avg_score"], reverse=True)
     return result
+
+
+@app.get("/api/dashboard/sme-activity")
+async def get_sme_activity(
+    location: str = Query("Kodathi"),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.require_leadership),
+):
+    return crud.get_leadership_sme_stats(db, location)
 
 
 @app.get("/api/alerts")
