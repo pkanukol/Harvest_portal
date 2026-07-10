@@ -103,6 +103,10 @@ class ObservationDraftUpdate(BaseModel):
 class ObservationTeacherRemarks(BaseModel):
     teacher_remarks: str
 
+class ObservationFinalise(BaseModel):
+    witness_name: Optional[str] = None
+    witness_designation: Optional[str] = None
+
 class ObservationOut(ObservationBase):
     id: int
     unique_id: str
@@ -122,7 +126,9 @@ class ObservationOut(ObservationBase):
     is_draft: bool
     email_sent: bool
     remarks_saved: bool
-    
+    witness_name: Optional[str] = None
+    witness_designation: Optional[str] = None
+
     auditor: UserMinimal
     teacher: UserMinimal
     images: List[ObservationImageOut] = []
