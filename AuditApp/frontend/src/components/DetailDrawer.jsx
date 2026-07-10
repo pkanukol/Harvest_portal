@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
-import { DRAWER_PARAM_LABELS } from "../constants/rubrics";
+import { DRAWER_PARAM_LABELS, RUBRICS } from "../constants/rubrics";
 import { esc, formatDateStr, ratingClass } from "../utils/helpers";
 
 function normaliseFeedback(text) {
@@ -8,6 +8,16 @@ function normaliseFeedback(text) {
   return text
     .replace(/STRENGTHS OBSERVED:/g, "GLOWS (What went well):")
     .replace(/AREAS FOR DEVELOPMENT:/g, "GROWS (What could have been better):");
+}
+
+// Looks up the rubric level (label + description) that matches a given score for a parameter,
+// so the report can show what the number actually means, not just the number.
+function findRubricLevel(paramKey, score) {
+  for (const domain of RUBRICS) {
+    const param = domain.params.find((p) => p.key === paramKey);
+    if (param) return param.levels.find((l) => l.score === score) || null;
+  }
+  return null;
 }
 
 const PARAM_MAX = { p11: 4, p12: 4, p21: 4, p31: 4, p32: 4, p33: 4, p34: 4 };
@@ -60,6 +70,7 @@ function handlePrint(obs, isTeacher) {
     { label: "Domain 3 — Instructional Delivery", params: ["p31","p32","p33"], score: obs.domain3_score, max: 12, remarks: obs.domain3_remarks },
   ];
   const p34Tech = obs.p34 > 0 ? obs.p34 : null;
+  const p34Level = p34Tech !== null ? findRubricLevel("p34", obs.p34) : null;
 
   const escHtml = (s) => (s || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/\n/g,"<br>");
 
@@ -72,12 +83,25 @@ function handlePrint(obs, isTeacher) {
       <table class="param-table">
         <thead><tr><th>Parameter</th><th style="width:60px;text-align:center">Score</th></tr></thead>
         <tbody>
-          ${d.params.map((k) => `<tr><td>${paramLabels.find(([pk])=>pk===k)?.[1] || k}</td><td style="text-align:center">${obs[k]}/4</td></tr>`).join("")}
+          ${d.params.map((k) => {
+            const level = findRubricLevel(k, obs[k]);
+            const row = `<tr><td>${paramLabels.find(([pk])=>pk===k)?.[1] || k}</td><td style="text-align:center">${obs[k]}/4</td></tr>`;
+            const rubricRow = level ? `<tr><td colspan="2" class="rubric-row"><strong>${escHtml(level.label)}:</strong> ${escHtml(level.desc)}</td></tr>` : "";
+            return row + rubricRow;
+          }).join("")}
         </tbody>
       </table>
       ${d.remarks ? `<div class="remarks-box"><span class="remarks-label">Remarks:</span> ${escHtml(d.remarks)}</div>` : ""}
     </div>
-  `).join("");
+  `).join("") + `
+    <div class="domain-block">
+      <div class="domain-header">
+        <span>3.4 — Effective Use of Technology</span>
+        <span class="domain-score" style="${p34Tech === null ? "color:#888" : ""}">${p34Tech === null ? "Not Applicable" : `${p34Tech}/4`}</span>
+      </div>
+      ${p34Level ? `<table class="param-table"><tbody><tr><td colspan="2" class="rubric-row"><strong>${escHtml(p34Level.label)}:</strong> ${escHtml(p34Level.desc)}</td></tr></tbody></table>` : ""}
+    </div>
+  `;
 
   const obsNotesHTML = !isTeacher && obs.objective_observations ? `
     <section>
@@ -92,6 +116,27 @@ function handlePrint(obs, isTeacher) {
     obs.infrastructure_issues && `<div><strong>Infrastructure Issues:</strong><br>${escHtml(obs.infrastructure_issues)}</div>`,
     obs.other_issues && `<div style="margin-top:8px"><strong>Other Issues:</strong><br>${escHtml(obs.other_issues)}</div>`,
   ].filter(Boolean).join("") : "";
+
+  const imagesHTML = obs.images?.length ? `
+    <section>
+      <h3>Observation Images</h3>
+      <div class="img-grid">
+        ${obs.images.map((img, i) => `
+          <a href="${img.image_path}" target="_blank" rel="noopener noreferrer" class="img-thumb-link">
+            <img src="${getDriveEmbedUrl(img.image_path)}" class="img-thumb" alt="Observation ${i + 1}"
+                 onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" />
+            <span class="img-thumb-broken">Preview unavailable</span>
+            <span class="img-caption">Image ${i + 1} — click to view in Google Drive</span>
+          </a>`).join("")}
+      </div>
+      <div class="img-permission-note">If an image doesn't open, you may not have access — ask the auditor to share it with "Anyone with the link".</div>
+    </section>` : "";
+
+  const witnessHTML = obs.witness_name ? `
+    <section>
+      <h3>Verified By</h3>
+      <div class="teacher-box">This observation report was reviewed and finalised in the presence of <strong>${escHtml(obs.witness_name)}</strong>${obs.witness_designation ? ` (${escHtml(obs.witness_designation)})` : ""}.</div>
+    </section>` : "";
 
   const dateStr = obs.date_time ? new Date(obs.date_time).toLocaleString("en-IN", { dateStyle:"long", timeStyle:"short" }) : "";
 
@@ -132,6 +177,13 @@ function handlePrint(obs, isTeacher) {
   .ts { color: #888; font-style: italic; margin-right: 6px; }
   .feedback-box { background: #f0f7ff; border: 1px solid #c0d8f0; border-radius: 4px; padding: 10px 14px; font-size: 12px; line-height: 1.7; white-space: pre-wrap; }
   .teacher-box { background: #f6f8f6; border: 1px solid #cce0cc; border-radius: 4px; padding: 10px 14px; font-size: 12px; line-height: 1.7; }
+  .rubric-row td { font-size: 11px; color: #555; background: #fbfbfb; padding: 4px 10px 8px; }
+  .img-grid { display: flex; flex-wrap: wrap; gap: 12px; }
+  .img-thumb-link { display: block; width: 120px; text-decoration: none; color: #333; position: relative; }
+  .img-thumb { width: 120px; height: 88px; object-fit: cover; border-radius: 4px; border: 1px solid #cce0cc; }
+  .img-thumb-broken { display: none; width: 120px; height: 88px; align-items: center; justify-content: center; text-align: center; font-size: 10px; color: #888; background: #f2f2f2; border: 1px dashed #ccc; border-radius: 4px; padding: 4px; }
+  .img-caption { display: block; font-size: 9px; text-align: center; margin-top: 3px; color: #555; }
+  .img-permission-note { font-size: 10px; color: #888; margin-top: 8px; }
   .footer { margin-top: 30px; padding-top: 12px; border-top: 1px solid #ddd; font-size: 10px; color: #999; display: flex; justify-content: space-between; }
   @media print { body { padding: 16px 20px; } }
 </style>
@@ -172,6 +224,7 @@ function handlePrint(obs, isTeacher) {
 
 ${obsNotesHTML}
 ${issuesHTML ? `<section><h3>Challenges &amp; Issues</h3><div class="notes-box">${issuesHTML}</div></section>` : ""}
+${imagesHTML}
 
 <section>
   <h3>AI-Generated Feedback for Teacher</h3>
@@ -182,6 +235,8 @@ ${issuesHTML ? `<section><h3>Challenges &amp; Issues</h3><div class="notes-box">
   <h3>Teacher's Remarks</h3>
   <div class="teacher-box">${escHtml(obs.teacher_remarks) || "<em>No remarks submitted yet.</em>"}</div>
 </section>
+
+${witnessHTML}
 
 <div class="footer">
   <span>Harvest International School — Confidential Audit Report</span>
@@ -194,6 +249,12 @@ ${issuesHTML ? `<section><h3>Challenges &amp; Issues</h3><div class="notes-box">
   win.document.write(html);
   win.document.close();
   win.onload = () => win.print();
+}
+
+function getDriveEmbedUrl(link) {
+  const match = link?.match(/\/d\/([a-zA-Z0-9_-]+)/);
+  if (match) return `https://drive.google.com/uc?export=view&id=${match[1]}`;
+  return link;
 }
 
 export default function DetailDrawer({ open, token, user, obsId, onClose, onUpdated }) {
@@ -213,6 +274,14 @@ export default function DetailDrawer({ open, token, user, obsId, onClose, onUpda
   const [actionError, setActionError] = useState("");
   const [actionLoading, setActionLoading] = useState(false);
   const [savedMsg, setSavedMsg] = useState("");
+  const [viewingImage, setViewingImage] = useState(null);
+  const [viewingImageError, setViewingImageError] = useState(false);
+  const [failedImageIds, setFailedImageIds] = useState(() => new Set());
+
+  const openImageViewer = (link) => {
+    setViewingImageError(false);
+    setViewingImage(link);
+  };
 
   useEffect(() => {
     if (!open || !obsId) return;
@@ -241,15 +310,14 @@ export default function DetailDrawer({ open, token, user, obsId, onClose, onUpda
 
   const isCreator = obs && user && obs.auditor_id === user.id;
   const isDraftEditable = obs?.is_draft && isCreator;
-  const isSME = user?.role === "sme";
   const isTeacher = user?.role === "teacher";
   const isTeacherRemarking = obs && isTeacher && !obs.is_draft && !obs.remarks_saved;
 
   const showActionPanel = isDraftEditable || isTeacherRemarking;
 
-  // Finalize disabled for SME until acknowledged with name + designation filled
+  // Finalize disabled until acknowledged with witness name + designation filled
   const smeAckComplete = acknowledged && witnessName.trim() && witnessDesignation.trim();
-  const finalizeDisabled = actionLoading || (isDraftEditable && isSME && !smeAckComplete);
+  const finalizeDisabled = actionLoading || (isDraftEditable && !smeAckComplete);
 
   const handleScoreChange = (key, val) => {
     setEditedScores((prev) => ({ ...prev, [key]: val }));
@@ -294,7 +362,7 @@ export default function DetailDrawer({ open, token, user, obsId, onClose, onUpda
     setActionLoading(true);
     try {
       await api.updateDraft(token, obs.id, draftPayload());
-      await api.finaliseObservation(token, obs.id);
+      await api.finaliseObservation(token, obs.id, witnessName.trim(), witnessDesignation.trim());
       onClose();
       onUpdated();
     } catch (err) {
@@ -391,13 +459,28 @@ export default function DetailDrawer({ open, token, user, obsId, onClose, onUpda
                     ))}
                   </div>
                 ) : (
-                  <div className="hc-params-grid">
-                    {DRAWER_PARAM_LABELS.map(([key, label]) => (
-                      <div className="hc-param-item" key={key}>
-                        <span>{label}</span>
-                        <span className="hc-param-val">{obs[key]}/4</span>
-                      </div>
-                    ))}
+                  <div className="hc-params-grid hc-params-grid-report">
+                    {DRAWER_PARAM_LABELS.map(([key, label]) => {
+                      const isP34Na = key === "p34" && !obs.p34;
+                      const level = isP34Na ? null : findRubricLevel(key, obs[key]);
+                      return (
+                        <div className="hc-param-item hc-param-item-report" key={key}>
+                          <div className="hc-param-row">
+                            <span>{label}</span>
+                            {isP34Na ? (
+                              <span className="hc-param-val" style={{ color: "#888" }}>Not Applicable</span>
+                            ) : (
+                              <span className="hc-param-val">{obs[key]}/4</span>
+                            )}
+                          </div>
+                          {level && (
+                            <div className="rubric-desc" style={{ paddingLeft: 0 }}>
+                              <strong>{level.label}:</strong> {level.desc}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
 
@@ -490,24 +573,40 @@ export default function DetailDrawer({ open, token, user, obsId, onClose, onUpda
                       <div className="hc-val" style={{ fontSize: "13px" }}>{obs.other_issues}</div>
                     </div>
                   )}
-
-                  {obs.images?.length > 0 && (
-                    <div className="info-card">
-                      <div className="hc-lbl">Observation Images</div>
-                      <div className="hc-images-grid">
-                        {obs.images.map((img) => (
-                          <div className="hc-img-item" key={img.id}>
-                            <img
-                              src={img.image_path}
-                              alt="Observation"
-                              onClick={() => window.open(img.image_path, "_blank")}
-                            />
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
                 </>
+              )}
+
+              {/* Observation Images — visible to all roles, including the teacher */}
+              {obs.images?.length > 0 && (
+                <div className="info-card">
+                  <div className="hc-lbl">Observation Images</div>
+                  <div className="hc-images-grid">
+                    {obs.images.map((img) => (
+                      <div className="hc-img-item" key={img.id} onClick={() => openImageViewer(img.image_path)}>
+                        {failedImageIds.has(img.id) ? (
+                          <div className="hc-img-fallback">Preview unavailable</div>
+                        ) : (
+                          <img
+                            src={getDriveEmbedUrl(img.image_path)}
+                            alt="Observation"
+                            onError={() => setFailedImageIds((prev) => new Set(prev).add(img.id))}
+                          />
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Third-party witness who finalised the report */}
+              {obs.witness_name && (
+                <div className="info-card">
+                  <div className="hc-lbl">Verified By</div>
+                  <div className="hc-val" style={{ fontSize: "13px" }}>
+                    This observation report was reviewed and finalised in the presence of <strong>{obs.witness_name}</strong>
+                    {obs.witness_designation ? ` (${obs.witness_designation})` : ""}.
+                  </div>
+                </div>
               )}
 
               {/* AI feedback */}
@@ -527,8 +626,8 @@ export default function DetailDrawer({ open, token, user, obsId, onClose, onUpda
                 )}
               </div>
 
-              {/* Neutral person acknowledgment — only for SME drafts */}
-              {isDraftEditable && isSME && (
+              {/* Neutral person acknowledgment — required to finalise, for any role */}
+              {isDraftEditable && (
                 <div className="info-card" style={{ border: smeAckComplete ? "1px solid var(--harvest-green)" : "1px solid var(--border)" }}>
                   <div className="hc-lbl" style={{ marginBottom: "10px" }}>Mutual Agreement Acknowledgment</div>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "12px" }}>
@@ -561,7 +660,7 @@ export default function DetailDrawer({ open, token, user, obsId, onClose, onUpda
                       style={{ marginTop: "3px", width: "16px", height: "16px", cursor: "pointer" }}
                     />
                     <span style={{ fontSize: "13px", color: "var(--text-white)", lineHeight: 1.6 }}>
-                      I confirm that this observation report has been reviewed and mutually agreed upon by the SME and the teacher in my presence. Both parties have acknowledged the feedback and domain scores.
+                      I confirm that this observation report has been reviewed and mutually agreed upon by the auditor and the teacher in my presence. Both parties have acknowledged the feedback and domain scores.
                     </span>
                   </label>
                   {!smeAckComplete && (
@@ -619,7 +718,7 @@ export default function DetailDrawer({ open, token, user, obsId, onClose, onUpda
                       >
                         {actionLoading ? <><span className="spinner" />Processing...</> : "Finalise Audit & Send Notification"}
                       </button>
-                      {isSME && !smeAckComplete && (
+                      {!smeAckComplete && (
                         <div style={{ textAlign: "center", fontSize: "12px", color: "var(--text-muted)", marginTop: "8px" }}>
                           Complete the acknowledgment section above to enable finalisation.
                         </div>
@@ -642,6 +741,38 @@ export default function DetailDrawer({ open, token, user, obsId, onClose, onUpda
           )}
         </div>
       </div>
+
+      {viewingImage && (
+        <div className="modal-overlay" onClick={() => setViewingImage(null)}>
+          <div className="modal-card" style={{ maxWidth: "720px" }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div>
+                <div className="modal-title">Observation Image</div>
+                <div className="modal-subtitle">Stored as a Google Drive link</div>
+              </div>
+              <button className="btn-close-drawer flex-center" onClick={() => setViewingImage(null)}>✕</button>
+            </div>
+            <div className="modal-body" style={{ textAlign: "center" }}>
+              {viewingImageError ? (
+                <div style={{ padding: "24px 8px", color: "var(--text-muted)", fontSize: "13px", lineHeight: 1.6 }}>
+                  Unable to load this image. It may not be shared with "Anyone with the link", or you may not have permission to view it.
+                  <br /><br />
+                  <a href={viewingImage} target="_blank" rel="noopener noreferrer" style={{ color: "var(--harvest-blue)" }}>
+                    Try opening directly in Google Drive
+                  </a>
+                </div>
+              ) : (
+                <img
+                  src={getDriveEmbedUrl(viewingImage)}
+                  alt="Observation full view"
+                  style={{ maxWidth: "100%", maxHeight: "70vh", borderRadius: "8px" }}
+                  onError={() => setViewingImageError(true)}
+                />
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
