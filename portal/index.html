@@ -41,20 +41,20 @@
 
   header {
     width: 100%;
-    padding: 20px 32px 18px;
+    padding: 10px 28px;
     display: flex;
     flex-direction: row;
     align-items: center;
     justify-content: space-between;
     border-bottom: 1px solid #e8eaed;
     flex-wrap: wrap;
-    gap: 12px;
+    gap: 10px;
   }
 
   .header-left {
     display: flex;
     align-items: center;
-    gap: 18px;
+    gap: 14px;
     flex-wrap: wrap;
   }
 
@@ -65,14 +65,14 @@
   }
 
   .logo-img {
-    height: 56px;
+    height: 36px;
     width: auto;
     object-fit: contain;
   }
 
   .academy-heading {
     font-family: "DM Serif Display", serif;
-    font-size: 30px;
+    font-size: 20px;
     letter-spacing: -0.01em;
     line-height: 1;
   }
@@ -81,12 +81,12 @@
   .academy-heading .rest { color: var(--blue); }
 
   .academy-sub {
-    font-size: 10px;
+    font-size: 9px;
     font-weight: 600;
-    letter-spacing: 0.16em;
+    letter-spacing: 0.14em;
     text-transform: uppercase;
     color: var(--muted);
-    margin-top: 4px;
+    margin-top: 2px;
   }
 
   .header-right {
@@ -131,8 +131,8 @@
   main {
     flex: 1;
     width: 100%;
-    max-width: 900px;
-    padding: 28px 24px 60px;
+    max-width: 1080px;
+    padding: 22px 24px 50px;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -140,16 +140,26 @@
 
   .card-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-    gap: 20px;
+    grid-template-columns: repeat(4, minmax(190px, 1fr));
+    grid-template-rows: repeat(2, auto);
+    grid-auto-flow: column;
+    gap: 14px;
     width: 100%;
   }
 
+  @media (max-width: 900px) {
+    .card-grid { grid-template-columns: repeat(2, minmax(190px, 1fr)); grid-template-rows: repeat(4, auto); }
+  }
+
   @media (max-width: 700px) {
-    .card-grid { grid-template-columns: 1fr; max-width: 360px; }
+    .card-grid { grid-template-columns: 1fr 1fr; grid-template-rows: none; grid-auto-flow: row; max-width: 420px; gap: 10px; }
     header { justify-content: center; }
     .academy-heading { font-size: 22px; }
     .header-right { justify-content: center; }
+  }
+
+  @media (max-width: 420px) {
+    .card-grid { grid-template-columns: 1fr; max-width: 320px; }
   }
 
   .card {
@@ -160,10 +170,11 @@
     text-decoration: none;
     background: #fff;
     border: 1.5px solid #e4e7ec;
-    border-radius: 18px;
-    padding: 36px 20px 28px;
-    gap: 14px;
-    transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+    border-radius: 14px;
+    padding: 18px 14px 14px;
+    gap: 6px;
+    justify-content: space-between;
+    transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
     cursor: pointer;
     position: relative;
     overflow: hidden;
@@ -173,31 +184,31 @@
     content: "";
     position: absolute;
     top: 0; left: 0; right: 0;
-    height: 4px;
-    border-radius: 18px 18px 0 0;
+    height: 3px;
+    border-radius: 14px 14px 0 0;
   }
 
   .card:hover {
-    transform: translateY(-4px);
-    box-shadow: 0 12px 40px rgba(0,0,0,0.10);
+    transform: translateY(-3px);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.08);
   }
 
   .card-blue::before  { background: var(--blue); }
   .card-green::before { background: var(--green); }
   .card-red::before   { background: var(--red); }
 
-  .card-blue:hover  { border-color: var(--blue); box-shadow: 0 12px 40px rgba(41,171,226,0.15); }
-  .card-green:hover { border-color: var(--green); box-shadow: 0 12px 40px rgba(74,140,42,0.15); }
-  .card-red:hover   { border-color: var(--red); box-shadow: 0 12px 40px rgba(192,57,43,0.13); }
+  .card-blue:hover  { border-color: var(--blue); box-shadow: 0 8px 24px rgba(41,171,226,0.14); }
+  .card-green:hover { border-color: var(--green); box-shadow: 0 8px 24px rgba(74,140,42,0.14); }
+  .card-red:hover   { border-color: var(--red); box-shadow: 0 8px 24px rgba(192,57,43,0.12); }
 
   .card-icon {
-    width: 60px;
-    height: 60px;
-    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    border-radius: 11px;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 26px;
+    font-size: 18px;
     flex-shrink: 0;
   }
 
@@ -207,37 +218,35 @@
 
   .card-title {
     font-family: "DM Serif Display", serif;
-    font-size: 17px;
+    font-size: 13.5px;
     color: var(--text);
     line-height: 1.25;
   }
 
   .card-desc {
-    font-size: 12px;
+    font-size: 11px;
     color: var(--muted);
-    line-height: 1.6;
-    flex: 1;
+    line-height: 1.4;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
   }
 
   .card-btn {
-    margin-top: 6px;
-    padding: 9px 22px;
-    border-radius: 30px;
+    margin-top: 2px;
     font-family: "DM Sans", sans-serif;
-    font-size: 12px;
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    border: none;
-    cursor: pointer;
-    transition: opacity 0.18s;
-    color: #fff;
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    transition: opacity 0.15s;
   }
 
-  .card-blue  .card-btn { background: var(--blue); }
-  .card-green .card-btn { background: var(--green); }
-  .card-red   .card-btn { background: var(--red); }
+  .card-blue  .card-btn { color: var(--blue-dk); }
+  .card-green .card-btn { color: var(--green-dk); }
+  .card-red   .card-btn { color: var(--red); }
 
-  .card:hover .card-btn { opacity: 0.88; }
+  .card:hover .card-btn { opacity: 0.75; }
 
   footer {
     width: 100%;
@@ -427,6 +436,9 @@
   const IS_LOCAL = ['localhost', '127.0.0.1'].includes(window.location.hostname);
   const CLASSROOM_APP_URL = IS_LOCAL ? 'http://localhost:5173' : 'https://harvest-dlp-portal.onrender.com';
 
+  // Order matters: with grid-auto-flow: column (see .card-grid CSS), the grid fills
+  // top-to-bottom within a column before moving to the next column. Grouped in pairs
+  // here so related apps land in the same column, one above the other.
   const APPS = [
     {
       id: 'dashboard',
@@ -437,6 +449,16 @@
       href: 'https://script.google.com/macros/s/AKfycbyUOowu_Polb8kvZ72oWe_Yx7iILDMMgO-2i0ZOvdEq_Q__iJovxgu9BIdFlKOR8yj5/exec',
       roles: ['teacher', 'auditor', 'sme'],
       btnLabel: 'Open Dashboard →'
+    },
+    {
+      id: 'parent',
+      title: 'Master CCT Dashboard',
+      desc: 'Schedule subject CCTs, access assessment results and send reports to parents.',
+      icon: '📅',
+      color: 'blue',
+      href: 'https://script.google.com/a/macros/harvestinternationalschool.in/s/AKfycbxVaCjoLdVvIvCAXz4hI77sx9cM2aLhpBVEwdHwqtKUCbd_j7jNUj0Mm5ECKYGTDMrAbA/exec',
+      roles: ['teacher', 'auditor', 'sme'],
+      btnLabel: 'Open Portal →'
     },
     {
       id: 'classroom',
@@ -450,26 +472,6 @@
       sso: true
     },
     {
-      id: 'curriculum',
-      title: 'Curriculum Tracker',
-      desc: 'Track curriculum coverage, pacing and progress across grades and subjects.',
-      icon: '📚',
-      color: 'red',
-      href: 'https://script.google.com/a/macros/harvestinternationalschool.in/s/AKfycbxq8CKdp_JWH6eUxLiPbwaPVJQmj9FciqYQq-zH-apQAFPjzvmb9CsckHAgmHgAizGNYg/exec',
-      roles: ['teacher', 'auditor', 'sme'],
-      btnLabel: 'Open Tracker →'
-    },
-    {
-      id: 'parent',
-      title: 'Master CCT Dashboard',
-      desc: 'Schedule, modify and view the subject CCTs results.',
-      icon: '📅',
-      color: 'blue',
-      href: 'https://script.google.com/a/macros/harvestinternationalschool.in/s/AKfycbxVaCjoLdVvIvCAXz4hI77sx9cM2aLhpBVEwdHwqtKUCbd_j7jNUj0Mm5ECKYGTDMrAbA/exec',
-      roles: ['teacher', 'auditor', 'sme'],
-      btnLabel: 'Open Portal →'
-    },
-    {
       id: 'cct',
       title: 'CCT Observation',
       desc: 'Conduct and record Critical Classroom Teaching observations using the structured form.',
@@ -480,14 +482,24 @@
       btnLabel: 'Open Form →'
     },
     {
-      id: 'timetable',
-      title: 'Timetable',
-      desc: 'View, generate and edit the school timetable.',
-      icon: '🗓️',
+      id: 'curriculum',
+      title: 'Curriculum Tracker',
+      desc: 'Track curriculum coverage, pacing and progress across grades and subjects.',
+      icon: '📚',
       color: 'red',
-      href: IS_LOCAL ? 'http://localhost:5174' : 'https://harvest-timetable-ui.onrender.com',
+      href: 'https://script.google.com/a/macros/harvestinternationalschool.in/s/AKfycbxq8CKdp_JWH6eUxLiPbwaPVJQmj9FciqYQq-zH-apQAFPjzvmb9CsckHAgmHgAizGNYg/exec',
+      roles: ['teacher', 'auditor', 'sme'],
+      btnLabel: 'Open Tracker →'
+    },
+    {
+      id: 'ticket-tracker',
+      title: 'Ticket Tracker',
+      desc: 'Log admin, curriculum, infrastructure, HR or DLP issues and track them to resolution.',
+      icon: '🎫',
+      color: 'blue',
+      href: IS_LOCAL ? 'http://localhost:5175' : 'https://harvest-tickettracker-ui.onrender.com',
       roles: 'all',
-      btnLabel: 'Open Timetable →',
+      btnLabel: 'Open Tracker →',
       sso: true
     },
     {
@@ -516,6 +528,17 @@
           previewUrl: 'https://drive.google.com/file/d/1knc9Wfi-P5WyswZJpYQkKcNR_jHQdYCK/preview'
        }
       ]
+    },
+    {
+      id: 'timetable',
+      title: 'Timetable',
+      desc: 'View your weekly schedule, or (leadership) import allocations, generate and edit the school timetable.',
+      icon: '🗓️',
+      color: 'red',
+      href: IS_LOCAL ? 'http://localhost:5174' : 'https://harvest-timetable-ui.onrender.com',
+      roles: 'all',
+      btnLabel: 'Open Timetable →',
+      sso: true
     }
   ];
 
