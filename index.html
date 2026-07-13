@@ -40,12 +40,12 @@
   /* ── HEADER ── */
   header {
     width: 100%;
-    padding: 20px 32px 18px;
+    padding: 10px 28px;
     display: flex;
     flex-direction: row;
     align-items: center;
     justify-content: center;
-    gap: 18px;
+    gap: 14px;
     border-bottom: 1px solid #e8eaed;
     flex-wrap: wrap;
   }
@@ -57,7 +57,7 @@
   }
 
   .logo-img {
-    height: 56px;
+    height: 36px;
     width: auto;
     object-fit: contain;
   }
@@ -72,7 +72,7 @@
 
   .academy-heading {
     font-family: "DM Serif Display", serif;
-    font-size: 30px;
+    font-size: 20px;
     letter-spacing: -0.01em;
     line-height: 1;
     text-align: left;
@@ -82,21 +82,21 @@
   .academy-heading .rest { color: var(--blue); }
 
   .academy-sub {
-    font-size: 10px;
+    font-size: 9px;
     font-weight: 600;
-    letter-spacing: 0.16em;
+    letter-spacing: 0.14em;
     text-transform: uppercase;
     color: var(--muted);
     text-align: left;
-    margin-top: 4px;
+    margin-top: 2px;
   }
 
   /* ── MAIN ── */
   main {
     flex: 1;
     width: 100%;
-    max-width: 900px;
-    padding: 28px 24px 60px;
+    max-width: 1080px;
+    padding: 22px 24px 50px;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -105,16 +105,19 @@
   /* ── CARD GRID ── */
   .card-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-    gap: 20px;
+    grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+    gap: 14px;
     width: 100%;
   }
 
   @media (max-width: 700px) {
-    .card-grid { grid-template-columns: 1fr; max-width: 360px; }
+    .card-grid { grid-template-columns: 1fr 1fr; max-width: 420px; gap: 10px; }
     header { justify-content: center; }
     .academy-heading { font-size: 22px; }
+  }
 
+  @media (max-width: 420px) {
+    .card-grid { grid-template-columns: 1fr; max-width: 320px; }
   }
 
   /* ── CARD ── */
@@ -126,10 +129,11 @@
     text-decoration: none;
     background: #fff;
     border: 1.5px solid #e4e7ec;
-    border-radius: 18px;
-    padding: 36px 20px 28px;
-    gap: 14px;
-    transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+    border-radius: 14px;
+    padding: 18px 14px 14px;
+    gap: 6px;
+    justify-content: space-between;
+    transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
     cursor: pointer;
     position: relative;
     overflow: hidden;
@@ -139,13 +143,13 @@
     content: "";
     position: absolute;
     top: 0; left: 0; right: 0;
-    height: 4px;
-    border-radius: 18px 18px 0 0;
+    height: 3px;
+    border-radius: 14px 14px 0 0;
   }
 
   .card:hover {
-    transform: translateY(-4px);
-    box-shadow: 0 12px 40px rgba(0,0,0,0.10);
+    transform: translateY(-3px);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.08);
   }
 
   /* Per-card accent colours */
@@ -153,19 +157,19 @@
   .card-green::before { background: var(--green); }
   .card-red::before   { background: var(--red); }
 
-  .card-blue:hover  { border-color: var(--blue); box-shadow: 0 12px 40px rgba(41,171,226,0.15); }
-  .card-green:hover { border-color: var(--green); box-shadow: 0 12px 40px rgba(74,140,42,0.15); }
-  .card-red:hover   { border-color: var(--red); box-shadow: 0 12px 40px rgba(192,57,43,0.13); }
+  .card-blue:hover  { border-color: var(--blue); box-shadow: 0 8px 24px rgba(41,171,226,0.14); }
+  .card-green:hover { border-color: var(--green); box-shadow: 0 8px 24px rgba(74,140,42,0.14); }
+  .card-red:hover   { border-color: var(--red); box-shadow: 0 8px 24px rgba(192,57,43,0.12); }
 
-  /* Icon circle */
+  /* Icon badge */
   .card-icon {
-    width: 60px;
-    height: 60px;
-    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    border-radius: 11px;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 26px;
+    font-size: 18px;
     flex-shrink: 0;
   }
 
@@ -175,37 +179,35 @@
 
   .card-title {
     font-family: "DM Serif Display", serif;
-    font-size: 17px;
+    font-size: 13.5px;
     color: var(--text);
     line-height: 1.25;
   }
 
   .card-desc {
-    font-size: 12px;
+    font-size: 11px;
     color: var(--muted);
-    line-height: 1.6;
-    flex: 1;
+    line-height: 1.4;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
   }
 
   .card-btn {
-    margin-top: 6px;
-    padding: 9px 22px;
-    border-radius: 30px;
+    margin-top: 2px;
     font-family: "DM Sans", sans-serif;
-    font-size: 12px;
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    border: none;
-    cursor: pointer;
-    transition: opacity 0.18s;
-    color: #fff;
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    transition: opacity 0.15s;
   }
 
-  .card-blue  .card-btn { background: var(--blue); }
-  .card-green .card-btn { background: var(--green); }
-  .card-red   .card-btn { background: var(--red); }
+  .card-blue  .card-btn { color: var(--blue-dk); }
+  .card-green .card-btn { color: var(--green-dk); }
+  .card-red   .card-btn { color: var(--red); }
 
-  .card:hover .card-btn { opacity: 0.88; }
+  .card:hover .card-btn { opacity: 0.75; }
 
   /* ── FOOTER ── */
   footer {
@@ -277,6 +279,14 @@
       <div class="card-title">CCT Observation</div>
       <div class="card-desc">Conduct and record Critical Classroom Teaching observations using the structured form.</div>
       <div class="card-btn">Open Form →</div>
+    </a>
+
+    <!-- Ticket Tracker -->
+    <a class="card card-red" href="https://harvest-tickettracker-ui.onrender.com" target="_blank" rel="noopener">
+      <div class="card-icon">🎫</div>
+      <div class="card-title">Ticket Tracker</div>
+      <div class="card-desc">Log admin, curriculum, infrastructure, HR or DLP issues and track them to resolution.</div>
+      <div class="card-btn">Open Tracker →</div>
     </a>
 
   </div>
