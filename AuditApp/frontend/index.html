@@ -21,7 +21,11 @@
         }
         // Block React from loading until SSO completes
         document.addEventListener("DOMContentLoaded", function () {}, false);
-        fetch("%VITE_API_URL%/api/auth/sso", {
+        // In local dev VITE_API_URL isn't defined, so Vite leaves this placeholder
+        // unreplaced — fall back to a relative path (proxied to the backend by vite.config.js).
+        var apiBase = "%VITE_API_URL%";
+        if (apiBase.indexOf("%VITE_API_URL%") !== -1) apiBase = "";
+        fetch(apiBase + "/api/auth/sso", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ supabase_token: ssoToken }),
@@ -38,7 +42,8 @@
             location.replace(location.pathname);
           })
           .catch(function () {
-            location.href = "https://harvest-portal.onrender.com/portal/login.html";
+            #location.href = "http://localhost:3000/portal/login.html";
+              location.href="https://harvest-portal.onrender.com/portal/login.html";
           });
       })();
     </script>
