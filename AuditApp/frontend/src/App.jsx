@@ -125,7 +125,7 @@ export default function App() {
     logout();
     setDrawerOpen(false);
     // Opened as a new window from portal — close it and return to portal
-    const portalUrl = import.meta.env.VITE_PORTAL_URL || "https://harvest-portal.onrender.com/portal/login.html";
+    const portalUrl = import.meta.env.VITE_PORTAL_URL || "http://localhost:3000/portal/index.html";
     if (window.opener) {
       window.close();
     } else {
@@ -144,9 +144,9 @@ export default function App() {
     try {
       const data = await api.createObservation(token, payload);
       if (selectedImages.length > 0) {
-        await Promise.all(selectedImages.map((file) =>
-          api.uploadImage(token, data.id, file).catch((err) =>
-            console.warn("Failed to upload image:", file.name, err)
+        await Promise.all(selectedImages.map((link) =>
+          api.addImageLink(token, data.id, link).catch((err) =>
+            console.warn("Failed to save image link:", link, err)
           )
         ));
       }
