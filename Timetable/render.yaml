@@ -1,0 +1,28 @@
+services:
+  # ── Backend API (FastAPI) ─────────────────────────────────────
+  - type: web
+    name: harvest-timetable-api
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: DATABASE_URL
+        sync: false   # set in the Render dashboard - same Supabase Postgres project as AuditApp
+      - key: SECRET_KEY
+        generateValue: true
+
+  # ── Frontend (React / Vite static site) ──────────────────────
+  - type: web
+    name: harvest-timetable-ui
+    runtime: static
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_API_URL
+        value: https://harvest-timetable-api.onrender.com   # update after backend deploys
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html

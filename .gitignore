@@ -1,0 +1,29 @@
+# Environment / secrets
+.env
+.env.local
+*.env
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+venv/
+.venv/
+
+# Node
+node_modules/
+dist/
+build/
+
+# Local SQLite dev databases and dev-only upload artifacts
+*.db
+*.db-shm
+*.db-wal
+uploads/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Office lock files (created while a workbook/doc is open, never worth committing)
+~$*

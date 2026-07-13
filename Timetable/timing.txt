@@ -1,0 +1,17 @@
+Class teacher's Time   8.00am-8.10am
+Period 1	8.10 am- 8.50 am
+BREAK	8.50am-9.05am
+Period 2	9.05am-9.45am
+Period 3	9.45am-10.25am
+Period 4	10.25am-11.05am
+Period 5	11.05am-11.45am
+Period 6	11.45am-12.25pm
+Break	12.25pm-12.50pm
+Period 7	12.50pm-1.30pm
+Period 8	1.30 pm- 2.10pm
+
+
+
+
+
+
