@@ -1,0 +1,36 @@
+services:
+  # ── Backend API (FastAPI) ─────────────────────────────────────
+  - type: web
+    name: harvest-tickettracker-api
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: DATABASE_URL
+        value: postgresql://postgres:HARVEST2011sch%40l@db.aouvxdfamzprykezeovl.supabase.co:5432/postgres?sslmode=require
+      - key: SECRET_KEY
+        generateValue: true
+      - key: APP_URL
+        value: https://harvest-tickettracker-ui.onrender.com   # update after frontend deploys
+      - key: RESEND_API_KEY
+        value: ""
+      - key: RESEND_FROM_EMAIL
+        value: ""
+      - key: RESPONSIBLE_WHATSAPP_DEFAULT
+        value: ""
+
+  # ── Frontend (React / Vite static site) ──────────────────────
+  - type: web
+    name: harvest-tickettracker-ui
+    runtime: static
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_API_URL
+        value: https://harvest-tickettracker-api.onrender.com   # update after backend deploys
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html

@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+    <title>Harvest International School — Ticket Tracker</title>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=DM+Serif+Display&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script>
+      // SSO: exchange Supabase token for Ticket Tracker JWT before React starts
+      (function () {
+        const ssoToken = new URLSearchParams(location.search).get("sso");
+        if (!ssoToken || localStorage.getItem("token")) {
+          if (ssoToken) history.replaceState({}, "", location.pathname + location.search.replace(/[?&]sso=[^&]*/, ""));
+          return;
+        }
+        var apiBase = "%VITE_API_URL%";
+        if (apiBase.indexOf("%VITE_API_URL%") !== -1) apiBase = "";
+        fetch(apiBase + "/api/auth/sso", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ supabase_token: ssoToken }),
+        })
+          .then(function (r) { return r.json(); })
+          .then(function (data) {
+            if (data.access_token) {
+              localStorage.setItem("token", data.access_token);
+              localStorage.setItem("user", JSON.stringify({ name: data.name, email: data.email }));
+            }
+            var params = new URLSearchParams(location.search);
+            params.delete("sso");
+            var qs = params.toString();
+            location.replace(location.pathname + (qs ? "?" + qs : ""));
+          })
+          .catch(function () {
+            location.href = "https://harvest-portal.onrender.com/portal/login.html";
+          });
+      })();
+    </script>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
