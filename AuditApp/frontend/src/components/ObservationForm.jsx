@@ -87,14 +87,29 @@ export default function ObservationForm({
     setLiveNote("");
   };
 
-  const handleImageSelection = (event) => {
-    const files = Array.from(event.target.files || []);
-    setSelectedImages((prev) => [...prev, ...files]);
-    event.target.value = "";
+  const [driveInput, setDriveInput] = useState("");
+  const [driveLinkError, setDriveLinkError] = useState("");
+
+  const addDriveLink = () => {
+    const link = driveInput.trim();
+    if (!link) return;
+    if (!link.includes("drive.google.com") && !link.startsWith("http")) {
+      setDriveLinkError("Please enter a valid Google Drive link.");
+      return;
+    }
+    setDriveLinkError("");
+    setSelectedImages((prev) => [...prev, link]);
+    setDriveInput("");
   };
 
   const removeImage = (index) => {
     setSelectedImages((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const getDriveEmbedUrl = (link) => {
+    const match = link.match(/\/d\/([a-zA-Z0-9_-]+)/);
+    if (match) return `https://drive.google.com/uc?export=view&id=${match[1]}`;
+    return link;
   };
 
   const handleSubmit = () => {
@@ -371,38 +386,31 @@ export default function ObservationForm({
             <h2>Audit Media (Images)</h2>
           </div>
           <div className="card">
-            <input
-              type="file"
-              id="imageFilesInput"
-              multiple
-              accept="image/*"
-              className="hidden"
-              onChange={handleImageSelection}
-            />
-            <div
-              className="image-upload-area flex-center"
-              onClick={() => document.getElementById("imageFilesInput").click()}
-            >
-              <div>
-                <div className="upload-icon">✦</div>
-                <div className="upload-txt">
-                  Click to select files
-                  <br />
-                  Supports multiple observation images
-                </div>
-              </div>
+            <div className="drive-link-input-row">
+              <input
+                type="url"
+                className="drive-link-input"
+                placeholder="Paste Google Drive image link here"
+                value={driveInput}
+                onChange={(e) => setDriveInput(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addDriveLink())}
+              />
+              <button type="button" className="btn-add-drive-link" onClick={addDriveLink}>
+                Add
+              </button>
+            </div>
+            {driveLinkError && <div className="drive-link-error">{driveLinkError}</div>}
+            <div className="drive-link-hint">
+              In Google Drive: right-click image → Share → Copy link. Make sure sharing is set to "Anyone with the link".
             </div>
             <div className="upload-preview-grid">
-              {selectedImages.map((file, index) => (
-                <div className="preview-img-wrapper" key={`${file.name}-${index}`}>
-                  <img src={URL.createObjectURL(file)} alt={file.name} />
+              {selectedImages.map((link, index) => (
+                <div className="preview-img-wrapper" key={index}>
+                  <img src={getDriveEmbedUrl(link)} alt={`Image ${index + 1}`} />
                   <button
                     type="button"
                     className="preview-remove-btn flex-center"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      removeImage(index);
-                    }}
+                    onClick={(e) => { e.stopPropagation(); removeImage(index); }}
                   >
                     ✕
                   </button>
