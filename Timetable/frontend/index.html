@@ -21,14 +21,24 @@
         }
         var apiBase = "%VITE_API_URL%";
         if (apiBase.indexOf("%VITE_API_URL%") !== -1) apiBase = "";
+        // Never fall back to localhost unless we're actually running on
+        // localhost ourselves - this no longer trusts the build-time
+        // substitution alone, so a missing/stale env var can't send a real
+        // visitor to a dev-only URL.
+        var isLocalDev = location.hostname === "localhost" || location.hostname === "127.0.0.1";
         var portalUrl = "%VITE_PORTAL_URL%";
-        if (portalUrl.indexOf("%VITE_PORTAL_URL%") !== -1) portalUrl = "http://localhost:3000/portal/login.html";
+        if (portalUrl.indexOf("%VITE_PORTAL_URL%") !== -1) {
+          portalUrl = isLocalDev ? "http://localhost:3000/portal/login.html" : "https://harvest-portal.onrender.com/portal/login.html";
+        }
         fetch(apiBase + "/api/auth/sso", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ supabase_token: ssoToken }),
         })
-          .then(function (r) { return r.json(); })
+          .then(function (r) {
+            if (!r.ok) throw new Error("SSO endpoint returned " + r.status);
+            return r.json();
+          })
           .then(function (data) {
             if (data.access_token) {
               localStorage.setItem("token", data.access_token);
@@ -39,7 +49,8 @@
             }
             location.replace(location.pathname);
           })
-          .catch(function () {
+          .catch(function (err) {
+            console.error("Timetable SSO exchange failed:", err);
             location.href = portalUrl;
           });
       })();

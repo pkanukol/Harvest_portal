@@ -52,7 +52,15 @@ export default function App() {
           <>
             <h2>Please open Timetable from the school portal</h2>
             <p>This app doesn't support direct login — go to the portal and open Timetable from there.</p>
-            <a className="btn" href={import.meta.env.VITE_PORTAL_URL || "http://localhost:3000/portal/login.html"}>
+            <a
+              className="btn"
+              href={
+                import.meta.env.VITE_PORTAL_URL ||
+                (["localhost", "127.0.0.1"].includes(window.location.hostname)
+                  ? "http://localhost:3000/portal/login.html"
+                  : "https://harvest-portal.onrender.com/portal/login.html")
+              }
+            >
               Go to portal
             </a>
           </>
