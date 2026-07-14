@@ -650,7 +650,7 @@
     activeListApp = null;
   }
 
-  async function openApp(app) {
+  /*async function openApp(app) {
     if (app.isList) {
       openDocList(app);
       return;
@@ -664,7 +664,33 @@
     } else {
       window.open(app.href, '_blank');
     }
+  }*/
+ async function openApp(app) {
+  if (app.isList) {
+    openDocList(app);
+    return;
   }
+  if (app.sso) {
+    // Open the tab synchronously, right in the click handler, so the browser
+    // never treats this as a blocked popup - only THEN fetch the token and
+    // point the already-open tab at its real destination.
+    const popup = window.open('', '_blank');
+    const session = await getSession();
+    const token = session?.access_token;
+    if (!token) {
+      if (popup) popup.close();
+      window.location.href = 'login.html';
+      return;
+    }
+    if (popup) {
+      popup.location.href = app.href + '?sso=' + encodeURIComponent(token);
+    } else {
+      window.open(app.href + '?sso=' + encodeURIComponent(token), '_blank');
+    }
+  } else {
+    window.open(app.href, '_blank');
+  }
+}
 
   init();
 </script>
