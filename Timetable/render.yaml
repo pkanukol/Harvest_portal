@@ -28,3 +28,14 @@ services:
       - type: rewrite
         source: /*
         destination: /index.html
+    headers:
+      # index.html carries the baked-in VITE_API_URL/VITE_PORTAL_URL and must
+      # always be revalidated - otherwise browsers/CDNs cache the app shell
+      # from an older build and every deploy after the first appears to do
+      # nothing until the visitor hard-refreshes.
+      - path: /
+        name: Cache-Control
+        value: no-cache, no-store, must-revalidate
+      - path: /index.html
+        name: Cache-Control
+        value: no-cache, no-store, must-revalidate
