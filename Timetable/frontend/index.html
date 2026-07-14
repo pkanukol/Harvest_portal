@@ -14,11 +14,22 @@
     <script>
       // SSO: exchange the portal's Supabase token for a Timetable JWT before React starts.
       (function () {
+        const LOG = "[Timetable SSO]";
         const ssoToken = new URLSearchParams(location.search).get("sso");
-        if (!ssoToken || localStorage.getItem("token")) {
-          if (ssoToken) history.replaceState({}, "", location.pathname);
+        const existingToken = localStorage.getItem("token");
+        console.log(LOG, "page loaded at", location.href);
+        console.log(LOG, "sso param present?", !!ssoToken, "| existing token in localStorage?", !!existingToken);
+
+        if (!ssoToken || existingToken) {
+          if (ssoToken) {
+            console.log(LOG, "Already have a token - skipping exchange, stripping sso param from URL.");
+            history.replaceState({}, "", location.pathname);
+          } else {
+            console.log(LOG, "No sso param, no existing token - normal app load, will show 'open from portal' screen.");
+          }
           return;
         }
+
         var apiBase = "%VITE_API_URL%";
         if (apiBase.indexOf("%VITE_API_URL%") !== -1) apiBase = "";
         // Never fall back to localhost unless we're actually running on
@@ -30,27 +41,36 @@
         if (portalUrl.indexOf("%VITE_PORTAL_URL%") !== -1) {
           portalUrl = isLocalDev ? "http://localhost:3000/portal/login.html" : "https://harvest-portal.onrender.com/portal/login.html";
         }
+        console.log(LOG, "apiBase resolved to:", JSON.stringify(apiBase), "| portalUrl fallback resolved to:", portalUrl);
+        console.log(LOG, "about to POST to:", apiBase + "/api/auth/sso");
+
         fetch(apiBase + "/api/auth/sso", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ supabase_token: ssoToken }),
         })
           .then(function (r) {
+            console.log(LOG, "fetch resolved, HTTP status:", r.status, r.ok ? "(ok)" : "(NOT ok)");
             if (!r.ok) throw new Error("SSO endpoint returned " + r.status);
             return r.json();
           })
           .then(function (data) {
+            console.log(LOG, "response body:", data);
             if (data.access_token) {
               localStorage.setItem("token", data.access_token);
               localStorage.setItem("user", JSON.stringify({
                 name: data.name, email: data.email, access_level: data.access_level, role: data.role,
                 designation: data.designation, teacher_id: data.teacher_id,
               }));
+              console.log(LOG, "token+user stored in localStorage, reloading page now.");
+            } else {
+              console.warn(LOG, "response had NO access_token field - staying logged out. Full body logged above.");
             }
             location.replace(location.pathname);
           })
           .catch(function (err) {
-            console.error("Timetable SSO exchange failed:", err);
+            console.error(LOG, "exchange FAILED with error:", err);
+            console.error(LOG, "redirecting to portal fallback:", portalUrl);
             location.href = portalUrl;
           });
       })();
