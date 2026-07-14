@@ -21,6 +21,8 @@
         }
         var apiBase = "%VITE_API_URL%";
         if (apiBase.indexOf("%VITE_API_URL%") !== -1) apiBase = "";
+        var portalUrl = "%VITE_PORTAL_URL%";
+        if (portalUrl.indexOf("%VITE_PORTAL_URL%") !== -1) portalUrl = "http://localhost:3000/portal/login.html";
         fetch(apiBase + "/api/auth/sso", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -38,7 +40,7 @@
             location.replace(location.pathname);
           })
           .catch(function () {
-            location.href = "/portal/login.html";
+            location.href = portalUrl;
           });
       })();
     </script>

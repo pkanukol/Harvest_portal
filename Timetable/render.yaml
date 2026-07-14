@@ -21,7 +21,9 @@ services:
     staticPublishPath: dist
     envVars:
       - key: VITE_API_URL
-        value: https://harvest-timetable-api.onrender.com   # update after backend deploys
+        value: https://harvest-timetable.onrender.com   # must match the actual deployed backend service URL
+      - key: VITE_PORTAL_URL
+        value: https://harvest-portal.onrender.com/portal/login.html
     routes:
       - type: rewrite
         source: /*

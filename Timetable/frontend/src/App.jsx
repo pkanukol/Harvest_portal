@@ -52,7 +52,9 @@ export default function App() {
           <>
             <h2>Please open Timetable from the school portal</h2>
             <p>This app doesn't support direct login — go to the portal and open Timetable from there.</p>
-            <a className="btn" href="/portal/login.html">Go to portal</a>
+            <a className="btn" href={import.meta.env.VITE_PORTAL_URL || "http://localhost:3000/portal/login.html"}>
+              Go to portal
+            </a>
           </>
         )}
       </div>
