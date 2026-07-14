@@ -666,42 +666,18 @@
     }
   }*/
 async function openApp(app) {
-  const LOG = "[Portal openApp]";
-  console.log(LOG, "clicked:", app.title, "| sso:", !!app.sso, "| href:", app.href);
-
   if (app.isList) {
     openDocList(app);
     return;
   }
   if (app.sso) {
-    const popup = window.open('', '_blank');
-    console.log(LOG, "popup opened synchronously?", !!popup);
-
     const session = await getSession();
-    console.log(LOG, "getSession() returned:", session ? "a session object" : session);
-
     const token = session?.access_token;
-    console.log(LOG, "token present?", !!token, "| token length:", token ? token.length : 0);
-
     if (!token) {
-      console.warn(LOG, "NO TOKEN - closing popup and redirecting current tab to login.html");
-      if (popup) popup.close();
       window.location.href = 'login.html';
       return;
     }
-
-    const destination = app.href + '?sso=' + encodeURIComponent(token);
-    console.log(LOG, "final destination URL length:", destination.length);
-    console.log(LOG, "final destination URL (first 80 chars):", destination.slice(0, 80) + "...");
-
-    if (popup) {
-      console.log(LOG, "setting popup.location.href now");
-      popup.location.href = destination;
-      console.log(LOG, "popup.location.href set. popup.closed?", popup.closed);
-    } else {
-      console.warn(LOG, "popup was null/blocked - falling back to direct window.open");
-      window.open(destination, '_blank');
-    }
+    window.location.href = app.href + '?sso=' + encodeURIComponent(token);
   } else {
     window.open(app.href, '_blank');
   }
