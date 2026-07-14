@@ -31,14 +31,20 @@
         }
 
         var apiBase = "%VITE_API_URL%";
-        if (apiBase.indexOf("%VITE_API_URL%") !== -1) apiBase = "";
+        // Vite's HTML env substitution is a blind find-and-replace across the
+        // WHOLE file - if we check apiBase.indexOf("%VITE_API_URL%"), Vite
+        // rewrites that literal text inside the check too, so a successfully
+        // substituted value ends up comparing itself to itself and always
+        // "passes" as unresolved. Checking the first character for a literal
+        // "%" instead is immune to this, since a real URL never starts with one.
+        if (apiBase.charAt(0) === "%") apiBase = "";
         // Never fall back to localhost unless we're actually running on
         // localhost ourselves - this no longer trusts the build-time
         // substitution alone, so a missing/stale env var can't send a real
         // visitor to a dev-only URL.
         var isLocalDev = location.hostname === "localhost" || location.hostname === "127.0.0.1";
         var portalUrl = "%VITE_PORTAL_URL%";
-        if (portalUrl.indexOf("%VITE_PORTAL_URL%") !== -1) {
+        if (portalUrl.charAt(0) === "%") {
           portalUrl = isLocalDev ? "http://localhost:3000/portal/login.html" : "https://harvest-portal.onrender.com/portal/login.html";
         }
         console.log(LOG, "apiBase resolved to:", JSON.stringify(apiBase), "| portalUrl fallback resolved to:", portalUrl);
