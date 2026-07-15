@@ -8,7 +8,7 @@ services:
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: DATABASE_URL
-        value: postgresql://postgres:HARVEST2011sch%40l@db.aouvxdfamzprykezeovl.supabase.co:5432/postgres?sslmode=require
+        sync: false   # set in the Render dashboard - same Supabase Postgres project as AuditApp
       - key: SECRET_KEY
         generateValue: true
       - key: APP_URL
