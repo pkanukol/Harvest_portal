@@ -7,11 +7,43 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 
 from .config import settings
-from .database import engine, Base, get_db
-from .constants import CATEGORIES, CATEGORY_RESPONSIBLE
+from .database import engine, Base, get_db, run_migrations, SessionLocal
+from .constants import (
+    CATEGORIES, LOCATIONS, CATEGORY_ROUTING, SUPER_ADMIN_EMAILS,
+    PRINCIPAL_BY_LOCATION, MANAGING_DIRECTOR, STORES_PROCUREMENT_CONTACT,
+)
 from . import models, schemas, crud, auth, email_service
 
+
+def _backfill_routing():
+    """Tickets logged before per-category routing existed (or before a category was
+    added to CATEGORY_ROUTING) end up with an empty responsible_to/cc after the
+    location/routing migration - which would leave them un-closeable, since nobody
+    matches an empty list. Fill them in from the current routing table, one-time,
+    idempotent (only touches rows still empty).
+    """
+    db = SessionLocal()
+    try:
+        # JSON-column equality checks are dialect-finicky (Postgres vs SQLite), so
+        # filter in Python instead - ticket volumes here are small.
+        changed = False
+        for ticket in db.query(models.Ticket).all():
+            if ticket.responsible_to:
+                continue
+            routing = CATEGORY_ROUTING.get(ticket.category, {}).get(ticket.location)
+            if routing:
+                ticket.responsible_to = routing["to"]
+                ticket.responsible_cc = routing["cc"]
+                changed = True
+        if changed:
+            db.commit()
+    finally:
+        db.close()
+
+
 Base.metadata.create_all(bind=engine)
+run_migrations()
+_backfill_routing()
 
 app = FastAPI(
     title="Harvest Ticket Tracker API",
@@ -30,41 +62,98 @@ app.add_middleware(
 MAX_IMAGES = 3
 
 
-def _whatsapp_link(phone: str, text: str) -> str:
-    if not phone:
-        return ""
-    digits = "".join(c for c in phone if c.isdigit() or c == "+")
-    return f"https://wa.me/{digits.lstrip('+')}?text={quote(text)}"
-
-
 def _whatsapp_share_link(text: str) -> str:
     """Opens WhatsApp with the message pre-filled but no contact pre-selected."""
     return f"https://api.whatsapp.com/send?text={quote(text)}"
 
 
-def _to_ticket_out(ticket: models.Ticket) -> schemas.TicketOut:
+def _principal_location(email: str) -> Optional[str]:
+    email_l = email.lower()
+    for loc, p in PRINCIPAL_BY_LOCATION.items():
+        if p["email"].lower() == email_l:
+            return loc
+    return None
+
+
+def _user_views(email: str) -> List[str]:
+    email_l = email.lower()
+    views = ["mine", "assigned"]
+    if _principal_location(email) is not None:
+        views.append("location")
+    if email_l in {e.lower() for e in SUPER_ADMIN_EMAILS}:
+        views.append("all")
+    return views
+
+
+def _can_act(ticket: models.Ticket, email: str) -> bool:
+    email_l = email.lower()
+    return email_l in {c["email"].lower() for c in (ticket.responsible_to or [])}
+
+
+def _can_record_order(ticket: models.Ticket, email: str) -> bool:
+    return ticket.category == "Stores" and email.lower() == STORES_PROCUREMENT_CONTACT["email"].lower()
+
+
+def _can_view_ticket(ticket: models.Ticket, email: str) -> bool:
+    email_l = email.lower()
+    if email_l in {e.lower() for e in SUPER_ADMIN_EMAILS}:
+        return True
+    if _principal_location(email) == ticket.location:
+        return True
+    if email_l == ticket.reporter_email.lower():
+        return True
+    if email_l in {c["email"].lower() for c in (ticket.responsible_to or [])}:
+        return True
+    if email_l in {c["email"].lower() for c in (ticket.responsible_cc or [])}:
+        return True
+    if _can_record_order(ticket, email):
+        return True
+    return False
+
+
+def _approval_level_for(email: str) -> str:
+    if _principal_location(email) is not None:
+        return "Principal"
+    if email.lower() == MANAGING_DIRECTOR["email"].lower():
+        return "MD"
+    return "Responsible"
+
+
+def _to_ticket_out(ticket: models.Ticket, current_user: auth.CurrentUser) -> schemas.TicketOut:
     ticket_url = f"{settings.APP_URL}/?ticket={ticket.id}"
-    responsible = CATEGORY_RESPONSIBLE.get(ticket.category, {})
     wa_text = f"Ticket {crud.ticket_number(ticket)} ({ticket.category}): {ticket.description[:120]} — {ticket_url}"
     return schemas.TicketOut(
         id=ticket.id,
         ticket_number=crud.ticket_number(ticket),
         category=ticket.category,
+        location=ticket.location,
         description=ticket.description,
         reporter_name=ticket.reporter_name,
         reporter_email=ticket.reporter_email,
-        responsible_name=ticket.responsible_name,
-        responsible_email=ticket.responsible_email,
+        responsible_to=ticket.responsible_to or [],
+        responsible_cc=ticket.responsible_cc or [],
+        item_name=ticket.item_name,
+        approx_cost=ticket.approx_cost,
+        quantity=ticket.quantity,
+        specifications=ticket.specifications,
+        order_by_date=ticket.order_by_date,
         status=ticket.status,
         effective_status=crud.compute_effective_status(ticket),
         created_at=ticket.created_at,
         closed_at=ticket.closed_at,
         closed_by_name=ticket.closed_by_name,
         resolution_remark=ticket.resolution_remark,
+        approval_level=ticket.approval_level,
+        order_date=ticket.order_date,
+        vendor_name=ticket.vendor_name,
+        order_actual_cost=ticket.order_actual_cost,
+        delivery_date=ticket.delivery_date,
+        tracking_details=ticket.tracking_details,
         images=[schemas.TicketImageOut(id=img.id, image_path=img.image_path) for img in ticket.images],
         ticket_url=ticket_url,
-        responsible_whatsapp=_whatsapp_link(responsible.get("whatsapp", ""), wa_text),
         share_whatsapp=_whatsapp_share_link(wa_text),
+        can_act=_can_act(ticket, current_user.email),
+        can_record_order=_can_record_order(ticket, current_user.email),
     )
 
 
@@ -100,15 +189,25 @@ async def sso_login(request: Request):
     name = user_metadata.get("full_name") or user_metadata.get("name") or email.split("@")[0]
 
     access_token = auth.create_access_token(data={"sub": email, "name": name})
-    return schemas.TokenOut(access_token=access_token, token_type="bearer", name=name, email=email)
+    return schemas.TokenOut(
+        access_token=access_token, token_type="bearer", name=name, email=email,
+        views=_user_views(email),
+    )
 
 
-# --- TICKETS ---
+# --- META ---
 
 @app.get("/api/categories")
 async def get_categories():
     return CATEGORIES
 
+
+@app.get("/api/locations")
+async def get_locations():
+    return LOCATIONS
+
+
+# --- TICKETS ---
 
 def _validate_image_link(link: str) -> str:
     link = link.strip()
@@ -127,17 +226,36 @@ async def create_ticket(
 ):
     if body.category not in CATEGORIES:
         raise HTTPException(status_code=400, detail="Invalid category")
-    if not body.description.strip():
-        raise HTTPException(status_code=400, detail="Description is required")
+    if body.location not in LOCATIONS:
+        raise HTTPException(status_code=400, detail="Invalid location")
     if len(body.image_links) > MAX_IMAGES:
         raise HTTPException(status_code=400, detail=f"Maximum {MAX_IMAGES} images allowed")
 
-    responsible = CATEGORY_RESPONSIBLE[body.category]
+    if body.category == "Stores":
+        if not (body.item_name or "").strip():
+            raise HTTPException(status_code=400, detail="Item name is required")
+        if not body.quantity or body.quantity <= 0:
+            raise HTTPException(status_code=400, detail="Quantity must be a positive number")
+        if body.approx_cost is None or body.approx_cost < 0:
+            raise HTTPException(status_code=400, detail="Approximate cost is required")
+        if not (body.order_by_date or "").strip():
+            raise HTTPException(status_code=400, detail="Order-by date is required")
+        description = f"{body.quantity} x {body.item_name.strip()} — approx cost ₹{body.approx_cost:.2f} each, needed by {body.order_by_date}"
+        if body.specifications and body.specifications.strip():
+            description += f"\nSpecifications: {body.specifications.strip()}"
+    else:
+        if not body.description.strip():
+            raise HTTPException(status_code=400, detail="Description is required")
+        description = body.description.strip()
+
+    routing = CATEGORY_ROUTING[body.category][body.location]
 
     ticket = crud.create_ticket(
-        db, category=body.category, description=body.description.strip(),
+        db, category=body.category, location=body.location, description=description,
         reporter_name=current_user.name, reporter_email=current_user.email,
-        responsible_name=responsible["name"], responsible_email=responsible["email"],
+        responsible_to=routing["to"], responsible_cc=routing["cc"],
+        item_name=body.item_name, approx_cost=body.approx_cost, quantity=body.quantity,
+        specifications=body.specifications, order_by_date=body.order_by_date,
     )
 
     for link in body.image_links:
@@ -151,16 +269,18 @@ async def create_ticket(
         email_service.send_new_ticket_notifications,
         ticket_number=crud.ticket_number(ticket), category=ticket.category, description=ticket.description,
         reporter_name=ticket.reporter_name, reporter_email=ticket.reporter_email,
-        responsible_name=ticket.responsible_name, responsible_email=ticket.responsible_email,
+        responsible_to=ticket.responsible_to, responsible_cc=ticket.responsible_cc,
         ticket_url=ticket_url,
     )
 
-    return _to_ticket_out(ticket)
+    return _to_ticket_out(ticket, current_user)
 
 
 @app.get("/api/tickets", response_model=List[schemas.TicketOut])
 async def list_tickets(
+    view: str = Query("mine"),
     category: Optional[str] = Query(None),
+    location: Optional[str] = Query(None),
     status_filter: Optional[str] = Query(None, alias="status"),
     reporter: Optional[str] = Query(None),
     date_from: Optional[datetime] = Query(None),
@@ -169,11 +289,28 @@ async def list_tickets(
     db: Session = Depends(get_db),
     current_user: auth.CurrentUser = Depends(auth.get_current_user),
 ):
+    allowed_views = _user_views(current_user.email)
+    if view not in allowed_views:
+        raise HTTPException(status_code=403, detail=f"You don't have access to the '{view}' view")
+
+    restrict_location = None
+    restrict_reporter_email = None
+    restrict_assigned_email = None
+    if view == "mine":
+        restrict_reporter_email = current_user.email
+    elif view == "assigned":
+        restrict_assigned_email = current_user.email
+    elif view == "location":
+        restrict_location = _principal_location(current_user.email)
+    # view == "all" -> no base restriction
+
     tickets = crud.list_tickets(
-        db, category=category, status_filter=status_filter, reporter=reporter,
+        db, category=category, location=location, status_filter=status_filter, reporter=reporter,
         date_from=date_from, date_to=date_to, sort=sort,
+        restrict_location=restrict_location, restrict_reporter_email=restrict_reporter_email,
+        restrict_assigned_email=restrict_assigned_email,
     )
-    return [_to_ticket_out(t) for t in tickets]
+    return [_to_ticket_out(t, current_user) for t in tickets]
 
 
 @app.get("/api/tickets/{ticket_id}", response_model=schemas.TicketOut)
@@ -185,13 +322,15 @@ async def get_ticket(
     ticket = crud.get_ticket(db, ticket_id)
     if not ticket:
         raise HTTPException(status_code=404, detail="Ticket not found")
-    return _to_ticket_out(ticket)
+    if not _can_view_ticket(ticket, current_user.email):
+        raise HTTPException(status_code=403, detail="You don't have access to this ticket")
+    return _to_ticket_out(ticket, current_user)
 
 
 @app.post("/api/tickets/{ticket_id}/close", response_model=schemas.TicketOut)
 async def close_ticket(
     ticket_id: int,
-    body: schemas.TicketClose,
+    body: schemas.TicketDecision,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: auth.CurrentUser = Depends(auth.get_current_user),
@@ -199,24 +338,120 @@ async def close_ticket(
     ticket = crud.get_ticket(db, ticket_id)
     if not ticket:
         raise HTTPException(status_code=404, detail="Ticket not found")
-    if ticket.responsible_email.lower() != current_user.email.lower():
+    if ticket.category == "Stores":
+        raise HTTPException(status_code=400, detail="Stores requisitions are approved or rejected, not closed")
+    if not _can_act(ticket, current_user.email):
         raise HTTPException(status_code=403, detail="Only the responsible person can close this ticket")
-    if ticket.status == "Closed":
+    if ticket.status in crud.TERMINAL_STATUSES:
         raise HTTPException(status_code=400, detail="Ticket is already closed")
     if not body.remark.strip():
         raise HTTPException(status_code=400, detail="A closing remark is required")
 
-    ticket = crud.close_ticket(db, ticket, body.remark.strip(), current_user.name, current_user.email)
+    ticket = crud.resolve_ticket(db, ticket, "Closed", body.remark.strip(), current_user.name, current_user.email)
 
     ticket_url = f"{settings.APP_URL}/?ticket={ticket.id}"
     background_tasks.add_task(
-        email_service.send_ticket_closed_notification,
-        ticket_number=crud.ticket_number(ticket), category=ticket.category,
+        email_service.send_ticket_resolved_notification,
+        ticket_number=crud.ticket_number(ticket), category=ticket.category, status_label="closed",
         reporter_name=ticket.reporter_name, reporter_email=ticket.reporter_email,
-        closed_by_name=current_user.name, remark=ticket.resolution_remark, ticket_url=ticket_url,
+        actor_name=current_user.name, remark=ticket.resolution_remark, ticket_url=ticket_url,
     )
 
-    return _to_ticket_out(ticket)
+    return _to_ticket_out(ticket, current_user)
+
+
+async def _decide_stores_ticket(
+    ticket_id: int, body: schemas.TicketDecision, new_status: str,
+    background_tasks: BackgroundTasks, db: Session, current_user: auth.CurrentUser,
+) -> schemas.TicketOut:
+    ticket = crud.get_ticket(db, ticket_id)
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    if ticket.category != "Stores":
+        raise HTTPException(status_code=400, detail="Only Stores requisitions use approve/reject")
+    if not _can_act(ticket, current_user.email):
+        raise HTTPException(status_code=403, detail="You are not an approver for this requisition")
+    if ticket.status in crud.TERMINAL_STATUSES:
+        raise HTTPException(status_code=400, detail="This requisition has already been decided")
+    if not body.remark.strip():
+        raise HTTPException(status_code=400, detail="A remark is required")
+
+    level = _approval_level_for(current_user.email)
+    ticket = crud.resolve_ticket(
+        db, ticket, new_status, body.remark.strip(), current_user.name, current_user.email,
+        approval_level=level,
+    )
+
+    ticket_url = f"{settings.APP_URL}/?ticket={ticket.id}"
+    background_tasks.add_task(
+        email_service.send_ticket_resolved_notification,
+        ticket_number=crud.ticket_number(ticket), category=ticket.category,
+        status_label=new_status.lower(),
+        reporter_name=ticket.reporter_name, reporter_email=ticket.reporter_email,
+        actor_name=current_user.name, remark=ticket.resolution_remark, ticket_url=ticket_url,
+    )
+
+    return _to_ticket_out(ticket, current_user)
+
+
+@app.post("/api/tickets/{ticket_id}/approve", response_model=schemas.TicketOut)
+async def approve_ticket(
+    ticket_id: int,
+    body: schemas.TicketDecision,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user: auth.CurrentUser = Depends(auth.get_current_user),
+):
+    return await _decide_stores_ticket(ticket_id, body, "Approved", background_tasks, db, current_user)
+
+
+@app.post("/api/tickets/{ticket_id}/reject", response_model=schemas.TicketOut)
+async def reject_ticket(
+    ticket_id: int,
+    body: schemas.TicketDecision,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user: auth.CurrentUser = Depends(auth.get_current_user),
+):
+    return await _decide_stores_ticket(ticket_id, body, "Rejected", background_tasks, db, current_user)
+
+
+@app.post("/api/tickets/{ticket_id}/order-details", response_model=schemas.TicketOut)
+async def record_order_details(
+    ticket_id: int,
+    body: schemas.OrderDetails,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user: auth.CurrentUser = Depends(auth.get_current_user),
+):
+    ticket = crud.get_ticket(db, ticket_id)
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    if not _can_record_order(ticket, current_user.email):
+        raise HTTPException(status_code=403, detail="Only the procurement contact can record order details")
+    if ticket.status not in ("Approved", "Ordered"):
+        raise HTTPException(status_code=400, detail="Order details can only be recorded for an approved requisition")
+    if not body.order_date.strip() or not body.vendor_name.strip():
+        raise HTTPException(status_code=400, detail="Order date and vendor name are required")
+
+    was_first_time = ticket.status == "Approved"
+    ticket = crud.record_order_details(
+        db, ticket, order_date=body.order_date.strip(), vendor_name=body.vendor_name.strip(),
+        actual_cost=body.actual_cost, delivery_date=(body.delivery_date or "").strip() or None,
+        tracking_details=(body.tracking_details or "").strip() or None,
+    )
+
+    if was_first_time:
+        ticket_url = f"{settings.APP_URL}/?ticket={ticket.id}"
+        background_tasks.add_task(
+            email_service.send_order_placed_notification,
+            ticket_number=crud.ticket_number(ticket), category=ticket.category,
+            reporter_name=ticket.reporter_name, reporter_email=ticket.reporter_email,
+            vendor_name=ticket.vendor_name, order_date=ticket.order_date,
+            delivery_date=ticket.delivery_date, ticket_url=ticket_url,
+        )
+
+    return _to_ticket_out(ticket, current_user)
 
 
 @app.get("/api/health")
