@@ -1,32 +1,49 @@
 import { useEffect, useState, useCallback } from "react";
 import { api } from "../api";
 
-const CATEGORIES = ["Admin", "Curriculum", "Infrastructure", "HR", "DLP"];
-const STATUSES = ["Open", "Needs immediate attention", "Closed"];
+const STATUSES = ["Open", "Needs immediate attention", "Closed", "Approved", "Ordered", "Rejected"];
+const LOCATIONS = ["Kodathi", "Attibele"];
+
+const VIEW_LABELS = {
+  mine: "Logged by Me",
+  assigned: "Assigned to Me",
+  location: "All in My Location",
+  all: "All Tickets",
+};
+const VIEW_ORDER = ["mine", "assigned", "location", "all"];
 
 function statusClass(status) {
   if (status === "Closed") return "badge badge-closed";
   if (status === "Needs immediate attention") return "badge badge-attention";
+  if (status === "Approved") return "badge badge-approved";
+  if (status === "Ordered") return "badge badge-ordered";
+  if (status === "Rejected") return "badge badge-rejected";
   return "badge badge-open";
 }
 
-export default function TicketList({ token, onOpenTicket }) {
+export default function TicketList({ token, user, onOpenTicket }) {
+  const availableViews = VIEW_ORDER.filter((v) => (user?.views || []).includes(v));
+  const [view, setView] = useState(availableViews[0] || "mine");
   const [tickets, setTickets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [category, setCategory] = useState("");
+  const [categories, setCategories] = useState([]);
+  const [locationFilter, setLocationFilter] = useState("");
   const [status, setStatus] = useState("");
   const [reporter, setReporter] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [sort, setSort] = useState("desc");
 
+  useEffect(() => { api.getCategories().then(setCategories).catch(() => {}); }, []);
+
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
       const data = await api.listTickets(token, {
-        category, status, reporter,
+        view, category, location: locationFilter, status, reporter,
         date_from: dateFrom ? new Date(dateFrom).toISOString() : "",
         date_to: dateTo ? new Date(dateTo).toISOString() : "",
         sort,
@@ -37,18 +54,38 @@ export default function TicketList({ token, onOpenTicket }) {
     } finally {
       setLoading(false);
     }
-  }, [token, category, status, reporter, dateFrom, dateTo, sort]);
+  }, [token, view, category, locationFilter, status, reporter, dateFrom, dateTo, sort]);
 
   useEffect(() => { load(); }, [load]);
 
   return (
     <div className="card list-card">
-      <h2 className="card-heading">All Tickets</h2>
+      <h2 className="card-heading">Tickets</h2>
+
+      {availableViews.length > 1 && (
+        <div className="view-tabs">
+          {availableViews.map((v) => (
+            <button
+              key={v}
+              type="button"
+              className={`view-tab${v === view ? " active" : ""}`}
+              onClick={() => setView(v)}
+            >
+              {VIEW_LABELS[v]}
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="filter-bar">
         <select className="field-input" value={category} onChange={(e) => setCategory(e.target.value)}>
           <option value="">All Categories</option>
-          {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+          {categories.map((c) => <option key={c} value={c}>{c}</option>)}
+        </select>
+
+        <select className="field-input" value={locationFilter} onChange={(e) => setLocationFilter(e.target.value)}>
+          <option value="">All Locations</option>
+          {LOCATIONS.map((l) => <option key={l} value={l}>{l}</option>)}
         </select>
 
         <select className="field-input" value={status} onChange={(e) => setStatus(e.target.value)}>
@@ -84,6 +121,7 @@ export default function TicketList({ token, onOpenTicket }) {
             <div className="ticket-row-main">
               <span className="ticket-row-number">{t.ticket_number}</span>
               <span className="ticket-row-category">{t.category}</span>
+              <span className="ticket-row-location">{t.location}</span>
               <span className="ticket-row-desc">{t.description}</span>
             </div>
             <div className="ticket-row-meta">
