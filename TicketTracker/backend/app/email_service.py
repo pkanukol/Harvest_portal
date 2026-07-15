@@ -1,4 +1,5 @@
 import logging
+from typing import List
 import httpx
 from .config import settings
 
@@ -7,14 +8,16 @@ logger = logging.getLogger(__name__)
 RESEND_URL = "https://api.resend.com/emails"
 
 
-async def _send_resend(to_email: str, subject: str, body_text: str, body_html: str,
-                        reply_to: str = "") -> bool:
+async def _send_resend(to: List[str], subject: str, body_text: str, body_html: str,
+                        cc: List[str] = None, reply_to: str = "") -> bool:
     from_addr = f"Harvest Ticket Tracker <{settings.RESEND_FROM_EMAIL}>"
 
     print(f"\n{'='*60}", flush=True)
     print("EMAIL TRIGGERED (Resend)", flush=True)
     print(f"  From   : {from_addr}", flush=True)
-    print(f"  To     : {to_email}", flush=True)
+    print(f"  To     : {', '.join(to)}", flush=True)
+    if cc:
+        print(f"  Cc     : {', '.join(cc)}", flush=True)
     print(f"  Subject: {subject}", flush=True)
     print(f"{'='*60}\n", flush=True)
 
@@ -25,11 +28,13 @@ async def _send_resend(to_email: str, subject: str, body_text: str, body_html: s
 
     payload = {
         "from": from_addr,
-        "to": [to_email],
+        "to": to,
         "subject": subject,
         "text": body_text,
         "html": body_html,
     }
+    if cc:
+        payload["cc"] = cc
     if reply_to:
         payload["reply_to"] = reply_to
 
@@ -42,14 +47,14 @@ async def _send_resend(to_email: str, subject: str, body_text: str, body_html: s
                 json=payload,
             )
         if resp.status_code in (200, 201):
-            print(f"  SUCCESS: Email sent to {to_email}\n", flush=True)
+            print(f"  SUCCESS: Email sent to {', '.join(to)}\n", flush=True)
             return True
         print(f"  RESEND ERROR {resp.status_code}: {resp.text}\n", flush=True)
-        logger.error(f"Resend error {resp.status_code} for {to_email}: {resp.text}")
+        logger.error(f"Resend error {resp.status_code} for {to}: {resp.text}")
         return False
     except Exception as e:
         print(f"  EMAIL ERROR: {e}\n", flush=True)
-        logger.error(f"Failed to send email to {to_email}: {e}")
+        logger.error(f"Failed to send email to {to}: {e}")
         return False
 
 
@@ -63,7 +68,7 @@ def _ticket_card_html(ticket_number: str, category: str, description: str, ticke
         <div style="padding:22px;">
             <div style="background:#f2f6fb;border-left:4px solid #29ABE2;border-radius:0 8px 8px 0;padding:12px 16px;margin:0 0 16px;">
                 <div style="font-size:11px;font-weight:bold;color:#1a6ea3;text-transform:uppercase;margin-bottom:6px;">{ticket_number} &middot; {category}</div>
-                <div style="font-size:13px;color:#333;line-height:1.6;">{description}</div>
+                <div style="font-size:13px;color:#333;line-height:1.6;white-space:pre-wrap;">{description}</div>
             </div>
             <div style="text-align:center;margin-bottom:18px;">
                 <a href="{ticket_url}" style="display:inline-block;padding:11px 26px;background:linear-gradient(135deg,#29ABE2,#1a8abf);color:#fff;text-decoration:none;border-radius:8px;font-size:13px;font-weight:bold;">Open Ticket &rarr;</a>
@@ -76,33 +81,52 @@ def _ticket_card_html(ticket_number: str, category: str, description: str, ticke
 
 async def send_new_ticket_notifications(ticket_number: str, category: str, description: str,
                                          reporter_name: str, reporter_email: str,
-                                         responsible_name: str, responsible_email: str,
+                                         responsible_to: list, responsible_cc: list,
                                          ticket_url: str):
     card = _ticket_card_html(ticket_number, category, description, ticket_url)
 
     await _send_resend(
-        reporter_email,
+        [reporter_email],
         f"{ticket_number} logged | {category}",
         f"Dear {reporter_name},\n\nYour ticket {ticket_number} ({category}) has been logged.\n\n{description}\n\nTrack it here: {ticket_url}\n\nRegards,\nHarvest International School",
         f"<p>Dear <strong>{reporter_name}</strong>,</p><p>Your ticket has been logged.</p>{card}",
     )
 
+    to_emails = [c["email"] for c in responsible_to]
+    cc_emails = [c["email"] for c in responsible_cc]
+    to_names = ", ".join(c["name"] for c in responsible_to) or "Team"
     await _send_resend(
-        responsible_email,
+        to_emails,
         f"New ticket {ticket_number} | {category}",
-        f"Dear {responsible_name},\n\nA new ticket {ticket_number} ({category}) was logged by {reporter_name} ({reporter_email}).\n\n{description}\n\nView it here: {ticket_url}\n\nRegards,\nHarvest International School",
-        f"<p>Dear <strong>{responsible_name}</strong>,</p><p>A new ticket was logged by <strong>{reporter_name}</strong> ({reporter_email}).</p>{card}",
+        f"Dear {to_names},\n\nA new ticket {ticket_number} ({category}) was logged by {reporter_name} ({reporter_email}).\n\n{description}\n\nView it here: {ticket_url}\n\nRegards,\nHarvest International School",
+        f"<p>Dear <strong>{to_names}</strong>,</p><p>A new ticket was logged by <strong>{reporter_name}</strong> ({reporter_email}).</p>{card}",
+        cc=cc_emails,
         reply_to=reporter_email,
     )
 
 
-async def send_ticket_closed_notification(ticket_number: str, category: str,
-                                           reporter_name: str, reporter_email: str,
-                                           closed_by_name: str, remark: str, ticket_url: str):
-    card = _ticket_card_html(ticket_number, category, f"Resolution: {remark}", ticket_url)
+async def send_ticket_resolved_notification(ticket_number: str, category: str, status_label: str,
+                                             reporter_name: str, reporter_email: str,
+                                             actor_name: str, remark: str, ticket_url: str):
+    card = _ticket_card_html(ticket_number, category, f"Remark: {remark}", ticket_url)
     await _send_resend(
-        reporter_email,
-        f"{ticket_number} closed | {category}",
-        f"Dear {reporter_name},\n\nYour ticket {ticket_number} ({category}) has been closed by {closed_by_name}.\n\nRemark: {remark}\n\nView it here: {ticket_url}\n\nRegards,\nHarvest International School",
-        f"<p>Dear <strong>{reporter_name}</strong>,</p><p>Your ticket has been closed by <strong>{closed_by_name}</strong>.</p>{card}",
+        [reporter_email],
+        f"{ticket_number} {status_label} | {category}",
+        f"Dear {reporter_name},\n\nYour ticket {ticket_number} ({category}) has been {status_label} by {actor_name}.\n\nRemark: {remark}\n\nView it here: {ticket_url}\n\nRegards,\nHarvest International School",
+        f"<p>Dear <strong>{reporter_name}</strong>,</p><p>Your ticket has been <strong>{status_label}</strong> by <strong>{actor_name}</strong>.</p>{card}",
+    )
+
+
+async def send_order_placed_notification(ticket_number: str, category: str,
+                                          reporter_name: str, reporter_email: str,
+                                          vendor_name: str, order_date: str,
+                                          delivery_date: str, ticket_url: str):
+    delivery_line = f" Expected delivery: {delivery_date}." if delivery_date else ""
+    detail = f"Ordered from {vendor_name} on {order_date}.{delivery_line}"
+    card = _ticket_card_html(ticket_number, category, detail, ticket_url)
+    await _send_resend(
+        [reporter_email],
+        f"{ticket_number} ordered | {category}",
+        f"Dear {reporter_name},\n\nYour requisition {ticket_number} ({category}) has been ordered.\n\n{detail}\n\nView it here: {ticket_url}\n\nRegards,\nHarvest International School",
+        f"<p>Dear <strong>{reporter_name}</strong>,</p><p>Your requisition has been ordered.</p>{card}",
     )
