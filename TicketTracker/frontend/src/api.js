@@ -32,12 +32,16 @@ export const api = {
     request("/auth/sso", { method: "POST", body: { supabase_token: supabaseToken } }),
 
   getCategories: () => request("/categories"),
+  getLocations: () => request("/locations"),
 
-  createTicket: (token, { category, description, imageLinks }) =>
+  createTicket: (token, { category, location, description, imageLinks, itemName, approxCost, quantity, specifications, orderByDate }) =>
     request("/tickets", {
       method: "POST",
       token,
-      body: { category, description, image_links: imageLinks },
+      body: {
+        category, location, description: description || "", image_links: imageLinks,
+        item_name: itemName, approx_cost: approxCost, quantity, specifications, order_by_date: orderByDate,
+      },
     }),
 
   listTickets: (token, filters = {}) => {
@@ -53,4 +57,20 @@ export const api = {
 
   closeTicket: (token, id, remark) =>
     request(`/tickets/${id}/close`, { method: "POST", token, body: { remark } }),
+
+  approveTicket: (token, id, remark) =>
+    request(`/tickets/${id}/approve`, { method: "POST", token, body: { remark } }),
+
+  rejectTicket: (token, id, remark) =>
+    request(`/tickets/${id}/reject`, { method: "POST", token, body: { remark } }),
+
+  recordOrderDetails: (token, id, { orderDate, vendorName, actualCost, deliveryDate, trackingDetails }) =>
+    request(`/tickets/${id}/order-details`, {
+      method: "POST",
+      token,
+      body: {
+        order_date: orderDate, vendor_name: vendorName, actual_cost: actualCost,
+        delivery_date: deliveryDate, tracking_details: trackingDetails,
+      },
+    }),
 };
