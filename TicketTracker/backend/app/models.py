@@ -1,5 +1,5 @@
 import datetime
-from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey
+from sqlalchemy import Column, Integer, Float, String, DateTime, Text, ForeignKey, JSON
 from sqlalchemy.orm import relationship
 from .database import Base
 
@@ -9,23 +9,42 @@ class Ticket(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     category = Column(String, nullable=False)
+    location = Column(String, nullable=False)  # "Kodathi" | "Attibele"
     description = Column(Text, nullable=False)
 
     reporter_name = Column(String, nullable=False)
     reporter_email = Column(String, nullable=False, index=True)
 
-    # Snapshotted at creation time from the category->responsible map, so a later
-    # change to that map doesn't alter who could close an already-open ticket.
-    responsible_name = Column(String, nullable=False)
-    responsible_email = Column(String, nullable=False, index=True)
+    # Snapshotted at creation time from CATEGORY_ROUTING, so a later routing change
+    # doesn't alter who could act on an already-open ticket. Each entry is
+    # {"name": str, "email": str}. Anyone in responsible_to can close/approve;
+    # responsible_cc is notified only.
+    responsible_to = Column(JSON, nullable=False, default=list)
+    responsible_cc = Column(JSON, nullable=False, default=list)
 
-    status = Column(String, nullable=False, default="Open")  # "Open" | "Closed"
+    # Stores (inventory requisition) only - null for every other category.
+    item_name = Column(String, nullable=True)
+    approx_cost = Column(Float, nullable=True)
+    quantity = Column(Integer, nullable=True)
+    specifications = Column(Text, nullable=True)
+    order_by_date = Column(String, nullable=True)  # ISO date string (YYYY-MM-DD)
+
+    # Order Details, filled in by the procurement contact once Approved - null until then.
+    order_date = Column(String, nullable=True)  # ISO date string (YYYY-MM-DD)
+    vendor_name = Column(String, nullable=True)
+    order_actual_cost = Column(Float, nullable=True)
+    delivery_date = Column(String, nullable=True)  # ISO date string (YYYY-MM-DD)
+    tracking_details = Column(Text, nullable=True)
+
+    # "Open" | "Closed" | "Approved" | "Rejected" | "Ordered" (the latter three are Stores-only)
+    status = Column(String, nullable=False, default="Open")
     created_at = Column(DateTime, default=datetime.datetime.utcnow, index=True)
     closed_at = Column(DateTime, nullable=True)
 
     closed_by_name = Column(String, nullable=True)
     closed_by_email = Column(String, nullable=True)
     resolution_remark = Column(Text, nullable=True)
+    approval_level = Column(String, nullable=True)  # "Principal" | "MD" - Stores only
 
     images = relationship("TicketImage", back_populates="ticket", cascade="all, delete-orphan")
 
