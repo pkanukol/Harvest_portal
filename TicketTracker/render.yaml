@@ -12,7 +12,7 @@ services:
                         # source build that fails on Render's read-only build filesystem
       - key: DATABASE_URL
         sync: false   # set in the Render dashboard - same Supabase Postgres project as AuditApp/Timetable
-     - key: SECRET_KEY
+      - key: SECRET_KEY
         generateValue: true
       - key: APP_URL
         value: https://harvest-tickettracker-ui.onrender.com   # update after frontend deploys
