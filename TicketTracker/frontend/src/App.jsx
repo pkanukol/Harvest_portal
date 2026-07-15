@@ -14,6 +14,8 @@ export default function App() {
     !!new URLSearchParams(window.location.search).get("sso")
   );
   const [view, setView] = useState("list");
+  const [location, setLocation] = useState("Kodathi");
+  const [categories, setCategories] = useState([]);
   const [activeTicketId, setActiveTicketId] = useState(null);
   const [successTicket, setSuccessTicket] = useState(null);
   const [submitting, setSubmitting] = useState(false);
@@ -31,13 +33,19 @@ export default function App() {
     api.ssoLogin(ssoToken)
       .then((data) => {
         localStorage.setItem("token", data.access_token);
-        localStorage.setItem("user", JSON.stringify({ name: data.name, email: data.email }));
+        localStorage.setItem("user", JSON.stringify({ name: data.name, email: data.email, views: data.views || [] }));
         params.delete("sso");
         const qs = params.toString();
         window.location.replace(window.location.pathname + (qs ? `?${qs}` : ""));
       })
       .catch(() => setSsoLoading(false));
   }, []);
+
+  // Fetch categories once (alphabetically sorted by the backend)
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    api.getCategories().then(setCategories).catch(() => {});
+  }, [isAuthenticated]);
 
   // Deep link: ?ticket=<id> opens that ticket directly once authenticated
   useEffect(() => {
@@ -72,12 +80,11 @@ export default function App() {
     setView("detail");
   };
 
-  const handleSubmit = async ({ category, description, imageLinks }) => {
-    if (!description.trim()) { setSubmitError("Please describe the problem."); return; }
+  const handleSubmit = async (payload) => {
     setSubmitting(true);
     setSubmitError("");
     try {
-      const ticket = await api.createTicket(token, { category, description, imageLinks });
+      const ticket = await api.createTicket(token, { ...payload, location });
       setSuccessTicket(ticket);
       setView("success");
     } catch (err) {
@@ -90,7 +97,15 @@ export default function App() {
   return (
     <>
       {isAuthenticated && (
-        <Header user={user} view={view} onList={goList} onNew={goNew} onLogout={handleLogout} />
+        <Header
+          user={user}
+          view={view}
+          location={location}
+          onLocationChange={setLocation}
+          onList={goList}
+          onNew={goNew}
+          onLogout={handleLogout}
+        />
       )}
 
       <div className="app-container">
@@ -105,10 +120,17 @@ export default function App() {
           )
         ) : (
           <>
-            {view === "list" && <TicketList token={token} onOpenTicket={openTicket} />}
+            {view === "list" && (
+              <TicketList token={token} user={user} location={location} onOpenTicket={openTicket} />
+            )}
 
             {view === "new" && (
-              <TicketForm onSubmit={handleSubmit} submitting={submitting} submitError={submitError} />
+              <TicketForm
+                categories={categories}
+                onSubmit={handleSubmit}
+                submitting={submitting}
+                submitError={submitError}
+              />
             )}
 
             {view === "success" && (
