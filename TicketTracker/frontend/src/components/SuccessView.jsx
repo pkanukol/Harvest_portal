@@ -1,22 +1,19 @@
 export default function SuccessView({ ticket, onViewTicket, onNewTicket, onAllTickets }) {
   if (!ticket) return null;
 
+  const responsibleNames = (ticket.responsible_to || []).map((c) => c.name).join(", ") || "the responsible team";
+
   return (
     <div className="card success-card">
       <div className="success-icon">✅</div>
       <h2 className="card-heading">Ticket Logged</h2>
       <div className="ticket-number-badge">{ticket.ticket_number}</div>
       <p className="success-copy">
-        Your <strong>{ticket.category}</strong> ticket has been logged and {ticket.responsible_name} has been
+        Your <strong>{ticket.category}</strong> ticket has been logged and {responsibleNames} has been
         notified by email.
       </p>
 
       <div className="whatsapp-actions">
-        {ticket.responsible_whatsapp && (
-          <a className="btn btn-whatsapp" href={ticket.responsible_whatsapp} target="_blank" rel="noopener noreferrer">
-            📱 Notify {ticket.responsible_name} via WhatsApp
-          </a>
-        )}
         {ticket.share_whatsapp && (
           <a className="btn btn-ghost" href={ticket.share_whatsapp} target="_blank" rel="noopener noreferrer">
             Share via WhatsApp
