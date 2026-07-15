@@ -7,9 +7,12 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.3   # newer Pythons (3.13+) have no prebuilt pydantic-core wheel yet, forcing a Rust/maturin
+                        # source build that fails on Render's read-only build filesystem
       - key: DATABASE_URL
-        sync: false   # set in the Render dashboard - same Supabase Postgres project as AuditApp
-      - key: SECRET_KEY
+        sync: false   # set in the Render dashboard - same Supabase Postgres project as AuditApp/Timetable
+     - key: SECRET_KEY
         generateValue: true
       - key: APP_URL
         value: https://harvest-tickettracker-ui.onrender.com   # update after frontend deploys
