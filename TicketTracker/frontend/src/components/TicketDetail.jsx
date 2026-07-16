@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { api } from "../api";
+import { api, API_ROOT } from "../api";
 
 function statusClass(status) {
   if (status === "Closed") return "badge badge-closed";
@@ -10,22 +10,22 @@ function statusClass(status) {
   return "badge badge-open";
 }
 
-// Google Drive share links (".../file/d/<id>/view") don't render as <img src>
-// directly — this rewrites them to the direct-content export URL that does.
-function driveEmbedUrl(link) {
-  const match = link?.match(/\/d\/([a-zA-Z0-9_-]+)/);
-  if (match) return `https://drive.google.com/uc?export=view&id=${match[1]}`;
-  return link;
+// Images are served from our own API (auth-gated, same permission check as the
+// ticket itself) rather than a public link - <img> can't send an Authorization
+// header, so the token rides along as a query param instead.
+function imageSrc(image, token) {
+  return `${API_ROOT}${image.image_url}?token=${encodeURIComponent(token)}`;
 }
 
-function ImageThumb({ image }) {
+function ImageThumb({ image, token }) {
   const [failed, setFailed] = useState(false);
+  const src = imageSrc(image, token);
   return (
-    <a href={image.image_path} target="_blank" rel="noopener noreferrer" className="image-preview">
+    <a href={src} target="_blank" rel="noopener noreferrer" className="image-preview">
       {failed ? (
         <div className="image-broken">Preview unavailable</div>
       ) : (
-        <img src={driveEmbedUrl(image.image_path)} alt="attachment" onError={() => setFailed(true)} />
+        <img src={src} alt="attachment" onError={() => setFailed(true)} />
       )}
     </a>
   );
@@ -206,14 +206,9 @@ export default function TicketDetail({ token, user, ticketId, onBack }) {
       )}
 
       {ticket.images.length > 0 && (
-        <>
-          <div className="image-preview-row">
-            {ticket.images.map((img) => <ImageThumb key={img.id} image={img} />)}
-          </div>
-          <div className="help-text">
-            If a photo doesn't load, it may not be shared with "Anyone with the link" yet.
-          </div>
-        </>
+        <div className="image-preview-row">
+          {ticket.images.map((img) => <ImageThumb key={img.id} image={img} token={token} />)}
+        </div>
       )}
 
       {ticket.resolution_remark && (
