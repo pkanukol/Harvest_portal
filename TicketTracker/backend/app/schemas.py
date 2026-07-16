@@ -13,7 +13,7 @@ class Contact(BaseModel):
 
 class TicketImageOut(BaseModel):
     id: int
-    image_path: str
+    image_url: str
 
     class Config:
         from_attributes = True
@@ -54,19 +54,6 @@ class TicketOut(BaseModel):
 
     class Config:
         from_attributes = True
-
-
-class TicketCreate(BaseModel):
-    category: str
-    location: str
-    description: str = ""
-    image_links: List[str] = []
-    # Stores (inventory requisition) only
-    item_name: Optional[str] = None
-    approx_cost: Optional[float] = None
-    quantity: Optional[int] = None
-    specifications: Optional[str] = None
-    order_by_date: Optional[str] = None
 
 
 class TicketDecision(BaseModel):
