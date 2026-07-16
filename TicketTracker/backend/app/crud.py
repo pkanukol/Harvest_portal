@@ -49,12 +49,26 @@ def create_ticket(db: Session, category: str, location: str, description: str,
     return ticket
 
 
-def add_ticket_image(db: Session, ticket_id: int, image_path: str) -> models.TicketImage:
-    image = models.TicketImage(ticket_id=ticket_id, image_path=image_path)
+def add_ticket_image(db: Session, ticket_id: int, content_type: str, image_data: bytes) -> models.TicketImage:
+    image = models.TicketImage(ticket_id=ticket_id, content_type=content_type, image_data=image_data)
     db.add(image)
     db.commit()
     db.refresh(image)
     return image
+
+
+def get_ticket_image(db: Session, ticket_id: int, image_id: int) -> Optional[models.TicketImage]:
+    return db.query(models.TicketImage).filter(
+        models.TicketImage.id == image_id, models.TicketImage.ticket_id == ticket_id
+    ).first()
+
+
+def purge_ticket_images(db: Session, ticket: models.Ticket) -> None:
+    """Deletes the stored image bytes once a ticket reaches a state where the photo
+    is no longer needed (see main.py call sites) - keeps the ticket record itself,
+    and everything else about it, as permanent history."""
+    db.query(models.TicketImage).filter(models.TicketImage.ticket_id == ticket.id).delete()
+    db.commit()
 
 
 def get_ticket(db: Session, ticket_id: int) -> Optional[models.Ticket]:
