@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 from typing import Optional
 import jwt
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Query, status
 from fastapi.security import OAuth2PasswordBearer
 from .config import settings
 
@@ -24,20 +24,35 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
 
-def get_current_user(token: str = Depends(oauth2_scheme)) -> CurrentUser:
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
+_CREDENTIALS_EXCEPTION = HTTPException(
+    status_code=status.HTTP_401_UNAUTHORIZED,
+    detail="Could not validate credentials",
+    headers={"WWW-Authenticate": "Bearer"},
+)
+
+
+def _decode(token: Optional[str]) -> CurrentUser:
     if not token:
-        raise credentials_exception
+        raise _CREDENTIALS_EXCEPTION
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
         email = payload.get("sub")
         name = payload.get("name")
         if not email:
-            raise credentials_exception
+            raise _CREDENTIALS_EXCEPTION
     except jwt.PyJWTError:
-        raise credentials_exception
+        raise _CREDENTIALS_EXCEPTION
     return CurrentUser(email=email, name=name or email)
+
+
+def get_current_user(token: str = Depends(oauth2_scheme)) -> CurrentUser:
+    return _decode(token)
+
+
+def get_current_user_flexible(
+    token: str = Depends(oauth2_scheme),
+    query_token: Optional[str] = Query(None, alias="token"),
+) -> CurrentUser:
+    """Same as get_current_user, but also accepts the JWT as a ?token= query param -
+    needed for <img src> tags, which can't send an Authorization header."""
+    return _decode(token or query_token)
