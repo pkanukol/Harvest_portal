@@ -1,0 +1,54 @@
+Block period is defined as 2 periods together (merged) on the same day - can be around a break too. 
+
+EVS - for grade 1 to 5 - need 1 block period - So, this is counted as 2 periods and the remaining 3 periods are on different days each. 
+from grade 6 to 10, science has 3 disciplines - Physics, Biology and Chemistry. 
+Science - For grade 6 to 8, give the block period to any 2 of Physics / Biology / Chem subjects based on which teacher is free and count it as 2 periods of Physics / 2 periods of Biology / 2 periods of Chem. The remaining 3 periods give 1 to each - phy, chem and bio
+
+DMT or Dance/Music/ Theatre - for grade 4 to 5 is a block period
+
+Assembly/HM - is always on Monday 1st period for grades 1 to 5 and on wednesday first period for grades 6 to 8.  For grade 9 and 10 it is on Friday 1st period. 
+Life skills for grade 1 to 5 - class teacher
+
+Math needs to be a block period one day for grades 6 to 10. 
+
+Computer Science is also a block period for grades 1 to 8. Grade 9 and 10 have 3 periods  - make it 2 block periods and 1 separate period on another day.  
+
+Social Studies only for 10A and 10C have 2 teachers. Give them equal number of classes. 
+
+Allocate 1 period for TBS for each grade only in the teachers timetable for only the teachers who handle subjects like Maths, science / EVS, social science, hindi, kannada, english, physics, biology and chemistry. 
+
+Sports should not be the first period. Cricket, Basketball, Skating also to be given along with sports. 
+Yoga and Karate go together. Work allocation for these and few other subjects are given below. When the allocation is mentioned as 2A/2B/2C for Nitish Paul under sports - this means that all the 3 sections of grade 2 will have the sports in the same period and it will be conducted by Nitish. 
+For subject like DMT (dance, music theatre), there are can be multiple teachers handling multiple sections in the same period. Each grade+section which must come in different periods are separated by commas. 
+
+For sports - 
+Antarick - 1A/1B/1C 3A/3B, 3C/3D 4A/4B, 6A/6B/6C, 7A/7B/7C, 9C/9D/9E
+Nitish Paul - 2A/2B/2C, 4C/4D, 5A/5B, 5C/5D/5E,  6D/6E/6F, 7D/7E/7F, 8A/8B/8C, 8D/8E, 9A/9B, 10C/10D
+Arun Kumar - 10A/10B, 10C/10D
+
+For Yoga - 
+Neetu Kumari - 1A, 1B, 1C, 2A, 2B, 2C, 3A/3B, 3C/3D, 4A/4B, 4C/4D, 5A/5B, 5C/5D/5E, 6A/6B, 6C/6D, 6E/6F, 7A/7B, 7C/7D, 7E/7F, 8A/8B, 8C/8D, 8E
+
+For Library - 
+Meghana Sai - 1A, 1B, 1C, 2A, 2B, 2C, 3A, 3B, 3C, 3D, 4A, 4B, 4C, 4D, 5A, 5B, 5C, 5D, 5E, 6A, 6B, 6C, 6D, 6E, 6F
+Bhawna - 7A, 7B, 7C, 7D, 7E, 7F, 8A, 8B, 8C, 8D, 8E, 9A, 9B, 9C, 9D, 9E, 10A, 10B, 10C, 10D
+
+For LS (lifeskills) -
+Poonam - 6A, 6B, 6C, 7A, 7B, 7C, 8A, 8B, 8C, 9A, 9B, 10A, 10B
+Miriam Liz - 6D, 6E, 6F, 7D, 7E, 7F, 8D, 8E, 9C, 9D, 9E, 10C, 10D
+
+For DMT -
+Sudhanshu - 5A/5B, 6A/6B, 7A/7B, 8A/8B/8C, 9A/9B/9C, 10A/10B, 10C/10D
+Shubham - 1A, 2C, 3B, 3C, 3D, 4A/4B, 6C/6D,  7C/7D,  8D/8E
+Ankita Dutta - 1B, 1C, 2A, 2B, 3A, 4C/4D, 5C/5D/5E, 6E/6F, 7E/7F, 9D/9E
+Allan Dason - 1A, 1B, 1C, 6A/6B, 6C/6D, 6E/6F, 7C/7D, 7E/7F
+Mervyn Mathew - 2A, 2B, 2C, 3A, 3B, 3C, 3D, 4A/4B, 4C/4D, 5A/5B, 5C/5D/5E, 7A/7B
+Shelton - 4A/4B, 4C/4D, 5A/5B, 5C/5D/5E, 6A/6B, 6C/6D, 6E/6F, 7A/7B, 7C/7D, 7E/7F, 8A/8B/8C, 8D/8E, 9A/9B/9C, 9D/9E, 10A/10B, 10C/10D
+Brishti - 4A/4B, 4C/4D, 5A/5B, 5C/5D/5E, 6A/6B, 6C/6D, 6E/6F, 7A/7B, 7C/7D, 7E/7F, 8A/8B/8C, 8D/8E, 9A/9B/9C, 9D/9E, 10A/10B, 10C/10D
+Noel - 4A/4B, 4C/4D, 5A/5B, 5C/5D/5E, 6A/6B, 6C/6D, 6E/6F, 7A/7B, 7C/7D, 7E/7F, 8A/8B/8C, 8D/8E, 9A/9B/9C, 9D/9E, 10A/10B, 10C/10D
+Charan - 4A/4B, 4C/4D, 5A/5B, 5C/5D/5E, 6A/6B, 6C/6D, 6E/6F, 7A/7B, 7C/7D, 7E/7F, 8A/8B/8C, 8D/8E, 9A/9B/9C, 9D/9E, 10A/10B, 10C/10D
+
+For Art -
+Pramod - 2A, 3A, 3D, 4A, 5A, 5B, 6A, 6B, 7A, 7B, 8A, 8B, 8E, 9A, 9B, 9E, 10A, 10B
+Lavanya - 1A, 1B, 1C, 2B, 3C, 4B, 5C, 6C, 6D, 7E, 7F
+Murali - 2C, 3B, 4C, 4D, 5D, 5E, 6E, 6F, 7C, 7D, 8C, 8D, 9C, 9D, 10C, 10D
