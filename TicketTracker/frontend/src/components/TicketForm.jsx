@@ -1,6 +1,8 @@
 import { useState } from "react";
+import { compressImage } from "../imageCompress";
 
 const MAX_IMAGES = 3;
+const ALLOWED_TYPES = ["image/jpeg", "image/png"];
 
 export default function TicketForm({ categories, onSubmit, submitting, submitError }) {
   const [category, setCategory] = useState("");
@@ -10,36 +12,56 @@ export default function TicketForm({ categories, onSubmit, submitting, submitErr
   const [quantity, setQuantity] = useState("");
   const [specifications, setSpecifications] = useState("");
   const [orderByDate, setOrderByDate] = useState("");
-  const [imageLinks, setImageLinks] = useState([""]);
+  const [images, setImages] = useState([]);
+  const [previews, setPreviews] = useState([]);
+  const [imageError, setImageError] = useState("");
+  const [compressing, setCompressing] = useState(false);
 
   const activeCategory = category || categories[0] || "";
   const isStores = activeCategory === "Stores";
 
-  const updateLink = (idx, value) => {
-    setImageLinks((prev) => prev.map((l, i) => (i === idx ? value : l)));
+  const handleFiles = async (e) => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = "";
+    setImageError("");
+
+    const room = MAX_IMAGES - images.length;
+    if (room <= 0) return;
+
+    const rejected = files.some((f) => !ALLOWED_TYPES.includes(f.type));
+    if (rejected) {
+      setImageError("Only JPG or PNG images are accepted.");
+    }
+    const accepted = files.filter((f) => ALLOWED_TYPES.includes(f.type)).slice(0, room);
+    if (accepted.length === 0) return;
+
+    setCompressing(true);
+    try {
+      const compressed = await Promise.all(accepted.map(compressImage));
+      setImages((prev) => [...prev, ...compressed]);
+      setPreviews((prev) => [...prev, ...compressed.map((f) => URL.createObjectURL(f))]);
+    } finally {
+      setCompressing(false);
+    }
   };
 
-  const addLinkField = () => {
-    if (imageLinks.length < MAX_IMAGES) setImageLinks((prev) => [...prev, ""]);
-  };
-
-  const removeLinkField = (idx) => {
-    setImageLinks((prev) => prev.filter((_, i) => i !== idx));
+  const removeImage = (idx) => {
+    setImages((prev) => prev.filter((_, i) => i !== idx));
+    setPreviews((prev) => prev.filter((_, i) => i !== idx));
   };
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    const links = imageLinks.map((l) => l.trim()).filter(Boolean);
     if (isStores) {
       onSubmit({
         category: activeCategory,
         itemName, approxCost: approxCost ? Number(approxCost) : null,
         quantity: quantity ? Number(quantity) : null,
         specifications, orderByDate,
-        imageLinks: links,
+        images,
       });
     } else {
-      onSubmit({ category: activeCategory, description, imageLinks: links });
+      onSubmit({ category: activeCategory, description, images });
     }
   };
 
@@ -100,29 +122,25 @@ export default function TicketForm({ categories, onSubmit, submitting, submitErr
       )}
 
       <label className="field-label">Photos (optional, up to {MAX_IMAGES})</label>
-      <div className="help-text">
-        Upload your photo to Google Drive, set sharing to "Anyone with the link", then paste the link here.
-      </div>
+      <input
+        type="file"
+        accept="image/jpeg,image/png"
+        multiple
+        disabled={images.length >= MAX_IMAGES || compressing}
+        onChange={handleFiles}
+      />
+      {compressing && <div className="help-text">Compressing…</div>}
+      {imageError && <div className="form-error">{imageError}</div>}
 
-      {imageLinks.map((link, idx) => (
-        <div className="link-input-row" key={idx}>
-          <input
-            type="url"
-            className="field-input"
-            placeholder="https://drive.google.com/file/d/..."
-            value={link}
-            onChange={(e) => updateLink(idx, e.target.value)}
-          />
-          {imageLinks.length > 1 && (
-            <button type="button" className="link-remove" onClick={() => removeLinkField(idx)}>×</button>
-          )}
+      {previews.length > 0 && (
+        <div className="image-preview-row">
+          {previews.map((src, idx) => (
+            <div className="image-preview" key={src}>
+              <img src={src} alt={`upload ${idx + 1}`} />
+              <button type="button" className="image-remove" onClick={() => removeImage(idx)}>×</button>
+            </div>
+          ))}
         </div>
-      ))}
-
-      {imageLinks.length < MAX_IMAGES && (
-        <button type="button" className="btn btn-ghost btn-add-link" onClick={addLinkField}>
-          + Add another link
-        </button>
       )}
 
       {submitError && <div className="form-error">{submitError}</div>}
