@@ -8,6 +8,7 @@ SUPER_ADMIN_EMAILS = {
     "guru@harvestinternationalschool.in",
     "pavani.k@harvestinternationalschool.in",
     "sumanth@harvestinternationalschool.in",
+    "ram@harvestinternationalschool.in",
 }
 
 PRINCIPAL_BY_LOCATION = {
