@@ -1,5 +1,5 @@
 import datetime
-from sqlalchemy import Column, Integer, Float, String, DateTime, Text, ForeignKey, JSON
+from sqlalchemy import Column, Integer, Float, String, DateTime, Text, ForeignKey, JSON, LargeBinary
 from sqlalchemy.orm import relationship
 from .database import Base
 
@@ -50,11 +50,18 @@ class Ticket(Base):
 
 
 class TicketImage(Base):
+    """Stored directly in the DB (not on local disk) so images survive Render
+    redeploys - the disk is ephemeral there, the Postgres database isn't. Purged
+    (row deleted) once the parent ticket reaches a terminal state that no longer
+    needs the photo (see crud.purge_ticket_images) - the ticket record itself,
+    and everything else about it, stays as permanent history.
+    """
     __tablename__ = "ticket_images"
 
     id = Column(Integer, primary_key=True, index=True)
     ticket_id = Column(Integer, ForeignKey("tickets.id"), nullable=False)
-    image_path = Column(String, nullable=False)
+    content_type = Column(String, nullable=False)  # "image/jpeg" | "image/png"
+    image_data = Column(LargeBinary, nullable=False)
     uploaded_at = Column(DateTime, default=datetime.datetime.utcnow)
 
     ticket = relationship("Ticket", back_populates="images")
