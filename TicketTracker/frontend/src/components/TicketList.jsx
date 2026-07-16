@@ -100,6 +100,13 @@ export default function TicketList({ token, user, onOpenTicket }) {
           onChange={(e) => setReporter(e.target.value)}
         />
 
+        <select className="field-input" value={sort} onChange={(e) => setSort(e.target.value)}>
+          <option value="desc">Newest first</option>
+          <option value="asc">Oldest first</option>
+        </select>
+      </div>
+
+      <div className="date-range-row">
         <div className="date-range-field">
           <label className="date-range-label">From</label>
           <input className="field-input" type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
@@ -108,11 +115,6 @@ export default function TicketList({ token, user, onOpenTicket }) {
           <label className="date-range-label">To</label>
           <input className="field-input" type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
         </div>
-
-        <select className="field-input" value={sort} onChange={(e) => setSort(e.target.value)}>
-          <option value="desc">Newest first</option>
-          <option value="asc">Oldest first</option>
-        </select>
       </div>
 
       {loading && <div className="empty-state">Loading…</div>}
