@@ -57,16 +57,25 @@ body {
 }
 
 .location-toggle {
+  display: inline-flex;
+  background: #eef6f0;
+  border-radius: 24px;
+  padding: 4px;
+  gap: 2px;
+}
+.location-toggle-btn {
   font-size: 12px;
   font-weight: 700;
-  color: var(--blue-dk);
-  background: #eaf7ff;
-  border: 1.5px solid #cfe8f7;
+  color: var(--muted);
+  background: transparent;
+  border: none;
   border-radius: 20px;
-  padding: 6px 12px;
+  padding: 8px 16px;
   cursor: pointer;
+  transition: background 0.15s, color 0.15s;
 }
-.location-toggle:focus { outline: none; border-color: var(--blue); }
+.location-toggle-btn:hover:not(.active) { color: var(--ink); }
+.location-toggle-btn.active { background: var(--green); color: #fff; }
 
 /* Buttons */
 .btn {
