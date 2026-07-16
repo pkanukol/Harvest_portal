@@ -1,6 +1,7 @@
 // In local dev, VITE_API_URL is empty -> requests go to "/" -> Vite proxy forwards to localhost:8001
 // In production (Render), VITE_API_URL is set to the backend Render URL
-const API_BASE = (import.meta.env.VITE_API_URL || "") + "/api";
+export const API_ROOT = import.meta.env.VITE_API_URL || "";
+const API_BASE = API_ROOT + "/api";
 
 function authHeaders(token) {
   return token ? { Authorization: `Bearer ${token}` } : {};
@@ -34,15 +35,19 @@ export const api = {
   getCategories: () => request("/categories"),
   getLocations: () => request("/locations"),
 
-  createTicket: (token, { category, location, description, imageLinks, itemName, approxCost, quantity, specifications, orderByDate }) =>
-    request("/tickets", {
-      method: "POST",
-      token,
-      body: {
-        category, location, description: description || "", image_links: imageLinks,
-        item_name: itemName, approx_cost: approxCost, quantity, specifications, order_by_date: orderByDate,
-      },
-    }),
+  createTicket: (token, { category, location, description, images, itemName, approxCost, quantity, specifications, orderByDate }) => {
+    const formData = new FormData();
+    formData.append("category", category);
+    formData.append("location", location);
+    formData.append("description", description || "");
+    if (itemName != null) formData.append("item_name", itemName);
+    if (approxCost != null) formData.append("approx_cost", approxCost);
+    if (quantity != null) formData.append("quantity", quantity);
+    if (specifications != null) formData.append("specifications", specifications);
+    if (orderByDate != null) formData.append("order_by_date", orderByDate);
+    (images || []).forEach((file) => formData.append("images", file));
+    return request("/tickets", { method: "POST", token, formData });
+  },
 
   listTickets: (token, filters = {}) => {
     const params = new URLSearchParams();
