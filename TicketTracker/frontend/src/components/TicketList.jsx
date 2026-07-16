@@ -100,8 +100,14 @@ export default function TicketList({ token, user, onOpenTicket }) {
           onChange={(e) => setReporter(e.target.value)}
         />
 
-        <input className="field-input" type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
-        <input className="field-input" type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
+        <div className="date-range-field">
+          <label className="date-range-label">From</label>
+          <input className="field-input" type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
+        </div>
+        <div className="date-range-field">
+          <label className="date-range-label">To</label>
+          <input className="field-input" type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
+        </div>
 
         <select className="field-input" value={sort} onChange={(e) => setSort(e.target.value)}>
           <option value="desc">Newest first</option>
