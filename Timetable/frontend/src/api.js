@@ -54,8 +54,8 @@ export const api = {
     return request("/import/preview", { method: "POST", token, formData, timeoutMs: 60000 });
   },
 
-  importCommit: (token, label, location, parsed) =>
-    request("/import/commit", { method: "POST", token, body: { label, location, parsed }, timeoutMs: 60000 }),
+  importCommit: (token, label, location, parsed, rulesText) =>
+    request("/import/commit", { method: "POST", token, body: { label, location, parsed, rules_text: rulesText || null }, timeoutMs: 60000 }),
 
   generate: (token, academicYearId, sections) =>
     request(`/academic-years/${academicYearId}/generate${qs({ sections })}`, { method: "POST", token, timeoutMs: 60000 }),

@@ -58,6 +58,7 @@ class ImportCommitRequest(BaseModel):
     label: str
     location: str = "Kodathi"
     parsed: dict  # the exact payload returned by /import/preview
+    rules_text: Optional[str] = None  # raw rules.txt content - see app/rules.py; None = use DEFAULT_RULES_TEXT
 
 
 class GapTarget(BaseModel):

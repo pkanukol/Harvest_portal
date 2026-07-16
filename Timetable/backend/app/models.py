@@ -33,6 +33,7 @@ class AcademicYear(Base):
     location = Column(String, nullable=False, default="Kodathi")  # 'Kodathi' | 'Attibele' - matches the portal users.location values
     is_active = Column(Boolean, default=False)  # active WITHIN its location, not globally - see crud.commit_import
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    rules_text = Column(Text, nullable=True)  # raw rules.txt content - see scheduler.py's rule parsing; falls back to DEFAULT_RULES_TEXT when absent
 
     grades = relationship("Grade", back_populates="academic_year", cascade="all, delete-orphan")
     subjects = relationship("Subject", back_populates="academic_year", cascade="all, delete-orphan")

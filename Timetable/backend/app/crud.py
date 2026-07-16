@@ -258,11 +258,11 @@ def get_active_academic_year(db: Session, location: str):
 # Import commit
 # ---------------------------------------------------------------------------
 
-def commit_import(db: Session, label: str, location: str, parsed: dict) -> models.AcademicYear:
+def commit_import(db: Session, label: str, location: str, parsed: dict, rules_text: str = None) -> models.AcademicYear:
     teacher_cache = {(t.location, t.normalized_name): t for t in db.query(models.Teacher).all()}
     db.query(models.AcademicYear).filter(models.AcademicYear.location == location).update({"is_active": False})
 
-    year = models.AcademicYear(label=label, location=location, is_active=True)
+    year = models.AcademicYear(label=label, location=location, is_active=True, rules_text=rules_text)
     db.add(year)
     db.flush()
 

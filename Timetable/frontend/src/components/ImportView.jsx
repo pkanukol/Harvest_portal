@@ -5,6 +5,7 @@ import { Spinner } from "./TimetableGrid";
 export default function ImportView({ token, location, activeYear, onCommitted, onNext }) {
   const [workbookFile, setWorkbookFile] = useState(null);
   const [timingText, setTimingText] = useState("");
+  const [rulesText, setRulesText] = useState("");
   const [label, setLabel] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -13,6 +14,11 @@ export default function ImportView({ token, location, activeYear, onCommitted, o
   const handleTimingFile = async (file) => {
     if (!file) return;
     setTimingText(await file.text());
+  };
+
+  const handleRulesFile = async (file) => {
+    if (!file) { setRulesText(""); return; }
+    setRulesText(await file.text());
   };
 
   const runImport = async () => {
@@ -29,7 +35,7 @@ export default function ImportView({ token, location, activeYear, onCommitted, o
     setResult(null);
     try {
       const parsed = await api.importPreview(token, workbookFile, timingText);
-      const committed = await api.importCommit(token, label.trim(), location, parsed);
+      const committed = await api.importCommit(token, label.trim(), location, parsed, rulesText.trim() || null);
       setResult({ parsed, committed });
       onCommitted?.();
     } catch (err) {
@@ -58,6 +64,14 @@ export default function ImportView({ token, location, activeYear, onCommitted, o
           give it a label, and click Import — it parses and commits as the new active academic year in one step.
           A summary and any warnings show below afterward.
         </p>
+        <p style={{ color: "var(--muted)", fontSize: 13 }}>
+          The rules file is optional and defines school-specific scheduling constraints — which subjects need a
+          block period, which are pinned to a fixed day, which teachers should be scheduled first. Leave it out to
+          use the existing rules for this school. Format, one rule per line:
+          <br /><code>FIXED assembly | 1-5 | monday | 1</code> — subject always goes at this exact day/period
+          <br /><code>BLOCK computer science | 1-10 | 2</code> — 2 consecutive periods on the same day
+          <br /><code>PRIORITY yoga</code> — scheduled first, before other subjects
+        </p>
         <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginTop: 12, alignItems: "flex-end" }}>
           <label>
             Workbook (.xlsx)<br />
@@ -66,6 +80,10 @@ export default function ImportView({ token, location, activeYear, onCommitted, o
           <label>
             Timing file (.txt)<br />
             <input type="file" accept=".txt" onChange={(e) => handleTimingFile(e.target.files[0])} />
+          </label>
+          <label>
+            Rules file (.txt) — optional<br />
+            <input type="file" accept=".txt" onChange={(e) => handleRulesFile(e.target.files[0])} />
           </label>
           <label>
             Label<br />

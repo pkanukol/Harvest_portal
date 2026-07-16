@@ -65,6 +65,12 @@ def run_migrations():
                 conn.execute(text("UPDATE academic_years SET location = 'Kodathi' WHERE location IS NULL"))
                 conn.execute(text("ALTER TABLE academic_years ALTER COLUMN location SET NOT NULL"))
                 conn.execute(text("ALTER TABLE academic_years ALTER COLUMN location SET DEFAULT 'Kodathi'"))
+        if "rules_text" not in cols:
+            # NULL is meaningful here (not just "not yet migrated") - it means
+            # "no rules.txt supplied, use rules.DEFAULT_RULES_TEXT" - so no
+            # backfill needed, existing years keep behaving exactly as before.
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE academic_years ADD COLUMN rules_text TEXT"))
 
     # A flat, human-readable view of the whole timetable - anyone with Supabase
     # table-editor/SQL access can browse this directly (Grade/Section/Day/

@@ -8,7 +8,7 @@ import httpx
 
 from .config import settings
 from .database import engine, Base, get_db, run_migrations
-from . import models, schemas, crud, auth, excel_import, scheduler
+from . import models, schemas, crud, auth, excel_import, scheduler, rules as rules_module
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("timetable")
@@ -112,9 +112,15 @@ def import_commit(
     db: Session = Depends(get_db),
     _user: auth.CurrentUser = Depends(auth.require_leadership),
 ):
+    if req.rules_text and req.rules_text.strip():
+        try:
+            rules_module.parse_rules_text(req.rules_text)
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Could not parse rules.txt: {exc}")
+
     logger.info("import/commit: label=%s location=%s starting (this writes ~1000+ rows, can take a while)", req.label, req.location)
     start = time.time()
-    year = crud.commit_import(db, req.label, req.location, req.parsed)
+    year = crud.commit_import(db, req.label, req.location, req.parsed, req.rules_text)
     logger.info("import/commit: academic_year_id=%d committed in %.2fs", year.id, time.time() - start)
     return {"academic_year_id": year.id, "label": year.label, "location": year.location}
 

@@ -7,55 +7,12 @@ them.
 """
 import random
 from sqlalchemy.orm import Session
-from . import models
+from . import models, rules as rules_module
 
 DAYS = [0, 1, 2, 3, 4]  # 0=Mon .. 4=Fri
 
 
-def _subject_rules(raw_name: str, grade_order_index: int):
-    """A handful of school-specific scheduling rules, keyed by matching the
-    subject's raw name (case-insensitive) and the grade. block_size means
-    "place this many periods as one consecutive block on the same day
-    (adjacent period numbers - a break in between is fine), then place
-    whatever's left over as ordinary single periods". fixed_day/fixed_period
-    means "this subject always goes at this exact slot, not wherever's free"."""
-    name = raw_name.strip().lower()
-
-    if "assembly" in name:
-        # Monday period 1 for grades 1-5, Wednesday period 1 for grades 6-8,
-        # Friday period 1 for grades 9-10.
-        if grade_order_index <= 5:
-            day = 0
-        elif grade_order_index <= 8:
-            day = 2
-        else:
-            day = 4
-        return {"block_size": None, "fixed_day": day, "fixed_period": 1}
-
-    if "computer science" in name:  # block for every grade (9-10's 3rd period
-        # falls to place_singles(), which naturally avoids the block's day)
-        return {"block_size": 2, "fixed_day": None, "fixed_period": None}
-
-    if 6 <= grade_order_index <= 10 and name == "math":
-        return {"block_size": 2, "fixed_day": None, "fixed_period": None}
-
-    if 6 <= grade_order_index <= 8 and name == "physics":
-        # The Physics/Biology/Chemistry split (see excel_import / commit_import
-        # migration) always gives the block to Physics - the same one teacher
-        # covers all three disciplines per section, so which one gets the
-        # block doesn't affect teacher availability either way.
-        return {"block_size": 2, "fixed_day": None, "fixed_period": None}
-
-    if grade_order_index <= 5:
-        if name == "evs":
-            return {"block_size": 2, "fixed_day": None, "fixed_period": None}
-        if "dance" in name and "music" in name:  # the combined Dance/Music/Theatre subject
-            return {"block_size": 2, "fixed_day": None, "fixed_period": None}
-
-    return {"block_size": None, "fixed_day": None, "fixed_period": None}
-
-
-def _build_requirements(db: Session, academic_year_id: int, existing_slots):
+def _build_requirements(db: Session, academic_year_id: int, existing_slots, parsed_rules):
     placed_sst_counts = {}
     for slot in existing_slots:
         if slot.section_subject_teacher_id:
@@ -67,7 +24,7 @@ def _build_requirements(db: Session, academic_year_id: int, existing_slots):
     ).all()
     for gsp in gsps:
         sections = db.query(models.Section).filter(models.Section.grade_id == gsp.grade_id).all()
-        rules = _subject_rules(gsp.subject.raw_name, gsp.grade.order_index)
+        subj_rules = rules_module.subject_rules_for(parsed_rules, gsp.subject.raw_name, gsp.grade.order_index)
         for section in sections:
             ssts = db.query(models.SectionSubjectTeacher).filter(
                 models.SectionSubjectTeacher.section_id == section.id,
@@ -91,9 +48,9 @@ def _build_requirements(db: Session, academic_year_id: int, existing_slots):
                 "subject_name": gsp.subject.raw_name,
                 "grade_name": gsp.grade.name,
                 "section_name": section.name,
-                "block_size": rules["block_size"],
-                "fixed_day": rules["fixed_day"],
-                "fixed_period": rules["fixed_period"],
+                "block_size": subj_rules["block_size"],
+                "fixed_day": subj_rules["fixed_day"],
+                "fixed_period": subj_rules["fixed_period"],
             })
 
     # Most-constrained-first: needs more periods and/or more distinct teachers
@@ -141,11 +98,6 @@ def _find_block(req, block_size, periods_per_day, section_occupancy, teacher_occ
     return None
 
 
-def _is_priority_shared_subject(raw_name: str) -> bool:
-    name = raw_name.strip().lower()
-    return "yoga" in name or name == "lib" or "library" in name
-
-
 def _build_occupancy(existing_slots):
     section_occupancy = set()
     teacher_occupancy = set()
@@ -160,7 +112,7 @@ def _build_occupancy(existing_slots):
     return section_occupancy, teacher_occupancy, section_subject_today
 
 
-def _place_requirements(academic_year_id, requirements, periods_per_day, section_occupancy, teacher_occupancy, section_subject_today, new_slots, mark_manual=False):
+def _place_requirements(academic_year_id, requirements, periods_per_day, section_occupancy, teacher_occupancy, section_subject_today, new_slots, parsed_rules, mark_manual=False):
     """Places every requirement passed in, appending new (unsaved) TimetableSlot
     rows to `new_slots` and returns how many periods got placed. Never touches
     anything outside the given occupancy sets, so callers control exactly
@@ -201,7 +153,7 @@ def _place_requirements(academic_year_id, requirements, periods_per_day, section
     # find room for its block).
     fixed_reqs = [r for r in requirements if r["fixed_day"] is not None]
     rest = [r for r in requirements if r["fixed_day"] is None]
-    priority_reqs = [r for r in rest if _is_priority_shared_subject(r["subject_name"])]
+    priority_reqs = [r for r in rest if rules_module.is_priority_subject(parsed_rules, r["subject_name"])]
     priority_ids = {id(r) for r in priority_reqs}
     block_reqs = [r for r in rest if r["block_size"] and id(r) not in priority_ids]
     normal_reqs = [r for r in rest if not r["block_size"] and id(r) not in priority_ids]
@@ -257,6 +209,9 @@ def generate(db: Session, academic_year_id: int, section_ids=None):
     section's slots completely untouched. Occupancy for conflict-checking is
     still built from the WHOLE year regardless, since a teacher in an
     untouched section can still block a placement in a scoped one."""
+    academic_year = db.query(models.AcademicYear).filter(models.AcademicYear.id == academic_year_id).first()
+    parsed_rules = rules_module.load_rules(academic_year.rules_text if academic_year else None)
+
     timing = db.query(models.TimingConfig).filter(
         models.TimingConfig.academic_year_id == academic_year_id,
     ).first()
@@ -276,7 +231,7 @@ def generate(db: Session, academic_year_id: int, section_ids=None):
     ).all()
     section_occupancy, teacher_occupancy, section_subject_today = _build_occupancy(existing_slots)
 
-    requirements = _build_requirements(db, academic_year_id, existing_slots)
+    requirements = _build_requirements(db, academic_year_id, existing_slots, parsed_rules)
     if section_ids is not None:
         section_id_set = set(section_ids)
         requirements = [r for r in requirements if r["section_id"] in section_id_set]
@@ -284,7 +239,7 @@ def generate(db: Session, academic_year_id: int, section_ids=None):
     new_slots = []
     placed_count = _place_requirements(
         academic_year_id, requirements, periods_per_day,
-        section_occupancy, teacher_occupancy, section_subject_today, new_slots,
+        section_occupancy, teacher_occupancy, section_subject_today, new_slots, parsed_rules,
     )
 
     db.add_all(new_slots)
@@ -299,6 +254,9 @@ def generate_selected(db: Session, academic_year_id: int, targets):
     or manual) stays exactly where it is, and this only adds the missing
     periods for the chosen gaps, using the current occupancy as the
     constraint."""
+    academic_year = db.query(models.AcademicYear).filter(models.AcademicYear.id == academic_year_id).first()
+    parsed_rules = rules_module.load_rules(academic_year.rules_text if academic_year else None)
+
     timing = db.query(models.TimingConfig).filter(
         models.TimingConfig.academic_year_id == academic_year_id,
     ).first()
@@ -310,13 +268,13 @@ def generate_selected(db: Session, academic_year_id: int, targets):
     section_occupancy, teacher_occupancy, section_subject_today = _build_occupancy(existing_slots)
 
     target_set = set(targets)
-    requirements = _build_requirements(db, academic_year_id, existing_slots)
+    requirements = _build_requirements(db, academic_year_id, existing_slots, parsed_rules)
     requirements = [r for r in requirements if (r["section_id"], r["gsp_id"]) in target_set]
 
     new_slots = []
     placed_count = _place_requirements(
         academic_year_id, requirements, periods_per_day,
-        section_occupancy, teacher_occupancy, section_subject_today, new_slots,
+        section_occupancy, teacher_occupancy, section_subject_today, new_slots, parsed_rules,
         mark_manual=True,
     )
 
