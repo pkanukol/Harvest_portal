@@ -1,8 +1,8 @@
 from datetime import datetime
 from typing import List, Optional
-from urllib.parse import quote, urlparse
+from urllib.parse import quote
 
-from fastapi import FastAPI, Depends, HTTPException, Request, status, BackgroundTasks, Query
+from fastapi import FastAPI, Depends, HTTPException, Request, Response, status, BackgroundTasks, Query, Form, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 
@@ -60,6 +60,11 @@ app.add_middleware(
 )
 
 MAX_IMAGES = 3
+# 2MB/image keeps even 100+ tickets (300+ images worst case) well within a typical
+# free-tier Postgres allocation - client-side compression targets far below this,
+# so this is a hard ceiling, not the expected size.
+MAX_IMAGE_BYTES = 2 * 1024 * 1024
+ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png"}
 
 
 def _whatsapp_share_link(text: str) -> str:
@@ -149,7 +154,7 @@ def _to_ticket_out(ticket: models.Ticket, current_user: auth.CurrentUser) -> sch
         order_actual_cost=ticket.order_actual_cost,
         delivery_date=ticket.delivery_date,
         tracking_details=ticket.tracking_details,
-        images=[schemas.TicketImageOut(id=img.id, image_path=img.image_path) for img in ticket.images],
+        images=[schemas.TicketImageOut(id=img.id, image_url=f"/api/tickets/{ticket.id}/images/{img.id}") for img in ticket.images],
         ticket_url=ticket_url,
         share_whatsapp=_whatsapp_share_link(wa_text),
         can_act=_can_act(ticket, current_user.email),
@@ -209,59 +214,69 @@ async def get_locations():
 
 # --- TICKETS ---
 
-def _validate_image_link(link: str) -> str:
-    link = link.strip()
-    parsed = urlparse(link)
-    if parsed.scheme not in ("http", "https") or not parsed.netloc:
-        raise HTTPException(status_code=400, detail=f"'{link}' doesn't look like a valid link")
-    return link
-
-
 @app.post("/api/tickets", response_model=schemas.TicketOut, status_code=status.HTTP_201_CREATED)
 async def create_ticket(
-    body: schemas.TicketCreate,
     background_tasks: BackgroundTasks,
+    category: str = Form(...),
+    location: str = Form(...),
+    description: str = Form(""),
+    item_name: Optional[str] = Form(None),
+    approx_cost: Optional[float] = Form(None),
+    quantity: Optional[int] = Form(None),
+    specifications: Optional[str] = Form(None),
+    order_by_date: Optional[str] = Form(None),
+    images: List[UploadFile] = File(default=[]),
     db: Session = Depends(get_db),
     current_user: auth.CurrentUser = Depends(auth.get_current_user),
 ):
-    if body.category not in CATEGORIES:
+    if category not in CATEGORIES:
         raise HTTPException(status_code=400, detail="Invalid category")
-    if body.location not in LOCATIONS:
+    if location not in LOCATIONS:
         raise HTTPException(status_code=400, detail="Invalid location")
-    if len(body.image_links) > MAX_IMAGES:
+
+    # Validate + read every image before creating anything, so a rejected image
+    # doesn't leave behind a ticket with only some of its attachments saved.
+    uploads = [u for u in images if u.filename]
+    if len(uploads) > MAX_IMAGES:
         raise HTTPException(status_code=400, detail=f"Maximum {MAX_IMAGES} images allowed")
+    image_payloads = []
+    for upload in uploads:
+        if upload.content_type not in ALLOWED_IMAGE_TYPES:
+            raise HTTPException(status_code=400, detail=f"'{upload.filename}' must be a JPG or PNG image")
+        data = await upload.read()
+        if len(data) > MAX_IMAGE_BYTES:
+            raise HTTPException(status_code=400, detail=f"'{upload.filename}' is too large - each image must be under {MAX_IMAGE_BYTES // (1024 * 1024)}MB")
+        image_payloads.append((upload.content_type, data))
 
-    if body.category == "Stores":
-        if not (body.item_name or "").strip():
+    if category == "Stores":
+        if not (item_name or "").strip():
             raise HTTPException(status_code=400, detail="Item name is required")
-        if not body.quantity or body.quantity <= 0:
+        if not quantity or quantity <= 0:
             raise HTTPException(status_code=400, detail="Quantity must be a positive number")
-        if body.approx_cost is None or body.approx_cost < 0:
+        if approx_cost is None or approx_cost < 0:
             raise HTTPException(status_code=400, detail="Approximate cost is required")
-        if not (body.order_by_date or "").strip():
+        if not (order_by_date or "").strip():
             raise HTTPException(status_code=400, detail="Order-by date is required")
-        description = f"{body.quantity} x {body.item_name.strip()} — approx cost ₹{body.approx_cost:.2f} each, needed by {body.order_by_date}"
-        if body.specifications and body.specifications.strip():
-            description += f"\nSpecifications: {body.specifications.strip()}"
+        full_description = f"{quantity} x {item_name.strip()} — approx cost ₹{approx_cost:.2f} each, needed by {order_by_date}"
+        if specifications and specifications.strip():
+            full_description += f"\nSpecifications: {specifications.strip()}"
     else:
-        if not body.description.strip():
+        if not description.strip():
             raise HTTPException(status_code=400, detail="Description is required")
-        description = body.description.strip()
+        full_description = description.strip()
 
-    routing = CATEGORY_ROUTING[body.category][body.location]
+    routing = CATEGORY_ROUTING[category][location]
 
     ticket = crud.create_ticket(
-        db, category=body.category, location=body.location, description=description,
+        db, category=category, location=location, description=full_description,
         reporter_name=current_user.name, reporter_email=current_user.email,
         responsible_to=routing["to"], responsible_cc=routing["cc"],
-        item_name=body.item_name, approx_cost=body.approx_cost, quantity=body.quantity,
-        specifications=body.specifications, order_by_date=body.order_by_date,
+        item_name=item_name, approx_cost=approx_cost, quantity=quantity,
+        specifications=specifications, order_by_date=order_by_date,
     )
 
-    for link in body.image_links:
-        if not link.strip():
-            continue
-        crud.add_ticket_image(db, ticket.id, _validate_image_link(link))
+    for content_type, data in image_payloads:
+        crud.add_ticket_image(db, ticket.id, content_type, data)
 
     db.refresh(ticket)
     ticket_url = f"{settings.APP_URL}/?ticket={ticket.id}"
@@ -327,6 +342,24 @@ async def get_ticket(
     return _to_ticket_out(ticket, current_user)
 
 
+@app.get("/api/tickets/{ticket_id}/images/{image_id}")
+async def get_ticket_image(
+    ticket_id: int,
+    image_id: int,
+    db: Session = Depends(get_db),
+    current_user: auth.CurrentUser = Depends(auth.get_current_user_flexible),
+):
+    ticket = crud.get_ticket(db, ticket_id)
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    if not _can_view_ticket(ticket, current_user.email):
+        raise HTTPException(status_code=403, detail="You don't have access to this ticket")
+    image = crud.get_ticket_image(db, ticket_id, image_id)
+    if not image:
+        raise HTTPException(status_code=404, detail="Image not found")
+    return Response(content=image.image_data, media_type=image.content_type)
+
+
 @app.post("/api/tickets/{ticket_id}/close", response_model=schemas.TicketOut)
 async def close_ticket(
     ticket_id: int,
@@ -348,6 +381,7 @@ async def close_ticket(
         raise HTTPException(status_code=400, detail="A closing remark is required")
 
     ticket = crud.resolve_ticket(db, ticket, "Closed", body.remark.strip(), current_user.name, current_user.email)
+    crud.purge_ticket_images(db, ticket)
 
     ticket_url = f"{settings.APP_URL}/?ticket={ticket.id}"
     background_tasks.add_task(
@@ -381,6 +415,8 @@ async def _decide_stores_ticket(
         db, ticket, new_status, body.remark.strip(), current_user.name, current_user.email,
         approval_level=level,
     )
+    if new_status == "Rejected":
+        crud.purge_ticket_images(db, ticket)
 
     ticket_url = f"{settings.APP_URL}/?ticket={ticket.id}"
     background_tasks.add_task(
@@ -442,6 +478,7 @@ async def record_order_details(
     )
 
     if was_first_time:
+        crud.purge_ticket_images(db, ticket)
         ticket_url = f"{settings.APP_URL}/?ticket={ticket.id}"
         background_tasks.add_task(
             email_service.send_order_placed_notification,
