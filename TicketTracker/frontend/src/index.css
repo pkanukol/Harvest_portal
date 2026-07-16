@@ -143,17 +143,6 @@ textarea.field-input { resize: vertical; }
 
 .help-text { font-size: 12px; color: var(--muted); margin: 4px 0 10px; line-height: 1.5; }
 
-.link-input-row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
-.link-input-row .field-input { margin: 0; }
-.link-remove {
-  flex-shrink: 0;
-  width: 32px; height: 32px; border-radius: 8px;
-  border: 1.5px solid var(--border); background: #fff; color: var(--muted);
-  font-size: 16px; line-height: 1; cursor: pointer;
-}
-.link-remove:hover { border-color: var(--red); color: var(--red); }
-.btn-add-link { font-size: 12px; padding: 8px 14px; margin-bottom: 6px; }
-
 .form-error {
   margin-top: 12px;
   padding: 10px 14px;
@@ -173,6 +162,12 @@ textarea.field-input { resize: vertical; }
   display: flex; align-items: center; justify-content: center;
   text-align: center; font-size: 10px; color: var(--muted);
   background: var(--bg); padding: 4px;
+}
+.image-remove {
+  position: absolute; top: 2px; right: 2px;
+  width: 20px; height: 20px; border-radius: 50%;
+  background: rgba(0,0,0,0.6); color: #fff; border: none;
+  font-size: 13px; line-height: 1; cursor: pointer;
 }
 
 /* Success view */
@@ -209,7 +204,10 @@ textarea.field-input { resize: vertical; }
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   gap: 10px;
   margin-bottom: 20px;
+  align-items: end;
 }
+.date-range-field { display: flex; flex-direction: column; gap: 3px; }
+.date-range-label { font-size: 10px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
 .empty-state { text-align: center; color: var(--muted); font-size: 14px; padding: 30px 0; }
 
 .ticket-rows { display: flex; flex-direction: column; gap: 10px; }
