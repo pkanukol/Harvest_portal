@@ -75,3 +75,17 @@ def run_migrations():
         for col in ("responsible_to", "responsible_cc"):
             if col not in existing_cols:
                 conn.execute(text(f"UPDATE tickets SET {col} = '[]' WHERE {col} IS NULL"))
+
+        # ticket_images: moved from a Google Drive link (image_path) to storing the
+        # actual bytes in-DB. Old link rows don't carry a real image to migrate, so
+        # they're dropped outright rather than carried forward with empty data.
+        if "ticket_images" in inspector.get_table_names():
+            image_cols = {c["name"] for c in inspector.get_columns("ticket_images")}
+            if "image_path" in image_cols:
+                conn.execute(text("DELETE FROM ticket_images"))
+                conn.execute(text("ALTER TABLE ticket_images DROP COLUMN image_path"))
+            if "content_type" not in image_cols:
+                conn.execute(text("ALTER TABLE ticket_images ADD COLUMN content_type VARCHAR"))
+            if "image_data" not in image_cols:
+                image_blob_type = "BYTEA" if not settings.DATABASE_URL.startswith("sqlite") else "BLOB"
+                conn.execute(text(f"ALTER TABLE ticket_images ADD COLUMN image_data {image_blob_type}"))
