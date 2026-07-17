@@ -67,10 +67,10 @@ export default function ImportView({ token, location, activeYear, onCommitted, o
         <p style={{ color: "var(--muted)", fontSize: 13 }}>
           The rules file is optional and defines school-specific scheduling constraints — which subjects need a
           block period, which are pinned to a fixed day, which teachers should be scheduled first. Leave it out to
-          use the existing rules for this school. Format, one rule per line:
-          <br /><code>FIXED assembly | 1-5 | monday | 1</code> — subject always goes at this exact day/period
-          <br /><code>BLOCK computer science | 1-10 | 2</code> — 2 consecutive periods on the same day
-          <br /><code>PRIORITY yoga</code> — scheduled first, before other subjects
+          use the existing rules for this school. Plain English sentences, one rule per line, e.g.:
+          <br /><code>Assembly is fixed on Monday period 1 for grades 1 to 5.</code>
+          <br /><code>Computer Science is a block period for grades 1 to 10.</code>
+          <br /><code>Yoga is shared across grades, schedule first.</code>
         </p>
         <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginTop: 12, alignItems: "flex-end" }}>
           <label>

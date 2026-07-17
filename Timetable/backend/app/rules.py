@@ -1,65 +1,116 @@
 """Parses rules.txt - the per-school scheduling constraints (block periods,
 fixed slots, placement priority) that used to be hardcoded in scheduler.py.
-Every school's real timetable has its own set of these (which subjects need a
-double period, which are pinned to a fixed day, which teachers are shared
-thinly enough to need first pick of the week), so they're supplied as a plain
-text file at import time instead of requiring a code change per school.
+Every school's real timetable has its own set of these, so they're supplied
+as plain English sentences at import time instead of requiring a code change
+per school. There's no rigid symbol-heavy syntax - just three sentence
+templates, one rule per line:
 
-Format (blank lines and #-comments ignored):
-    FIXED <pattern> | <grade-range> | <day-name> | <period-number>
-    BLOCK <pattern> | <grade-range> | <block-size>
-    PRIORITY <pattern>
+  <Subject> is fixed on <Day> period <N> for grades <A> to <B>.
+      e.g. "Assembly is fixed on Monday period 1 for grades 1 to 5."
 
-<pattern> matches a subject's raw name, case-insensitively:
-  - "=exact text"   requires the WHOLE name to equal "exact text"
-  - "word1+word2"   requires ALL of word1, word2, ... to appear as substrings
-  - anything else   is a plain substring match
+  <Subject> is a block period for grades <A> to <B>.
+      e.g. "Computer Science is a block period for grades 1 to 10."
+      (a block period is 2 consecutive periods on the same day; write
+      "...a block period of 3 periods..." to change the size)
 
-<grade-range> is "N" or "N-M" (inclusive), matched against the grade's order_index.
-<day-name> is monday/tuesday/wednesday/thursday/friday (case-insensitive).
+  <Subject> is shared across grades, schedule first.
+      e.g. "Yoga is shared across grades, schedule first."
+      (use this for a subject taught by only one or two specialists across
+      many grades, so it gets first pick of the week before it runs out of
+      free periods - also accepts "... is a priority subject.")
+
+Grades can also be a single number ("grade 3"). Day names and "first/1st"
+style period wording are both understood. Lines starting with # are ignored.
+Subject names don't need to match a workbook subject exactly - a rule matches
+if every word in the subject phrase appears somewhere in the real subject
+name (case-insensitive), so "Dance Music" matches "Dance/ Music/Theatre".
 """
 
+import re
+
 DAY_NAME_TO_INDEX = {"monday": 0, "tuesday": 1, "wednesday": 2, "thursday": 3, "friday": 4}
+ORDINAL_TO_NUMBER = {
+    "first": 1, "1st": 1, "second": 2, "2nd": 2, "third": 3, "3rd": 3,
+    "fourth": 4, "4th": 4, "fifth": 5, "5th": 5, "sixth": 6, "6th": 6,
+}
+
+_GRADE_RANGE_RE = re.compile(r"grades?\s+(\d+)\s*(?:to|-|through)\s*(\d+)", re.IGNORECASE)
+_GRADE_SINGLE_RE = re.compile(r"grades?\s+(\d+)\b", re.IGNORECASE)
+_DAY_RE = re.compile(r"\b(monday|tuesday|wednesday|thursday|friday)\b", re.IGNORECASE)
+_PERIOD_NUMBER_RE = re.compile(r"period\s+(\d+)", re.IGNORECASE)
+_PERIOD_ORDINAL_RE = re.compile(r"\b(first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th|sixth|6th)\s+period", re.IGNORECASE)
+_BLOCK_SIZE_RE = re.compile(r"block\s+period\s+of\s+(\d+)", re.IGNORECASE)
+
+_FIXED_TRIGGER_RE = re.compile(r"\b(?:is|are)\s+fixed\b", re.IGNORECASE)
+_BLOCK_TRIGGER_RE = re.compile(r"\b(?:is|are)\s+(?:a\s+)?block\s+period\b", re.IGNORECASE)
+_PRIORITY_TRIGGER_RE = re.compile(
+    r"\b(?:is\s+shared\s+across\s+grades|is\s+a\s+shared\s+teacher\s+subject|is\s+a\s+priority\s+subject)\b",
+    re.IGNORECASE,
+)
 
 # Matches exactly what was previously hardcoded in scheduler.py, so importing
 # without a rules.txt (or leaving it blank) keeps existing schools' generated
-# timetables byte-for-byte identical to before this became configurable.
+# timetables identical to before this became configurable.
 DEFAULT_RULES_TEXT = """\
-# Fixed slots: subject always goes at this exact day/period, every week.
-FIXED assembly | 1-5 | monday | 1
-FIXED assembly | 6-8 | wednesday | 1
-FIXED assembly | 9-10 | friday | 1
+# Fixed slots - subject always goes at this exact day/period, every week.
+Assembly is fixed on Monday period 1 for grades 1 to 5.
+Assembly is fixed on Wednesday period 1 for grades 6 to 8.
+Assembly is fixed on Friday period 1 for grades 9 to 10.
 
-# Block periods: 2 consecutive periods on the same day (a break in between is fine).
-BLOCK computer science | 1-10 | 2
-BLOCK =math | 6-10 | 2
-BLOCK =physics | 6-8 | 2
-BLOCK =evs | 1-5 | 2
-BLOCK dance+music | 1-5 | 2
+# Block periods - 2 consecutive periods on the same day (a break in between is fine).
+Computer Science is a block period for grades 1 to 10.
+Math is a block period for grades 6 to 10.
+Physics is a block period for grades 6 to 8.
+EVS is a block period for grades 1 to 5.
+Dance Music is a block period for grades 1 to 5.
 
-# Priority subjects: placed first, even before block subjects - use this for
-# subjects taught by only one or two specialists shared across many grades,
-# since they run out of free periods fastest if the rest of the week fills in first.
-PRIORITY yoga
-PRIORITY =lib
-PRIORITY library
+# Shared-teacher subjects - scheduled first, before even block subjects,
+# since their teachers run out of free periods fastest otherwise.
+Yoga is shared across grades, schedule first.
+Library is shared across grades, schedule first.
+LIB is shared across grades, schedule first.
 """
 
 
-def _parse_grade_range(text):
-    text = text.strip()
-    if "-" in text:
-        lo, hi = text.split("-", 1)
-        return int(lo), int(hi)
-    n = int(text)
-    return n, n
+def _extract_grade_range(text):
+    m = _GRADE_RANGE_RE.search(text)
+    if m:
+        return int(m.group(1)), int(m.group(2))
+    m = _GRADE_SINGLE_RE.search(text)
+    if m:
+        n = int(m.group(1))
+        return n, n
+    return None
+
+
+def _extract_day(text):
+    m = _DAY_RE.search(text)
+    return DAY_NAME_TO_INDEX[m.group(1).lower()] if m else None
+
+
+def _extract_period(text):
+    m = _PERIOD_NUMBER_RE.search(text)
+    if m:
+        return int(m.group(1))
+    m = _PERIOD_ORDINAL_RE.search(text)
+    return ORDINAL_TO_NUMBER[m.group(1).lower()] if m else None
+
+
+def _extract_subject(text, trigger_re):
+    m = trigger_re.search(text)
+    subject = text[:m.start()] if m else text
+    return subject.strip().rstrip(",").strip()
+
+
+def _to_pattern(subject_phrase):
+    """A subject phrase becomes a match pattern requiring every one of its
+    words to appear as a substring of the real subject name - reuses the
+    same "+"-joined AND semantics _matches_pattern already implements."""
+    return "+".join(w for w in subject_phrase.split() if w)
 
 
 def _matches_pattern(pattern, raw_name):
-    pattern = pattern.strip()
     name = raw_name.strip().lower()
-    if pattern.startswith("="):
-        return name == pattern[1:].strip().lower()
     parts = [p.strip().lower() for p in pattern.split("+") if p.strip()]
     return bool(parts) and all(p in name for p in parts)
 
@@ -73,29 +124,48 @@ def parse_rules_text(text):
         line = raw_line.strip()
         if not line or line.startswith("#"):
             continue
+        clean = line.rstrip(".").strip()
         try:
-            keyword, _, rest = line.partition(" ")
-            keyword = keyword.strip().upper()
-            if keyword == "FIXED":
-                pattern, grade_range, day_name, period = [p.strip() for p in rest.split("|")]
-                grade_min, grade_max = _parse_grade_range(grade_range)
-                day = DAY_NAME_TO_INDEX[day_name.strip().lower()]
+            if _BLOCK_TRIGGER_RE.search(clean):
+                subject = _extract_subject(clean, _BLOCK_TRIGGER_RE)
+                grade_range = _extract_grade_range(clean)
+                if not subject or not grade_range:
+                    raise ValueError(
+                        "expected '<Subject> is a block period for grades <A> to <B>'"
+                    )
+                block_size_m = _BLOCK_SIZE_RE.search(clean)
+                block_size = int(block_size_m.group(1)) if block_size_m else 2
                 rules.append({
-                    "type": "fixed", "pattern": pattern, "grade_min": grade_min, "grade_max": grade_max,
-                    "day": day, "period": int(period),
+                    "type": "block", "pattern": _to_pattern(subject),
+                    "grade_min": grade_range[0], "grade_max": grade_range[1], "block_size": block_size,
                 })
-            elif keyword == "BLOCK":
-                pattern, grade_range, block_size = [p.strip() for p in rest.split("|")]
-                grade_min, grade_max = _parse_grade_range(grade_range)
+            elif _FIXED_TRIGGER_RE.search(clean):
+                subject = _extract_subject(clean, _FIXED_TRIGGER_RE)
+                grade_range = _extract_grade_range(clean)
+                day = _extract_day(clean)
+                period = _extract_period(clean)
+                if not subject or not grade_range or day is None or period is None:
+                    raise ValueError(
+                        "expected '<Subject> is fixed on <Day> period <N> for grades <A> to <B>'"
+                    )
                 rules.append({
-                    "type": "block", "pattern": pattern, "grade_min": grade_min, "grade_max": grade_max,
-                    "block_size": int(block_size),
+                    "type": "fixed", "pattern": _to_pattern(subject),
+                    "grade_min": grade_range[0], "grade_max": grade_range[1], "day": day, "period": period,
                 })
-            elif keyword == "PRIORITY":
-                rules.append({"type": "priority", "pattern": rest.strip()})
+            elif _PRIORITY_TRIGGER_RE.search(clean):
+                subject = _extract_subject(clean, _PRIORITY_TRIGGER_RE)
+                if not subject:
+                    raise ValueError(
+                        "expected '<Subject> is shared across grades, schedule first' "
+                        "or '<Subject> is a priority subject'"
+                    )
+                rules.append({"type": "priority", "pattern": _to_pattern(subject)})
             else:
-                raise ValueError(f"unknown rule type '{keyword}' (expected FIXED, BLOCK, or PRIORITY)")
-        except Exception as exc:
+                raise ValueError(
+                    "didn't recognize this as a fixed-slot, block-period, or shared-teacher rule - "
+                    "see the format examples on the Import tab"
+                )
+        except ValueError as exc:
             raise ValueError(f"rules.txt line {line_num}: {raw_line!r} - {exc}")
     return rules
 
