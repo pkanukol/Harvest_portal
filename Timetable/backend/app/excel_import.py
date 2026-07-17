@@ -262,7 +262,13 @@ def _find_tab_for_subject_component(component: str, sheet_names):
 
 
 def parse_workbook(xlsx_bytes: bytes, timing_text: str):
-    wb = openpyxl.load_workbook(BytesIO(xlsx_bytes), data_only=True)
+    # read_only=True streams rows instead of loading the whole workbook (incl.
+    # every cell's styling) into memory - a real-world workbook edited by hand
+    # over several years can accumulate huge style bloat that normal loading
+    # pulls in wholesale, which is what was actually blowing past the
+    # backend's memory limit here. Everything below only reads cell values via
+    # iter_rows(), never styles/merged-cells/writes, so this is a safe swap.
+    wb = openpyxl.load_workbook(BytesIO(xlsx_bytes), data_only=True, read_only=True)
     warnings = []
 
     grade_subjects, sb_warnings = parse_sub_bifurcation(wb["SUB BIFURCATION"])
@@ -347,6 +353,7 @@ def parse_workbook(xlsx_bytes: bytes, timing_text: str):
         })
 
     timing = parse_timing_text(timing_text)
+    wb.close()
 
     return {
         "grades": grades_out,
