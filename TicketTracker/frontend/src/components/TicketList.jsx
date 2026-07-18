@@ -10,7 +10,6 @@ const VIEW_LABELS = {
   location: "All in My Location",
   all: "All Tickets",
 };
-const VIEW_ORDER = ["mine", "assigned", "location", "all"];
 
 function statusClass(status) {
   if (status === "Closed") return "badge badge-closed";
@@ -22,7 +21,7 @@ function statusClass(status) {
 }
 
 export default function TicketList({ token, user, onOpenTicket }) {
-  const availableViews = VIEW_ORDER.filter((v) => (user?.views || []).includes(v));
+  const availableViews = (user?.views || []).filter((v) => VIEW_LABELS[v]);
   const [view, setView] = useState(availableViews[0] || "mine");
   const [tickets, setTickets] = useState([]);
   const [loading, setLoading] = useState(true);
