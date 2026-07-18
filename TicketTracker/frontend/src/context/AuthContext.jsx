@@ -10,7 +10,12 @@ export function AuthProvider({ children }) {
   });
 
   const login = (authData) => {
-    const nextUser = { name: authData.name, email: authData.email, views: authData.views || [] };
+    const nextUser = {
+      name: authData.name,
+      email: authData.email,
+      views: authData.views || [],
+      home_location: authData.home_location || null,
+    };
     setToken(authData.access_token);
     setUser(nextUser);
     localStorage.setItem("token", authData.access_token);
