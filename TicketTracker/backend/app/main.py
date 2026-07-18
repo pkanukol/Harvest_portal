@@ -80,9 +80,31 @@ def _principal_location(email: str) -> Optional[str]:
     return None
 
 
+def _home_location(email: str) -> Optional[str]:
+    """Campus a user is locked to (currently: Principals only). Everyone else is
+    considered 'Both' and keeps the manual campus toggle in the UI."""
+    return _principal_location(email)
+
+
+def _is_known_responsible_contact(email: str) -> bool:
+    """True if this email is ever a routing target (to/cc) for any category/location,
+    or the Stores procurement contact - used to put 'assigned' ahead of 'mine' for
+    people who mainly use the tracker to triage tickets routed to them, not to report."""
+    email_l = email.lower()
+    if email_l == STORES_PROCUREMENT_CONTACT["email"].lower():
+        return True
+    for by_location in CATEGORY_ROUTING.values():
+        for routing in by_location.values():
+            if email_l in {c["email"].lower() for c in routing.get("to", [])}:
+                return True
+            if email_l in {c["email"].lower() for c in routing.get("cc", [])}:
+                return True
+    return False
+
+
 def _user_views(email: str) -> List[str]:
     email_l = email.lower()
-    views = ["mine", "assigned"]
+    views = ["assigned", "mine"] if _is_known_responsible_contact(email) else ["mine", "assigned"]
     if _principal_location(email) is not None:
         views.append("location")
     if email_l in {e.lower() for e in SUPER_ADMIN_EMAILS}:
@@ -197,6 +219,7 @@ async def sso_login(request: Request):
     return schemas.TokenOut(
         access_token=access_token, token_type="bearer", name=name, email=email,
         views=_user_views(email),
+        home_location=_home_location(email),
     )
 
 
