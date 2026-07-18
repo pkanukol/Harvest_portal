@@ -78,3 +78,4 @@ class TokenOut(BaseModel):
     name: str
     email: str
     views: List[str] = []
+    home_location: Optional[str] = None  # locked campus for this user, if they have one
