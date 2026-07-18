@@ -14,7 +14,7 @@ export default function App() {
     !!new URLSearchParams(window.location.search).get("sso")
   );
   const [view, setView] = useState("list");
-  const [location, setLocation] = useState("Kodathi");
+  const [location, setLocation] = useState(() => user?.home_location || "Kodathi");
   const [categories, setCategories] = useState([]);
   const [activeTicketId, setActiveTicketId] = useState(null);
   const [successTicket, setSuccessTicket] = useState(null);
@@ -33,13 +33,20 @@ export default function App() {
     api.ssoLogin(ssoToken)
       .then((data) => {
         localStorage.setItem("token", data.access_token);
-        localStorage.setItem("user", JSON.stringify({ name: data.name, email: data.email, views: data.views || [] }));
+        localStorage.setItem("user", JSON.stringify({
+          name: data.name, email: data.email, views: data.views || [], home_location: data.home_location || null,
+        }));
         params.delete("sso");
         const qs = params.toString();
         window.location.replace(window.location.pathname + (qs ? `?${qs}` : ""));
       })
       .catch(() => setSsoLoading(false));
   }, []);
+
+  // Lock the campus to the user's home location once known (e.g. SSO resolves after mount)
+  useEffect(() => {
+    if (user?.home_location) setLocation(user.home_location);
+  }, [user?.home_location]);
 
   // Fetch categories once (alphabetically sorted by the backend)
   useEffect(() => {
