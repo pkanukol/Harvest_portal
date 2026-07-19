@@ -237,7 +237,12 @@ export default function Dashboard({
               <span>&#128197; {formatDateStr(obs.date_time)}</span>
             </div>
             <div className="audit-card-footer">
-              <span className={`audit-score ${scoreColorClass(obs.rating)}`}>{obs.overall_score}<span className="audit-score-denom">/24</span></span>
+              <div style={{ display: "flex", alignItems: "baseline", gap: "8px" }}>
+                <span className={`audit-score ${scoreColorClass(obs.rating)}`}>{obs.overall_score}<span className="audit-score-denom">/24</span></span>
+                {obs.p34 > 0 && (
+                  <span style={{ fontSize: "11px", fontWeight: 700, color: "var(--harvest-amber)" }}>+ {obs.p34}/4 (Technology)</span>
+                )}
+              </div>
               <span className={`meta-rating ${ratingClass(obs.rating)}`}>{esc(obs.rating)}</span>
             </div>
           </div>
