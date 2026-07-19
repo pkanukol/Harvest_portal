@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 from urllib.parse import quote
 
@@ -166,8 +166,11 @@ def _to_ticket_out(ticket: models.Ticket, current_user: auth.CurrentUser) -> sch
         order_by_date=ticket.order_by_date,
         status=ticket.status,
         effective_status=crud.compute_effective_status(ticket),
-        created_at=ticket.created_at,
-        closed_at=ticket.closed_at,
+        # created_at/closed_at are stored as naive UTC - stamp them as UTC-aware here so
+        # the JSON payload carries an explicit offset and the browser converts to local
+        # time instead of treating the raw UTC value as if it were already local.
+        created_at=ticket.created_at.replace(tzinfo=timezone.utc),
+        closed_at=ticket.closed_at.replace(tzinfo=timezone.utc) if ticket.closed_at else None,
         closed_by_name=ticket.closed_by_name,
         resolution_remark=ticket.resolution_remark,
         approval_level=ticket.approval_level,
