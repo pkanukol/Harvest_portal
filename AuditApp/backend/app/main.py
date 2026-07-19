@@ -416,6 +416,7 @@ async def get_audit_list(
             "domain1_score": obs.domain1_score,
             "domain2_score": obs.domain2_score,
             "domain3_score": obs.domain3_score,
+            "p34": obs.p34,
             "rating": obs.rating,
             "is_draft": obs.is_draft,
         }
