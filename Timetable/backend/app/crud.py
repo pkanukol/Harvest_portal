@@ -35,6 +35,27 @@ def get_or_create_teacher(db: Session, name, location="Kodathi", cache=None):
     return teacher
 
 
+def create_teacher(db: Session, name: str, location: str, linked_email=None):
+    """Explicit admin-driven creation (Teachers tab "Add Teacher") - distinct
+    from get_or_create_teacher(), which is only ever called during an
+    import and silently reuses an existing match. Here a name collision is a
+    mistake worth surfacing, not something to quietly resolve."""
+    name = (name or "").strip()
+    if not name:
+        raise ValueError("Name is required")
+    norm = normalize_name(name)
+    existing = db.query(models.Teacher).filter(
+        models.Teacher.normalized_name == norm, models.Teacher.location == location,
+    ).first()
+    if existing:
+        raise ValueError(f"A teacher named '{existing.name}' already exists for {location}")
+    teacher = models.Teacher(name=name, normalized_name=norm, location=location, linked_email=(linked_email or "").strip().lower() or None)
+    db.add(teacher)
+    db.commit()
+    db.refresh(teacher)
+    return _teacher_out(teacher)
+
+
 def _teacher_out(teacher, class_teacher_of=None, subject_assignments=None):
     subject_assignments = subject_assignments or []
     return {
@@ -134,6 +155,7 @@ def get_section_subject_slots(db: Session, section_id: int):
     return [
         {
             "sst_id": s.id,
+            "subject_id": s.grade_subject_period.subject_id,
             "subject": s.grade_subject_period.subject.raw_name,
             "component_label": s.component_label,
             "teacher_id": s.teacher_id,
@@ -153,6 +175,146 @@ def set_sst_teacher(db: Session, sst_id: int, teacher_id):
     # keep the denormalized copy on already-placed periods in sync
     db.query(models.TimetableSlot).filter(models.TimetableSlot.section_subject_teacher_id == sst_id).update({"teacher_id": teacher_id})
     db.commit()
+
+
+def list_subjects(db: Session, academic_year_id: int):
+    """Every subject in this academic year, with which grade(s) it's taught
+    in and at how many periods/week - grouped by normalized name so an
+    academic year imported before subjects were de-duplicated at import
+    time (several raw Subject rows that are really the same subject, one per
+    grade) still shows as a single entry here, not one row per grade."""
+    subjects = db.query(models.Subject).filter(models.Subject.academic_year_id == academic_year_id).all()
+    grade_name_by_id = dict(
+        db.query(models.Grade.id, models.Grade.name).filter(models.Grade.academic_year_id == academic_year_id).all()
+    )
+    gsps_by_subject = {}
+    for gsp in db.query(models.GradeSubjectPeriod).filter(models.GradeSubjectPeriod.academic_year_id == academic_year_id).all():
+        gsps_by_subject.setdefault(gsp.subject_id, []).append({
+            "grade_name": grade_name_by_id.get(gsp.grade_id), "periods_per_week": gsp.periods_per_week,
+        })
+
+    groups = {}
+    for s in subjects:
+        key = normalize_name(s.raw_name)
+        group = groups.setdefault(key, {"ids": [], "raw_name": s.raw_name, "is_combo": False, "grades": []})
+        group["ids"].append(s.id)
+        group["is_combo"] = group["is_combo"] or s.is_combo
+        group["grades"].extend(gsps_by_subject.get(s.id, []))
+
+    return [
+        {
+            "id": g["ids"][0], "raw_name": g["raw_name"], "is_combo": g["is_combo"],
+            "grades": sorted(g["grades"], key=lambda x: x["grade_name"] or ""),
+        }
+        for g in sorted(groups.values(), key=lambda g: g["raw_name"].lower())
+    ]
+
+
+def rename_subject(db: Session, subject_id: int, new_name: str):
+    """Fixes a subject name after the fact (e.g. a parsed-import artifact
+    like "History / Civics Senthil" that should just be "History / Civics").
+    An academic year imported before subjects were de-duplicated at import
+    time can still have several Subject rows that are really the same
+    subject (one per grade) - matched here by NORMALIZED name (trimmed,
+    collapsed whitespace, case-insensitive), the same grouping list_subjects()
+    uses, so renaming one clears every occurrence in one action regardless
+    of minor casing/whitespace differences between them."""
+    subject = db.query(models.Subject).filter(models.Subject.id == subject_id).first()
+    if not subject:
+        raise ValueError("Subject not found")
+    new_name = (new_name or "").strip()
+    if not new_name:
+        raise ValueError("Subject name is required")
+
+    old_key = normalize_name(subject.raw_name)
+    new_key = normalize_name(new_name)
+    all_subjects = db.query(models.Subject).filter(models.Subject.academic_year_id == subject.academic_year_id).all()
+    matches = [s for s in all_subjects if normalize_name(s.raw_name) == old_key]
+    matched_ids = {s.id for s in matches}
+    old_names = {s.raw_name for s in matches}
+
+    # A different name already used by a subject that ISN'T one of these
+    # matches would mean silently merging two genuinely distinct subjects -
+    # blocked, since that needs a deliberate merge action, not a rename.
+    collision = next((s for s in all_subjects if normalize_name(s.raw_name) == new_key and s.id not in matched_ids), None)
+    if collision:
+        raise ValueError(
+            f"A subject named '{collision.raw_name}' already exists for a different grade - renaming to that "
+            f"would merge them, which isn't supported here"
+        )
+
+    for s in matches:
+        s.raw_name = new_name
+    # component_label defaults to the subject name for a plain (non-combo)
+    # slot - keep those in sync with the rename. A genuine combo's label
+    # ("Hindi" on a "Hindi/Kannada/Sanskrit" subject) is deliberately
+    # different from raw_name already, so it's untouched here.
+    db.query(models.SectionSubjectTeacher).filter(
+        models.SectionSubjectTeacher.grade_subject_period_id.in_(
+            db.query(models.GradeSubjectPeriod.id).filter(models.GradeSubjectPeriod.subject_id.in_(matched_ids))
+        ),
+        models.SectionSubjectTeacher.component_label.in_(list(old_names)),
+    ).update({"component_label": new_name}, synchronize_session=False)
+    db.commit()
+    return {"id": subject.id, "raw_name": new_name, "renamed_count": len(matched_ids)}
+
+
+def add_subject_slot(db: Session, section_id: int, subject_name: str, periods_per_week, component_label=None, teacher_id=None):
+    """Adds a subject the section didn't have before (e.g. a newly
+    introduced "Skating") and optionally assigns a teacher to it in one step.
+    Reuses the Subject/GradeSubjectPeriod for this grade if one with the same
+    name already exists (so adding it to a second section doesn't duplicate
+    it) - only a genuinely new subject needs periods_per_week supplied."""
+    section = db.query(models.Section).filter(models.Section.id == section_id).first()
+    if not section:
+        raise ValueError("Section not found")
+    grade = section.grade
+    subject_name = (subject_name or "").strip()
+    if not subject_name:
+        raise ValueError("Subject name is required")
+
+    subject = db.query(models.Subject).filter(
+        models.Subject.academic_year_id == grade.academic_year_id,
+        func.lower(models.Subject.raw_name) == subject_name.lower(),
+    ).first()
+    if not subject:
+        subject = models.Subject(academic_year_id=grade.academic_year_id, raw_name=subject_name, is_combo=False)
+        db.add(subject)
+        db.flush()
+
+    gsp = db.query(models.GradeSubjectPeriod).filter(
+        models.GradeSubjectPeriod.grade_id == grade.id, models.GradeSubjectPeriod.subject_id == subject.id,
+    ).first()
+    if not gsp:
+        if not periods_per_week or periods_per_week <= 0:
+            raise ValueError(f"'{subject_name}' is new for this grade - give a periods-per-week value for it")
+        gsp = models.GradeSubjectPeriod(
+            academic_year_id=grade.academic_year_id, grade_id=grade.id, subject_id=subject.id,
+            periods_per_week=periods_per_week,
+        )
+        db.add(gsp)
+        db.flush()
+
+    label = (component_label or subject_name).strip()
+    if db.query(models.SectionSubjectTeacher).filter(
+        models.SectionSubjectTeacher.section_id == section_id,
+        models.SectionSubjectTeacher.grade_subject_period_id == gsp.id,
+        models.SectionSubjectTeacher.component_label == label,
+    ).first():
+        raise ValueError(f"This section already has a '{subject.raw_name}' slot labeled '{label}'")
+
+    if teacher_id is not None and not db.query(models.Teacher).filter(models.Teacher.id == teacher_id).first():
+        raise ValueError("Teacher not found")
+
+    sst = models.SectionSubjectTeacher(section_id=section_id, grade_subject_period_id=gsp.id, component_label=label, teacher_id=teacher_id)
+    db.add(sst)
+    db.commit()
+    db.refresh(sst)
+    return {
+        "sst_id": sst.id, "subject_id": subject.id, "subject": subject.raw_name,
+        "component_label": sst.component_label, "teacher_id": sst.teacher_id,
+        "teacher_name": sst.teacher.name if sst.teacher else None,
+    }
 
 
 def set_teacher_linked_email(db: Session, teacher_id: int, email):
@@ -254,12 +416,83 @@ def get_active_academic_year(db: Session, location: str):
     ).first()
 
 
+def list_academic_years(db: Session, location: str):
+    """Every saved timetable for a location - importing a new one (label "C")
+    only flips is_active, it never deletes the others, so an older one
+    (label "B") can always be switched back to via activate_academic_year()."""
+    years = db.query(models.AcademicYear).filter(
+        models.AcademicYear.location == location,
+    ).order_by(models.AcademicYear.created_at.desc()).all()
+    return [
+        {
+            "id": y.id, "label": y.label, "location": y.location, "is_active": y.is_active,
+            "created_at": y.created_at.isoformat() if y.created_at else None,
+        }
+        for y in years
+    ]
+
+
+def activate_academic_year(db: Session, academic_year_id: int, location: str):
+    year = db.query(models.AcademicYear).filter(
+        models.AcademicYear.id == academic_year_id, models.AcademicYear.location == location,
+    ).first()
+    if not year:
+        raise ValueError("Academic year not found for this location")
+    db.query(models.AcademicYear).filter(models.AcademicYear.location == location).update({"is_active": False})
+    year.is_active = True
+    db.commit()
+    return {"id": year.id, "label": year.label, "location": year.location, "is_active": True}
+
+
+def deactivate_academic_year(db: Session, academic_year_id: int, location: str):
+    """Turns off the active timetable without activating another one - the
+    location is left with nothing active until something else is switched
+    on (or a new one imported), which is a deliberate, explicit choice here
+    rather than something that happens as a side effect of another action."""
+    year = db.query(models.AcademicYear).filter(
+        models.AcademicYear.id == academic_year_id, models.AcademicYear.location == location,
+    ).first()
+    if not year:
+        raise ValueError("Academic year not found for this location")
+    year.is_active = False
+    db.commit()
+    return {"id": year.id, "label": year.label, "location": year.location, "is_active": False}
+
+
+def delete_academic_year(db: Session, academic_year_id: int, location: str):
+    """Permanently removes a saved timetable no longer needed - including the
+    currently active one, if that's genuinely what's wanted (the frontend
+    warns strongly before this call for that case, since the location is
+    left with nothing active afterward)."""
+    year = db.query(models.AcademicYear).filter(
+        models.AcademicYear.id == academic_year_id, models.AcademicYear.location == location,
+    ).first()
+    if not year:
+        raise ValueError("Academic year not found for this location")
+    # Substitution is a pure history log with no relationship declared on
+    # AcademicYear (deliberately kept out of the Grade/Section/SST object
+    # graph), so it isn't reached by the grades/subjects/timing_config
+    # cascades below and needs deleting explicitly first, or the database
+    # rejects the delete with a foreign key violation.
+    db.query(models.Substitution).filter(models.Substitution.academic_year_id == academic_year_id).delete()
+    db.delete(year)
+    db.commit()
+
+
 # ---------------------------------------------------------------------------
 # Import commit
 # ---------------------------------------------------------------------------
 
 def commit_import(db: Session, label: str, location: str, parsed: dict, rules_text: str = None) -> models.AcademicYear:
     teacher_cache = {(t.location, t.normalized_name): t for t in db.query(models.Teacher).all()}
+    # Subject is scoped per academic year, not per grade - the same subject
+    # name (e.g. "Math", or two grades happening to share an identical raw
+    # label) is the same subject everywhere in this import, not a fresh one
+    # per grade. Without this cache, every grade's subject list created its
+    # own separate Subject row even for identical text, so fixing a name
+    # (e.g. a parsing artifact) meant hunting down and renaming it once per
+    # grade instead of once for the whole academic year.
+    subject_cache = {}  # raw_name.strip().lower() -> Subject, reused across every grade in this import
     db.query(models.AcademicYear).filter(models.AcademicYear.location == location).update({"is_active": False})
 
     year = models.AcademicYear(label=label, location=location, is_active=True, rules_text=rules_text)
@@ -296,13 +529,17 @@ def commit_import(db: Session, label: str, location: str, parsed: dict, rules_te
             section_objs[sec_name] = section
 
         for subj_data in grade_data["subjects"]:
-            subject = models.Subject(
-                academic_year_id=year.id,
-                raw_name=subj_data["raw_name"],
-                is_combo=subj_data["is_combo"],
-            )
-            db.add(subject)
-            db.flush()
+            subject_key = subj_data["raw_name"].strip().lower()
+            subject = subject_cache.get(subject_key)
+            if not subject:
+                subject = models.Subject(
+                    academic_year_id=year.id,
+                    raw_name=subj_data["raw_name"],
+                    is_combo=subj_data["is_combo"],
+                )
+                db.add(subject)
+                db.flush()
+                subject_cache[subject_key] = subject
 
             gsp = models.GradeSubjectPeriod(
                 academic_year_id=year.id, grade_id=grade.id, subject_id=subject.id,
@@ -325,6 +562,99 @@ def commit_import(db: Session, label: str, location: str, parsed: dict, rules_te
     db.commit()
     db.refresh(year)
     return year
+
+
+def place_generated_slots(db: Session, academic_year_id: int, lessons):
+    """Inserts TimetableSlot rows straight from an already-placed timetable
+    export (see app/timetable_workbook.py), instead of running the scheduler.
+    Everything is marked is_manual_override=True - this came from a real,
+    already-finalized timetable, so a later Generate run must never touch or
+    re-shuffle it. Assumes commit_import() just created the matching
+    Section/SectionSubjectTeacher rows from the same lessons (same academic
+    year) - looks them up by (grade+section, subject/component_label,
+    normalized teacher name), matched only within THIS academic year's own
+    sections/SSTs - never against the global Teacher table, since the same
+    teacher name can legitimately exist at a different school/location and
+    would otherwise silently resolve to the wrong teacher_id there."""
+    sections = db.query(models.Section).join(models.Grade).filter(
+        models.Grade.academic_year_id == academic_year_id,
+    ).all()
+    section_id_by_key = {(s.grade.name, s.name): s.id for s in sections}
+
+    ssts = db.query(models.SectionSubjectTeacher).join(models.Section).join(models.Grade).filter(
+        models.Grade.academic_year_id == academic_year_id,
+    ).all()
+    sst_by_key = {}
+    for sst in ssts:
+        section = sst.section
+        teacher_norm = normalize_name(sst.teacher.name) if sst.teacher else None
+        key = (section.grade.name, section.name, normalize_name(sst.component_label), teacher_norm)
+        sst_by_key[key] = (sst.id, sst.teacher_id)
+
+    placed, skipped = 0, 0
+    for l in lessons:
+        section_id = section_id_by_key.get((l["grade_name"], l["section_name"]))
+        if not section_id:
+            skipped += 1
+            continue
+        teacher_norm = normalize_name(l["teacher_name"]) if l["teacher_name"] else None
+        match = sst_by_key.get((l["grade_name"], l["section_name"], normalize_name(l["subject"]), teacher_norm))
+        if not match:
+            skipped += 1
+            continue
+        sst_id, teacher_id = match
+        db.add(models.TimetableSlot(
+            academic_year_id=academic_year_id, section_id=section_id,
+            day_of_week=l["day_of_week"], period_number=l["period_number"],
+            section_subject_teacher_id=sst_id, teacher_id=teacher_id,
+            is_manual_override=True,
+        ))
+        placed += 1
+    db.commit()
+    return {"placed": placed, "skipped": skipped}
+
+
+def apply_teacher_details(db: Session, academic_year_id: int, location: str, details):
+    """Fills in the two things an already-placed timetable export can't tell
+    us (see timetable_workbook.parse_teacher_details_sheet): a teacher's
+    linked_email and which section they're the class teacher of. Everything
+    else about that sheet (Allocation/Subject) is already derived from the
+    timetable itself, so it's intentionally not read here."""
+    warnings = []
+    updated_email = updated_class_teacher = 0
+
+    grade_by_order = {
+        g.order_index: g for g in db.query(models.Grade).filter(models.Grade.academic_year_id == academic_year_id).all()
+    }
+
+    for d in details:
+        teacher = db.query(models.Teacher).filter(
+            models.Teacher.normalized_name == normalize_name(d["name"]), models.Teacher.location == location,
+        ).first()
+        if not teacher:
+            warnings.append(f"Teacher details: {d['name']!r} not found among the teachers in this timetable, skipped")
+            continue
+
+        if d.get("email"):
+            teacher.linked_email = d["email"].strip().lower()
+            updated_email += 1
+
+        if d.get("class_teacher_grade") is not None and d.get("class_teacher_section"):
+            grade = grade_by_order.get(d["class_teacher_grade"])
+            section = db.query(models.Section).filter(
+                models.Section.grade_id == grade.id, models.Section.name == d["class_teacher_section"],
+            ).first() if grade else None
+            if section:
+                section.class_teacher_id = teacher.id
+                updated_class_teacher += 1
+            else:
+                warnings.append(
+                    f"Teacher details: class-teacher section "
+                    f"'{d['class_teacher_grade']}{d['class_teacher_section']}' for {d['name']!r} not found"
+                )
+
+    db.commit()
+    return {"updated_email": updated_email, "updated_class_teacher": updated_class_teacher, "warnings": warnings}
 
 
 # ---------------------------------------------------------------------------
@@ -454,6 +784,108 @@ def get_teacher_week(db: Session, academic_year_id: int, teacher_id: int):
             "component_label": sst.component_label if sst else None,
         })
     return out
+
+
+def get_all_lessons(db: Session, academic_year_id: int):
+    """Every placed, teacher-assigned lesson for the whole week - the shape
+    substitution.compute_suggestions() expects. Used instead of per-teacher
+    get_teacher_week() since finding a substitute needs to know about every
+    OTHER teacher's occupancy and assignments too, not just the absent one's."""
+    slots = db.query(models.TimetableSlot).filter(
+        models.TimetableSlot.academic_year_id == academic_year_id,
+        models.TimetableSlot.teacher_id.isnot(None),
+    ).all()
+    if not slots:
+        return []
+
+    section_ids = {s.section_id for s in slots}
+    sections = db.query(models.Section).filter(models.Section.id.in_(section_ids)).all()
+    grade_ids = {s.grade_id for s in sections}
+    grade_name_by_id = dict(db.query(models.Grade.id, models.Grade.name).filter(models.Grade.id.in_(grade_ids)).all())
+    section_label = {s.id: (grade_name_by_id.get(s.grade_id), s.name) for s in sections}
+
+    sst_ids = {s.section_subject_teacher_id for s in slots if s.section_subject_teacher_id}
+    ssts = db.query(models.SectionSubjectTeacher).filter(models.SectionSubjectTeacher.id.in_(sst_ids)).all() if sst_ids else []
+    sst_by_id = {s.id: s for s in ssts}
+    gsp_ids = {s.grade_subject_period_id for s in ssts}
+    gsps = db.query(models.GradeSubjectPeriod).filter(models.GradeSubjectPeriod.id.in_(gsp_ids)).all() if gsp_ids else []
+    gsp_by_id = {g.id: g for g in gsps}
+    subject_ids = {g.subject_id for g in gsps}
+    subject_name_by_id = dict(
+        db.query(models.Subject.id, models.Subject.raw_name).filter(models.Subject.id.in_(subject_ids)).all()
+    ) if subject_ids else {}
+    teacher_ids = {s.teacher_id for s in slots}
+    teacher_name_by_id = dict(db.query(models.Teacher.id, models.Teacher.name).filter(models.Teacher.id.in_(teacher_ids)).all())
+
+    out = []
+    for slot in slots:
+        sst = sst_by_id.get(slot.section_subject_teacher_id)
+        gsp = gsp_by_id.get(sst.grade_subject_period_id) if sst else None
+        grade_name, section_name = section_label.get(slot.section_id, (None, None))
+        subject = (sst.component_label if sst else None) or (subject_name_by_id.get(gsp.subject_id) if gsp else None)
+        out.append({
+            "day_of_week": slot.day_of_week,
+            "period_number": slot.period_number,
+            "grade_name": grade_name,
+            "section_name": section_name,
+            "subject": subject or "?",
+            "teacher_name": teacher_name_by_id.get(slot.teacher_id),
+        })
+    return out
+
+
+def list_active_teacher_names(db: Session, location: str):
+    return [
+        t.name for t in db.query(models.Teacher).filter(
+            models.Teacher.location == location, models.Teacher.is_active.is_(True),
+        ).all()
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Substitutions - one-off (date-specific) records, kept separate from the
+# recurring weekly TimetableSlot rows.
+# ---------------------------------------------------------------------------
+
+def _substitution_out(sub):
+    return {
+        "id": sub.id, "academic_year_id": sub.academic_year_id, "date": sub.date,
+        "day_of_week": sub.day_of_week, "period_number": sub.period_number,
+        "grade_name": sub.grade_name, "section_name": sub.section_name, "subject": sub.subject,
+        "absent_teacher_name": sub.absent_teacher_name, "absent_teacher_id": sub.absent_teacher_id,
+        "substitute_teacher_name": sub.substitute_teacher_name, "substitute_teacher_id": sub.substitute_teacher_id,
+        "tier": sub.tier, "created_by_name": sub.created_by_name,
+        "created_at": sub.created_at.isoformat() if sub.created_at else None,
+    }
+
+
+def create_substitution(db: Session, data: dict):
+    sub = models.Substitution(**data)
+    db.add(sub)
+    db.commit()
+    db.refresh(sub)
+    return _substitution_out(sub)
+
+
+def list_substitutions(db: Session, academic_year_id: int, date=None, teacher_name=None):
+    query = db.query(models.Substitution).filter(models.Substitution.academic_year_id == academic_year_id)
+    if date:
+        query = query.filter(models.Substitution.date == date)
+    if teacher_name:
+        query = query.filter(func.lower(models.Substitution.absent_teacher_name) == teacher_name.strip().lower())
+    subs = query.order_by(models.Substitution.date.desc(), models.Substitution.period_number).all()
+    return [_substitution_out(s) for s in subs]
+
+
+def delete_substitution(db: Session, substitution_id: int):
+    """Clears a recorded substitution that's no longer needed (e.g. the
+    absence didn't happen after all) - purely a history record, so deleting
+    it has no effect on the actual recurring timetable."""
+    sub = db.query(models.Substitution).filter(models.Substitution.id == substitution_id).first()
+    if not sub:
+        raise ValueError("Substitution not found")
+    db.delete(sub)
+    db.commit()
 
 
 # ---------------------------------------------------------------------------
