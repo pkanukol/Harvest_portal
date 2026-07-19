@@ -40,13 +40,14 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 12px;
+  overflow-x: auto;
 }
-.hdr-left { display: flex; align-items: center; gap: 12px; }
+.hdr-left { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
 .hdr-logo-img { height: 36px; width: auto; object-fit: contain; }
-.hdr-title { font-size: 18px; font-weight: 700; color: var(--ink); }
-.hdr-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.hdr-title { font-size: 18px; font-weight: 700; color: var(--ink); white-space: nowrap; }
+.hdr-right { display: flex; align-items: center; gap: 10px; flex-wrap: nowrap; flex-shrink: 0; }
 .hdr-logout { margin-left: 8px; }
 .user-badge {
   font-size: 12px;
