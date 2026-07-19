@@ -1,8 +1,8 @@
 import { useEffect, useState, useCallback } from "react";
 import { api } from "../api";
+import { formatDateTime } from "../dateFormat";
 
 const STATUSES = ["Open", "Needs immediate attention", "Closed", "Approved", "Ordered", "Rejected"];
-const LOCATIONS = ["Kodathi", "Attibele"];
 
 const VIEW_LABELS = {
   mine: "Logged by Me",
@@ -20,7 +20,7 @@ function statusClass(status) {
   return "badge badge-open";
 }
 
-export default function TicketList({ token, user, onOpenTicket }) {
+export default function TicketList({ token, user, location, onOpenTicket, onNew }) {
   const availableViews = (user?.views || []).filter((v) => VIEW_LABELS[v]);
   const [view, setView] = useState(availableViews[0] || "mine");
   const [tickets, setTickets] = useState([]);
@@ -28,7 +28,6 @@ export default function TicketList({ token, user, onOpenTicket }) {
   const [error, setError] = useState("");
   const [category, setCategory] = useState("");
   const [categories, setCategories] = useState([]);
-  const [locationFilter, setLocationFilter] = useState("");
   const [status, setStatus] = useState("");
   const [reporter, setReporter] = useState("");
   const [dateFrom, setDateFrom] = useState("");
@@ -42,7 +41,7 @@ export default function TicketList({ token, user, onOpenTicket }) {
     setError("");
     try {
       const data = await api.listTickets(token, {
-        view, category, location: locationFilter, status, reporter,
+        view, category, location, status, reporter,
         date_from: dateFrom ? new Date(dateFrom).toISOString() : "",
         date_to: dateTo ? new Date(dateTo).toISOString() : "",
         sort,
@@ -53,13 +52,16 @@ export default function TicketList({ token, user, onOpenTicket }) {
     } finally {
       setLoading(false);
     }
-  }, [token, view, category, locationFilter, status, reporter, dateFrom, dateTo, sort]);
+  }, [token, view, category, location, status, reporter, dateFrom, dateTo, sort]);
 
   useEffect(() => { load(); }, [load]);
 
   return (
     <div className="card list-card">
-      <h2 className="card-heading">Tickets</h2>
+      <div className="list-card-heading-row">
+        <h2 className="card-heading">Tickets</h2>
+        <button className="btn btn-primary" onClick={onNew}>+ New Ticket</button>
+      </div>
 
       {availableViews.length > 1 && (
         <div className="view-tabs">
@@ -80,11 +82,6 @@ export default function TicketList({ token, user, onOpenTicket }) {
         <select className="field-input" value={category} onChange={(e) => setCategory(e.target.value)}>
           <option value="">All Categories</option>
           {categories.map((c) => <option key={c} value={c}>{c}</option>)}
-        </select>
-
-        <select className="field-input" value={locationFilter} onChange={(e) => setLocationFilter(e.target.value)}>
-          <option value="">All Locations</option>
-          {LOCATIONS.map((l) => <option key={l} value={l}>{l}</option>)}
         </select>
 
         <select className="field-input" value={status} onChange={(e) => setStatus(e.target.value)}>
@@ -133,7 +130,7 @@ export default function TicketList({ token, user, onOpenTicket }) {
             </div>
             <div className="ticket-row-meta">
               <span className={statusClass(t.effective_status)}>{t.effective_status}</span>
-              <span className="ticket-row-date">{new Date(t.created_at).toLocaleString()}</span>
+              <span className="ticket-row-date">{formatDateTime(t.created_at)}</span>
               <span className="ticket-row-reporter">{t.reporter_name}</span>
             </div>
           </div>
