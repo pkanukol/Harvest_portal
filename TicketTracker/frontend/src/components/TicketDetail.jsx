@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { api, API_ROOT } from "../api";
+import { formatDateTime, formatDate } from "../dateFormat";
 
 function statusClass(status) {
   if (status === "Closed") return "badge badge-closed";
@@ -80,9 +81,9 @@ function OrderDetailsSection({ token, ticket, onUpdated }) {
         </div>
         <dl className="detail-grid">
           <dt>Vendor</dt><dd>{ticket.vendor_name}</dd>
-          <dt>Order Date</dt><dd>{ticket.order_date}</dd>
+          <dt>Order Date</dt><dd>{formatDate(ticket.order_date)}</dd>
           <dt>Actual Cost</dt><dd>₹{Number(ticket.order_actual_cost).toFixed(2)}</dd>
-          {ticket.delivery_date && (<><dt>Delivery Date</dt><dd>{ticket.delivery_date}</dd></>)}
+          {ticket.delivery_date && (<><dt>Delivery Date</dt><dd>{formatDate(ticket.delivery_date)}</dd></>)}
           {ticket.tracking_details && (<><dt>Tracking</dt><dd>{ticket.tracking_details}</dd></>)}
         </dl>
       </div>
@@ -181,12 +182,12 @@ export default function TicketDetail({ token, user, ticketId, onBack }) {
         <dt>Reported by</dt><dd>{ticket.reporter_name} ({ticket.reporter_email})</dd>
         <dt>Responsible</dt><dd>{contactList(ticket.responsible_to)}</dd>
         {ticket.responsible_cc.length > 0 && (<><dt>CC</dt><dd>{contactList(ticket.responsible_cc)}</dd></>)}
-        <dt>Logged</dt><dd>{new Date(ticket.created_at).toLocaleString()}</dd>
+        <dt>Logged</dt><dd>{formatDateTime(ticket.created_at)}</dd>
         {ticket.closed_at && (
           <>
             <dt>{isStores ? "Decided" : "Closed"}</dt>
             <dd>
-              {new Date(ticket.closed_at).toLocaleString()} by {ticket.closed_by_name}
+              {formatDateTime(ticket.closed_at)} by {ticket.closed_by_name}
               {ticket.approval_level ? ` (${ticket.approval_level})` : ""}
             </dd>
           </>
@@ -198,7 +199,7 @@ export default function TicketDetail({ token, user, ticketId, onBack }) {
           <dt>Item</dt><dd>{ticket.item_name}</dd>
           <dt>Quantity</dt><dd>{ticket.quantity}</dd>
           <dt>Approx Cost</dt><dd>₹{Number(ticket.approx_cost).toFixed(2)} each</dd>
-          <dt>Order By</dt><dd>{ticket.order_by_date}</dd>
+          <dt>Order By</dt><dd>{formatDate(ticket.order_by_date)}</dd>
           {ticket.specifications && (<><dt>Specifications</dt><dd>{ticket.specifications}</dd></>)}
         </dl>
       ) : (
