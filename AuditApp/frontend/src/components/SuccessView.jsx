@@ -32,13 +32,13 @@ export default function SuccessView({ summary, onDashboard, onNewObservation }) 
           <div>Rating:</div>
           <div style={{ fontWeight: 700, color: "var(--harvest-blue)" }}>{summary.rating}</div>
           <div>Score:</div>
-          <div style={{ fontWeight: 700 }}>{summary.overallScore} / 28</div>
+          <div style={{ fontWeight: 700 }}>{summary.overallScore} / 24</div>
           <div>Domain 1 (Planning):</div>
           <div style={{ fontWeight: 700 }}>{summary.domain1Score} / 8</div>
           <div>Domain 2 (Classroom):</div>
           <div style={{ fontWeight: 700 }}>{summary.domain2Score} / 4</div>
           <div>Domain 3 (Instruction):</div>
-          <div style={{ fontWeight: 700 }}>{summary.domain3Score} / 16</div>
+          <div style={{ fontWeight: 700 }}>{summary.domain3Score} / 12</div>
         </div>
       </div>
 
