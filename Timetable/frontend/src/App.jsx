@@ -7,6 +7,7 @@ import TimetableGrid from "./components/TimetableGrid";
 import TeacherWeekView from "./components/TeacherWeekView";
 import TeacherTimetableView from "./components/TeacherTimetableView";
 import TeachersAdminView from "./components/TeachersAdminView";
+import SubstitutionView from "./components/SubstitutionView";
 
 const LOCATIONS = ["Kodathi", "Attibele"];
 
@@ -91,6 +92,7 @@ const LEADERSHIP_TABS = [
   { key: "generate", label: "2. Generate" },
   { key: "timetable", label: "3. Timetable" },
   { key: "teachers", label: "Teachers" },
+  { key: "substitution", label: "Substitution" },
 ];
 
 function LeadershipApp({ token, location, activeYear, yearLoading, onImportCommitted }) {
@@ -125,6 +127,7 @@ function LeadershipApp({ token, location, activeYear, yearLoading, onImportCommi
           />
         )}
         {tab === "teachers" && <TeachersAdminView token={token} location={location} activeYear={activeYear} />}
+        {tab === "substitution" && <SubstitutionView token={token} location={location} activeYear={activeYear} />}
         {tab === "timetable" && (
           <BrowseTimetable
             token={token} location={location} activeYear={activeYear} yearLoading={yearLoading}
