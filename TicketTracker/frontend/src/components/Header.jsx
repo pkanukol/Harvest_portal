@@ -1,6 +1,6 @@
 const LOCATIONS = ["Kodathi", "Attibele"];
 
-export default function Header({ user, view, location, onLocationChange, onList, onNew, onLogout }) {
+export default function Header({ user, view, location, onLocationChange, onList, onLogout }) {
   if (!user) return null;
 
   return (
@@ -33,10 +33,7 @@ export default function Header({ user, view, location, onLocationChange, onList,
           {view !== "list" && (
             <button className="btn btn-ghost" onClick={onList}>All Tickets</button>
           )}
-          {view !== "new" && (
-            <button className="btn btn-primary" onClick={onNew}>+ New Ticket</button>
-          )}
-          <button className="btn btn-ghost" onClick={onLogout}>Logout</button>
+          <button className="btn btn-ghost hdr-logout" onClick={onLogout}>Logout</button>
         </div>
       </div>
     </div>
