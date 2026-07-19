@@ -47,6 +47,19 @@ function qs(params) {
 export const api = {
   getActiveYear: (token, location) => request(`/academic-years/active${qs({ location })}`, { token }),
 
+  listAcademicYears: (token, location) => request(`/academic-years${qs({ location })}`, { token }),
+
+  listSubjects: (token, academicYearId) => request(`/academic-years/${academicYearId}/subjects`, { token }),
+
+  activateAcademicYear: (token, academicYearId, location) =>
+    request(`/academic-years/${academicYearId}/activate${qs({ location })}`, { method: "POST", token }),
+
+  deactivateAcademicYear: (token, academicYearId, location) =>
+    request(`/academic-years/${academicYearId}/deactivate${qs({ location })}`, { method: "POST", token }),
+
+  deleteAcademicYear: (token, academicYearId, location) =>
+    request(`/academic-years/${academicYearId}${qs({ location })}`, { method: "DELETE", token }),
+
   importPreview: (token, workbookFile, timingText) => {
     const formData = new FormData();
     formData.append("workbook", workbookFile);
@@ -54,8 +67,33 @@ export const api = {
     return request("/import/preview", { method: "POST", token, formData, timeoutMs: 60000 });
   },
 
-  importCommit: (token, label, location, parsed, rulesText) =>
-    request("/import/commit", { method: "POST", token, body: { label, location, parsed, rules_text: rulesText || null }, timeoutMs: 60000 }),
+  importPreviewTimetableExport: (token, workbookFile) => {
+    const formData = new FormData();
+    formData.append("workbook", workbookFile);
+    // A full multi-grade school export has a lot more rows/formatting than a
+    // small test file, and openpyxl has to load it non-read-only (merged-cell
+    // info isn't available in read-only mode) - give this real room.
+    return request("/import/preview-timetable-export", { method: "POST", token, formData, timeoutMs: 180000 });
+  },
+
+  importPreviewTeacherDetails: (token, workbookFile) => {
+    const formData = new FormData();
+    formData.append("workbook", workbookFile);
+    return request("/import/preview-teacher-details", { method: "POST", token, formData, timeoutMs: 60000 });
+  },
+
+  importCommit: (token, label, location, parsed, rulesText, lessons, teacherDetails) =>
+    request("/import/commit", {
+      method: "POST", token,
+      // Committing a full school (grades/sections/subjects/teachers/slots)
+      // is a lot of individual writes over a remote DB connection - same
+      // reasoning as the existing WORK ALLOTMENT import's generous timeout.
+      timeoutMs: 180000,
+      body: {
+        label, location, parsed, rules_text: rulesText || null,
+        lessons: lessons || null, teacher_details: teacherDetails || null,
+      },
+    }),
 
   generate: (token, academicYearId, sections) =>
     request(`/academic-years/${academicYearId}/generate${qs({ sections })}`, { method: "POST", token, timeoutMs: 60000 }),
@@ -88,8 +126,14 @@ export const api = {
 
   listTeachers: (token, location) => request(`/teachers${qs({ location })}`, { token }),
 
+  createTeacher: (token, location, name, linkedEmail) =>
+    request(`/teachers${qs({ location })}`, { method: "POST", token, body: { name, linked_email: linkedEmail || null } }),
+
   linkTeacherEmail: (token, teacherId, linkedEmail) =>
     request(`/teachers/${teacherId}/linked-email`, { method: "PATCH", token, body: { linked_email: linkedEmail } }),
+
+  renameTeacher: (token, teacherId, name) =>
+    request(`/teachers/${teacherId}`, { method: "PATCH", token, body: { name } }),
 
   deleteTeacher: (token, teacherId, mergeIntoId) =>
     request(`/teachers/${teacherId}${qs({ merge_into: mergeIntoId })}`, { method: "DELETE", token }),
@@ -100,6 +144,30 @@ export const api = {
   getSectionSubjectSlots: (token, sectionId) =>
     request(`/sections/${sectionId}/subject-slots`, { token }),
 
+  addSubjectSlot: (token, sectionId, { subjectName, periodsPerWeek, componentLabel, teacherId }) =>
+    request(`/sections/${sectionId}/subject-slots`, {
+      method: "POST", token,
+      body: {
+        subject_name: subjectName, periods_per_week: periodsPerWeek || null,
+        component_label: componentLabel || null, teacher_id: teacherId || null,
+      },
+    }),
+
+  renameSubject: (token, subjectId, rawName) =>
+    request(`/subjects/${subjectId}`, { method: "PATCH", token, body: { raw_name: rawName } }),
+
   setSstTeacher: (token, sstId, teacherId) =>
     request(`/section-subject-teachers/${sstId}`, { method: "PATCH", token, body: { teacher_id: teacherId } }),
+
+  substitutionSuggest: (token, payload) =>
+    request(`/substitution/suggest`, { method: "POST", token, body: payload, timeoutMs: 30000 }),
+
+  createSubstitution: (token, payload) =>
+    request(`/substitutions`, { method: "POST", token, body: payload }),
+
+  listSubstitutions: (token, academicYearId, date, teacherName) =>
+    request(`/substitutions${qs({ academic_year_id: academicYearId, date, teacher_name: teacherName })}`, { token }),
+
+  deleteSubstitution: (token, substitutionId) =>
+    request(`/substitutions/${substitutionId}`, { method: "DELETE", token }),
 };
