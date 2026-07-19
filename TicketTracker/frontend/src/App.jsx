@@ -110,7 +110,6 @@ export default function App() {
           location={location}
           onLocationChange={setLocation}
           onList={goList}
-          onNew={goNew}
           onLogout={handleLogout}
         />
       )}
@@ -128,7 +127,7 @@ export default function App() {
         ) : (
           <>
             {view === "list" && (
-              <TicketList token={token} user={user} location={location} onOpenTicket={openTicket} />
+              <TicketList token={token} user={user} location={location} onOpenTicket={openTicket} onNew={goNew} />
             )}
 
             {view === "new" && (
