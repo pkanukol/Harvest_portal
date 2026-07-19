@@ -171,3 +171,30 @@ class TimetableSlot(Base):
     section = relationship("Section")
     section_subject_teacher = relationship("SectionSubjectTeacher", back_populates="timetable_slots")
     teacher = relationship("Teacher")
+
+
+class Substitution(Base):
+    """A one-off record of who covered a specific teacher's specific period on
+    a specific calendar date. Deliberately separate from TimetableSlot (which
+    is the recurring weekly schedule, keyed by day-of-week not a real date) so
+    recording a substitution never touches or risks corrupting the regular
+    timetable. Names are stored alongside the (nullable) teacher id since a
+    substitution computed from an uploaded override file may reference
+    teachers with no matching Teacher row."""
+    __tablename__ = "substitutions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    academic_year_id = Column(Integer, ForeignKey("academic_years.id"), nullable=False)
+    date = Column(String, nullable=False)  # "YYYY-MM-DD"
+    day_of_week = Column(Integer, nullable=False)
+    period_number = Column(Integer, nullable=False)
+    grade_name = Column(String, nullable=False)
+    section_name = Column(String, nullable=False)
+    subject = Column(String, nullable=False)
+    absent_teacher_name = Column(String, nullable=False)
+    absent_teacher_id = Column(Integer, ForeignKey("teachers.id"), nullable=True)
+    substitute_teacher_name = Column(String, nullable=False)
+    substitute_teacher_id = Column(Integer, ForeignKey("teachers.id"), nullable=True)
+    tier = Column(Integer, nullable=True)
+    created_by_name = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
