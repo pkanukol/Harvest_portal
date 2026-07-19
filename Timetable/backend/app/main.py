@@ -1,6 +1,7 @@
 import logging
 import re
 import time
+from datetime import datetime
 from fastapi import FastAPI, Depends, HTTPException, Request, status, UploadFile, File, Form, Query
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
@@ -8,7 +9,10 @@ import httpx
 
 from .config import settings
 from .database import engine, Base, get_db, run_migrations
-from . import models, schemas, crud, auth, excel_import, scheduler, rules as rules_module
+from . import (
+    models, schemas, crud, auth, excel_import, scheduler, rules as rules_module,
+    substitution as substitution_module, timetable_workbook,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("timetable")
@@ -106,6 +110,53 @@ async def import_preview(
     return parsed
 
 
+@app.post("/api/import/preview-timetable-export")
+async def import_preview_timetable_export(
+    workbook: UploadFile = File(...),
+    _user: auth.CurrentUser = Depends(auth.require_leadership),
+):
+    """Alternative to /import/preview: reads an already-generated timetable
+    export (class-wise grid, one section after another) instead of a
+    WORK ALLOTMENT allocation workbook - see app/timetable_workbook.py. The
+    response matches /import/preview's shape (grades/timing/warnings) plus a
+    "lessons" array, so the same ImportView summary UI and /import/commit
+    endpoint handle both import paths."""
+    logger.info("import/preview-timetable-export: parsing %s", workbook.filename)
+    xlsx_bytes = await workbook.read()
+    start = time.time()
+    try:
+        parsed = timetable_workbook.parse_generated_workbook(xlsx_bytes)
+    except Exception as exc:
+        logger.exception("import/preview-timetable-export: parse failed")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Could not parse timetable export: {exc}")
+    logger.info(
+        "import/preview-timetable-export: parsed %d grades, %d lessons, %d warnings in %.2fs",
+        len(parsed["grades"]), len(parsed["lessons"]), len(parsed["warnings"]), time.time() - start,
+    )
+    return parsed
+
+
+@app.post("/api/import/preview-teacher-details")
+async def import_preview_teacher_details(
+    workbook: UploadFile = File(...),
+    _user: auth.CurrentUser = Depends(auth.require_leadership),
+):
+    """Optional companion to the "Generated timetable export" import mode:
+    reads a Name/Email/Class Teacher (/Allocation/Subject, ignored) roster
+    sheet - see timetable_workbook.parse_teacher_details_sheet(). Everything
+    else about a teacher is already derived from the timetable itself; this
+    only supplies the two things that isn't in - email and class-teacher."""
+    logger.info("import/preview-teacher-details: parsing %s", workbook.filename)
+    xlsx_bytes = await workbook.read()
+    try:
+        parsed = timetable_workbook.parse_teacher_details_sheet(xlsx_bytes)
+    except Exception as exc:
+        logger.exception("import/preview-teacher-details: parse failed")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Could not parse teacher details sheet: {exc}")
+    logger.info("import/preview-teacher-details: parsed %d teacher(s), %d warnings", len(parsed["details"]), len(parsed["warnings"]))
+    return parsed
+
+
 @app.post("/api/import/commit")
 def import_commit(
     req: schemas.ImportCommitRequest,
@@ -122,7 +173,28 @@ def import_commit(
     start = time.time()
     year = crud.commit_import(db, req.label, req.location, req.parsed, req.rules_text)
     logger.info("import/commit: academic_year_id=%d committed in %.2fs", year.id, time.time() - start)
-    return {"academic_year_id": year.id, "label": year.label, "location": year.location}
+
+    if req.lessons:
+        place_start = time.time()
+        result = crud.place_generated_slots(db, year.id, req.lessons)
+        logger.info(
+            "import/commit: placed %d lesson(s) as manual-override slots (%d skipped, no matching section/assignment) in %.2fs",
+            result["placed"], result["skipped"], time.time() - place_start,
+        )
+
+    teacher_details_warnings = []
+    if req.teacher_details:
+        details_result = crud.apply_teacher_details(db, year.id, req.location, req.teacher_details)
+        teacher_details_warnings = details_result["warnings"]
+        logger.info(
+            "import/commit: teacher details applied - %d email(s), %d class-teacher(s), %d warning(s)",
+            details_result["updated_email"], details_result["updated_class_teacher"], len(teacher_details_warnings),
+        )
+
+    return {
+        "academic_year_id": year.id, "label": year.label, "location": year.location,
+        "teacher_details_warnings": teacher_details_warnings,
+    }
 
 
 # --- ACADEMIC YEARS / GRADES ---
@@ -159,6 +231,64 @@ def get_active_year(
             "schedule": timing.schedule,
         } if timing else None,
     }
+
+
+@app.get("/api/academic-years/{academic_year_id}/subjects")
+def list_subjects(
+    academic_year_id: int,
+    db: Session = Depends(get_db),
+    _user: auth.CurrentUser = Depends(auth.require_leadership),
+):
+    return crud.list_subjects(db, academic_year_id)
+
+
+@app.get("/api/academic-years")
+def list_academic_years(
+    location: str = Query("Kodathi"),
+    db: Session = Depends(get_db),
+    _user: auth.CurrentUser = Depends(auth.require_leadership),
+):
+    return crud.list_academic_years(db, location)
+
+
+@app.post("/api/academic-years/{academic_year_id}/activate")
+def activate_academic_year(
+    academic_year_id: int,
+    location: str = Query(...),
+    db: Session = Depends(get_db),
+    _user: auth.CurrentUser = Depends(auth.require_leadership),
+):
+    try:
+        return crud.activate_academic_year(db, academic_year_id, location)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+
+@app.post("/api/academic-years/{academic_year_id}/deactivate")
+def deactivate_academic_year(
+    academic_year_id: int,
+    location: str = Query(...),
+    db: Session = Depends(get_db),
+    _user: auth.CurrentUser = Depends(auth.require_leadership),
+):
+    try:
+        return crud.deactivate_academic_year(db, academic_year_id, location)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+
+@app.delete("/api/academic-years/{academic_year_id}")
+def delete_academic_year(
+    academic_year_id: int,
+    location: str = Query(...),
+    db: Session = Depends(get_db),
+    _user: auth.CurrentUser = Depends(auth.require_leadership),
+):
+    try:
+        crud.delete_academic_year(db, academic_year_id, location)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    return {"ok": True}
 
 
 @app.post("/api/academic-years/{academic_year_id}/generate")
@@ -297,6 +427,19 @@ def list_teachers(
     return crud.list_teachers(db, location)
 
 
+@app.post("/api/teachers", response_model=schemas.TeacherOut)
+def create_teacher(
+    req: schemas.TeacherCreateRequest,
+    location: str = Query(...),
+    db: Session = Depends(get_db),
+    _user: auth.CurrentUser = Depends(auth.require_leadership),
+):
+    try:
+        return crud.create_teacher(db, req.name, location, req.linked_email)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+
 @app.patch("/api/teachers/{teacher_id}/linked-email", response_model=schemas.TeacherOut)
 def link_teacher_email(
     teacher_id: int,
@@ -360,6 +503,34 @@ def get_section_subject_slots(
     return crud.get_section_subject_slots(db, section_id)
 
 
+@app.post("/api/sections/{section_id}/subject-slots")
+def add_subject_slot(
+    section_id: int,
+    req: schemas.SubjectSlotCreateRequest,
+    db: Session = Depends(get_db),
+    _user: auth.CurrentUser = Depends(auth.require_leadership),
+):
+    try:
+        return crud.add_subject_slot(
+            db, section_id, req.subject_name, req.periods_per_week, req.component_label, req.teacher_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+
+@app.patch("/api/subjects/{subject_id}")
+def rename_subject(
+    subject_id: int,
+    req: schemas.SubjectRenameRequest,
+    db: Session = Depends(get_db),
+    _user: auth.CurrentUser = Depends(auth.require_leadership),
+):
+    try:
+        return crud.rename_subject(db, subject_id, req.raw_name)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+
 @app.patch("/api/section-subject-teachers/{sst_id}")
 def set_sst_teacher(
     sst_id: int,
@@ -371,4 +542,69 @@ def set_sst_teacher(
         crud.set_sst_teacher(db, sst_id, req.teacher_id)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    return {"ok": True}
+
+
+# --- SUBSTITUTION ---
+
+@app.post("/api/substitution/suggest")
+def substitution_suggest(
+    req: schemas.SubstitutionSuggestRequest,
+    db: Session = Depends(get_db),
+    _user: auth.CurrentUser = Depends(auth.require_leadership),
+):
+    try:
+        date_obj = datetime.strptime(req.date, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="date must be in YYYY-MM-DD format")
+    day_of_week = date_obj.weekday()
+    if day_of_week > 4:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="That date is a weekend - no periods to substitute")
+
+    teacher = db.query(models.Teacher).filter(models.Teacher.id == req.absent_teacher_id).first()
+    if not teacher:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Teacher not found")
+    absent_name = teacher.name
+    lessons = crud.get_all_lessons(db, req.academic_year_id)
+    all_names = crud.list_active_teacher_names(db, teacher.location)
+
+    periods = substitution_module.compute_suggestions(lessons, absent_name, day_of_week, all_names)
+    return {
+        "day_of_week": day_of_week, "day_name": crud.DAY_NAMES[day_of_week],
+        "absent_teacher_name": absent_name, "periods": periods,
+    }
+
+
+@app.post("/api/substitutions")
+def create_substitution(
+    req: schemas.SubstitutionCreateRequest,
+    db: Session = Depends(get_db),
+    user: auth.CurrentUser = Depends(auth.require_leadership),
+):
+    data = req.dict()
+    data["created_by_name"] = user.name
+    return crud.create_substitution(db, data)
+
+
+@app.get("/api/substitutions")
+def get_substitutions(
+    academic_year_id: int = Query(...),
+    date: str = Query(None),
+    teacher_name: str = Query(None),
+    db: Session = Depends(get_db),
+    _user: auth.CurrentUser = Depends(auth.require_leadership),
+):
+    return crud.list_substitutions(db, academic_year_id, date=date, teacher_name=teacher_name)
+
+
+@app.delete("/api/substitutions/{substitution_id}")
+def delete_substitution(
+    substitution_id: int,
+    db: Session = Depends(get_db),
+    _user: auth.CurrentUser = Depends(auth.require_leadership),
+):
+    try:
+        crud.delete_substitution(db, substitution_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     return {"ok": True}
