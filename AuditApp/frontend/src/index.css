@@ -745,6 +745,75 @@ select option {
   cursor: not-allowed;
 }
 
+/* --- SPA / Performing Arts observation form --- */
+.spa-criteria-table-wrap {
+  overflow-x: auto;
+}
+.spa-criteria-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.spa-criteria-table th {
+  text-align: left;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  padding: 8px 10px;
+  border-bottom: 1.5px solid var(--border-color);
+}
+.spa-criteria-table td {
+  padding: 10px;
+  vertical-align: top;
+  border-bottom: 1px solid var(--border-color);
+  font-size: 13px;
+}
+.spa-criteria-label {
+  font-weight: 600;
+  color: var(--text-white);
+}
+.spa-option-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.spa-option-pill {
+  background: var(--bg-card);
+  border: 1.5px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 5px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-gray);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: var(--transition-fast);
+}
+.spa-option-pill:hover {
+  background: var(--bg-card-hover);
+}
+.spa-option-pill.selected {
+  background: var(--harvest-green);
+  border-color: var(--harvest-green);
+  color: #fff;
+}
+.spa-comment-input {
+  min-width: 160px;
+  font-size: 12px;
+  padding: 6px 10px;
+}
+.spa-signoff-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.spa-signoff-block {
+  background: var(--bg-card);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+}
+
 /* p34 N/A toggle */
 .p34-toggle-row {
   display: flex;
@@ -823,6 +892,31 @@ select option {
   transition: var(--transition-fast);
 }
 .loc-tab-btn.active {
+  background: linear-gradient(135deg, var(--harvest-green), var(--harvest-green-light));
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(45, 106, 45, 0.3);
+}
+.form-type-toggle {
+  display: inline-flex;
+  background: rgba(45, 106, 45, 0.06);
+  border: 1px solid var(--border-color);
+  border-radius: 30px;
+  padding: 4px;
+  margin: 20px 0 4px;
+}
+.form-type-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-gray);
+  padding: 8px 20px;
+  border-radius: 26px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+.form-type-btn.active {
   background: linear-gradient(135deg, var(--harvest-green), var(--harvest-green-light));
   color: #fff;
   box-shadow: 0 4px 12px rgba(45, 106, 45, 0.3);
