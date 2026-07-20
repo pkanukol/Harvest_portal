@@ -20,7 +20,7 @@ function statusClass(status) {
   return "badge badge-open";
 }
 
-export default function TicketList({ token, user, location, onOpenTicket, onNew }) {
+export default function TicketList({ token, user, location, routing = {}, onOpenTicket, onNew }) {
   const availableViews = (user?.views || []).filter((v) => VIEW_LABELS[v]);
   const [view, setView] = useState(availableViews[0] || "mine");
   const [tickets, setTickets] = useState([]);
@@ -81,7 +81,7 @@ export default function TicketList({ token, user, location, onOpenTicket, onNew 
       <div className="filter-bar">
         <select className="field-input" value={category} onChange={(e) => setCategory(e.target.value)}>
           <option value="">All Categories</option>
-          {categories.map((c) => <option key={c} value={c}>{c}</option>)}
+          {categories.map((c) => <option key={c} value={c}>{routing[c]?.label || c}</option>)}
         </select>
 
         <select className="field-input" value={status} onChange={(e) => setStatus(e.target.value)}>
@@ -124,7 +124,7 @@ export default function TicketList({ token, user, location, onOpenTicket, onNew 
           <div className="ticket-row" key={t.id} onClick={() => onOpenTicket(t.id)}>
             <div className="ticket-row-main">
               <span className="ticket-row-number">{t.ticket_number}</span>
-              <span className="ticket-row-category">{t.category}</span>
+              <span className="ticket-row-category">{routing[t.category]?.label || t.category}</span>
               <span className="ticket-row-location">{t.location}</span>
               <span className="ticket-row-desc">{t.description}</span>
             </div>
