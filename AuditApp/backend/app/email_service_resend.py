@@ -93,6 +93,44 @@ async def send_audit_notification(teacher_email: str, teacher_name: str, auditor
                               reply_to=auditor_email)
 
 
+async def send_spa_audit_notification(teacher_email: str, teacher_name: str, auditor_name: str,
+                                      auditor_email: str, school: str, activity: str, app_url: str):
+    subject = f"{school} | SPA Observation Report — {activity or 'your session'}"
+
+    body_text = (
+        f"Dear {teacher_name or 'Coach'},\n\n"
+        f"Your SPA / Performing Arts observation report has been reviewed and finalised by {auditor_name or 'your observer'}.\n\n"
+        f"Details:\n  Location : {school}\n  Activity : {activity or 'N/A'}\n\n"
+        f"Please log in to view your full report.\n\n"
+        f"{app_url}\n\nRegards,\nHarvest International School\nAcademic Quality Team"
+    )
+
+    body_html = f"""
+    <div style="font-family:Arial,sans-serif;max-width:540px;margin:0 auto;border:1px solid #d4e4d4;border-radius:12px;overflow:hidden;">
+        <div style="background:#1a3a1a;padding:18px 22px;">
+            <div style="font-size:17px;font-weight:bold;color:#7fff7f;">Harvest International School</div>
+            <div style="font-size:11px;color:rgba(255,255,255,0.55);margin-top:2px;">SPA / Performing Arts Observation Programme</div>
+        </div>
+        <div style="padding:22px;">
+            <p style="margin:0 0 14px;font-size:14px;color:#1a2a1a;">Dear <strong>{teacher_name or 'Coach'}</strong>,</p>
+            <p style="margin:0 0 14px;font-size:13px;color:#333;line-height:1.6;">Your SPA / Performing Arts observation report has been <strong>reviewed and finalised</strong> by <strong>{auditor_name or 'your observer'}</strong>.</p>
+            <div style="background:#f0f7f0;border-left:4px solid #2D6A2D;border-radius:0 8px 8px 0;padding:12px 16px;margin:0 0 16px;">
+                <div style="font-size:11px;font-weight:bold;color:#2D6A2D;text-transform:uppercase;margin-bottom:6px;">Observation Details</div>
+                <div style="font-size:13px;color:#333;line-height:1.8;">&#128205; <strong>Location:</strong> {school}<br>&#127942; <strong>Activity:</strong> {activity or 'N/A'}</div>
+            </div>
+            <div style="text-align:center;margin-bottom:18px;">
+                <a href="{app_url}" style="display:inline-block;padding:11px 26px;background:linear-gradient(135deg,#2D6A2D,#4a8c4a);color:#fff;text-decoration:none;border-radius:8px;font-size:13px;font-weight:bold;">&#127942; View My Report</a>
+            </div>
+            <p style="margin:0;font-size:11px;color:#888;">If you have questions, please contact your school coordinator.</p>
+        </div>
+        <div style="background:#f0f7f0;padding:10px 22px;font-size:10px;color:#888;text-align:center;border-top:1px solid #d4e4d4;">Harvest International School &mdash; Academic Quality Team</div>
+    </div>
+    """
+    return await _send_resend(teacher_email, subject, body_text, body_html,
+                              from_display=f"{auditor_name} via Harvest AuditApp",
+                              reply_to=auditor_email)
+
+
 async def send_remarks_notification(auditor_email: str, auditor_name: str, teacher_name: str,
                                     teacher_email: str, school: str, grade: str, app_url: str):
     subject = f"Audit Response | Remarks submitted by {teacher_name or 'Teacher'}"
