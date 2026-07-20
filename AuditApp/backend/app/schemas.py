@@ -1,6 +1,6 @@
 from pydantic import BaseModel, EmailStr
-from typing import List, Optional
-from datetime import datetime
+from typing import Dict, List, Optional
+from datetime import date, datetime
 
 # --- USER SCHEMAS ---
 class UserBase(BaseModel):
@@ -156,3 +156,60 @@ class DashboardData(BaseModel):
 
 class ProgressComparisonRequest(BaseModel):
     teacher_id: int
+
+# --- SPA (SPORTS / PERFORMING ARTS) OBSERVATION SCHEMAS ---
+class CriterionScore(BaseModel):
+    score: int
+    comment: Optional[str] = ""
+
+class SpaObservationBase(BaseModel):
+    school: str
+    activity: str
+    timing: Optional[str] = ""
+    grade_section: Optional[str] = ""
+    criteria_scores: Dict[str, CriterionScore]
+    strengths_observed: Optional[str] = ""
+    areas_of_improvement: Optional[str] = ""
+
+class SpaObservationCreate(SpaObservationBase):
+    teacher_id: int
+
+class SpaObservationDraftUpdate(BaseModel):
+    activity: str
+    timing: Optional[str] = ""
+    grade_section: Optional[str] = ""
+    criteria_scores: Dict[str, CriterionScore]
+    strengths_observed: Optional[str] = ""
+    areas_of_improvement: Optional[str] = ""
+
+class SpaObservationFinalise(BaseModel):
+    feedback_shared_with_coach: Optional[bool] = None
+    coach_name: Optional[str] = None
+    coach_date: Optional[date] = None
+    spa_hod_name: Optional[str] = None
+    spa_hod_date: Optional[date] = None
+    ch_name: str
+    ch_date: date
+
+class SpaObservationOut(SpaObservationBase):
+    id: int
+    unique_id: str
+    date_time: datetime
+    auditor_id: int
+    teacher_id: int
+    overall_score: int
+    is_draft: bool
+    email_sent: bool
+    feedback_shared_with_coach: Optional[bool] = None
+    coach_name: Optional[str] = None
+    coach_date: Optional[date] = None
+    spa_hod_name: Optional[str] = None
+    spa_hod_date: Optional[date] = None
+    ch_name: Optional[str] = None
+    ch_date: Optional[date] = None
+
+    auditor: UserMinimal
+    teacher: UserMinimal
+
+    class Config:
+        from_attributes = True
