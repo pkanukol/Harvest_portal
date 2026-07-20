@@ -344,3 +344,109 @@ def add_observation_image(db: Session, obs_id: int, image_path: str):
     db.commit()
     db.refresh(db_img)
     return db_img
+
+
+# --- SPA (SPORTS / PERFORMING ARTS) OBSERVATION CRUD ---
+def _sum_spa_scores(criteria_scores: dict) -> int:
+    total = 0
+    for entry in criteria_scores.values():
+        score = entry.score if hasattr(entry, "score") else entry.get("score", 0)
+        total += score or 0
+    return total
+
+def create_spa_observation(db: Session, obs_in: schemas.SpaObservationCreate, auditor_id: int):
+    auditor = get_user_by_id(db, auditor_id)
+    teacher = get_user_by_id(db, obs_in.teacher_id)
+    if not teacher or not auditor:
+        return None
+
+    criteria_dict = {k: v.model_dump() for k, v in obs_in.criteria_scores.items()}
+    overall_score = _sum_spa_scores(obs_in.criteria_scores)
+    unique_id = "SPA" + generate_unique_id(teacher.name, auditor.name)
+
+    db_obs = models.SpaObservation(
+        unique_id=unique_id,
+        auditor_id=auditor_id,
+        teacher_id=obs_in.teacher_id,
+        school=obs_in.school,
+        activity=obs_in.activity,
+        timing=obs_in.timing,
+        grade_section=obs_in.grade_section,
+        criteria_scores=criteria_dict,
+        overall_score=overall_score,
+        strengths_observed=obs_in.strengths_observed,
+        areas_of_improvement=obs_in.areas_of_improvement,
+        is_draft=True,
+    )
+    db.add(db_obs)
+    db.commit()
+    db.refresh(db_obs)
+    return db_obs
+
+def get_spa_observation_by_id(db: Session, obs_id: int):
+    return db.query(models.SpaObservation).filter(models.SpaObservation.id == obs_id).first()
+
+def update_spa_observation_draft(db: Session, obs_id: int, update_in: schemas.SpaObservationDraftUpdate):
+    db_obs = get_spa_observation_by_id(db, obs_id)
+    if not db_obs:
+        return None
+    db_obs.activity = update_in.activity
+    db_obs.timing = update_in.timing
+    db_obs.grade_section = update_in.grade_section
+    db_obs.criteria_scores = {k: v.model_dump() for k, v in update_in.criteria_scores.items()}
+    db_obs.overall_score = _sum_spa_scores(update_in.criteria_scores)
+    db_obs.strengths_observed = update_in.strengths_observed
+    db_obs.areas_of_improvement = update_in.areas_of_improvement
+    db.commit()
+    db.refresh(db_obs)
+    return db_obs
+
+def finalise_spa_observation(db: Session, obs_id: int, finalise_in: schemas.SpaObservationFinalise):
+    db_obs = get_spa_observation_by_id(db, obs_id)
+    if not db_obs:
+        return None
+    db_obs.is_draft = False
+    db_obs.feedback_shared_with_coach = finalise_in.feedback_shared_with_coach
+    db_obs.coach_name = finalise_in.coach_name
+    db_obs.coach_date = finalise_in.coach_date
+    db_obs.spa_hod_name = finalise_in.spa_hod_name
+    db_obs.spa_hod_date = finalise_in.spa_hod_date
+    db_obs.ch_name = finalise_in.ch_name
+    db_obs.ch_date = finalise_in.ch_date
+    db.commit()
+    db.refresh(db_obs)
+    return db_obs
+
+def get_spa_observations_for_teacher(db: Session, teacher_id: int, include_drafts: bool = False):
+    query = db.query(models.SpaObservation).filter(models.SpaObservation.teacher_id == teacher_id)
+    if not include_drafts:
+        query = query.filter(models.SpaObservation.is_draft == False)
+    return query.order_by(models.SpaObservation.date_time.desc()).all()
+
+def get_spa_teacher_full_history(db: Session, teacher_id: int):
+    return db.query(models.SpaObservation).filter(
+        models.SpaObservation.teacher_id == teacher_id
+    ).order_by(models.SpaObservation.date_time.desc()).all()
+
+def get_spa_audit_list(db: Session, location: str, sme_user_id: int = None):
+    query = db.query(models.SpaObservation).filter(models.SpaObservation.school == location)
+    if sme_user_id:
+        assigned_ids = db.query(models.TeacherSME.teacher_id).filter(
+            models.TeacherSME.sme_id == sme_user_id
+        ).subquery()
+        query = query.filter(models.SpaObservation.teacher_id.in_(assigned_ids))
+    observations = query.order_by(models.SpaObservation.date_time.desc()).all()
+    return [
+        {
+            "id": obs.id,
+            "teacher_id": obs.teacher_id,
+            "teacher_name": obs.teacher.name,
+            "auditor_name": obs.auditor.name,
+            "activity": obs.activity,
+            "grade_section": obs.grade_section,
+            "date_time": obs.date_time.isoformat(),
+            "overall_score": obs.overall_score,
+            "is_draft": obs.is_draft,
+        }
+        for obs in observations
+    ]
