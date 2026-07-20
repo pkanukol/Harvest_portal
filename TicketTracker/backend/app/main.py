@@ -10,7 +10,7 @@ from .config import settings
 from .database import engine, Base, get_db, run_migrations, SessionLocal
 from .constants import (
     CATEGORIES, LOCATIONS, CATEGORY_ROUTING, SUPER_ADMIN_EMAILS,
-    PRINCIPAL_BY_LOCATION, MANAGING_DIRECTOR, STORES_PROCUREMENT_CONTACT,
+    PRINCIPAL_BY_LOCATION, MANAGING_DIRECTOR, STORES_PROCUREMENT_CONTACT, category_label,
 )
 from . import models, schemas, crud, auth, email_service
 
@@ -138,6 +138,17 @@ def _can_view_ticket(ticket: models.Ticket, email: str) -> bool:
     return False
 
 
+def _comment_notify_recipients(ticket: models.Ticket, author_email: str) -> List[str]:
+    """Everyone associated with the ticket - reporter plus responsible to/cc - except
+    whoever just posted the comment, so a reply always reaches "the other side"
+    regardless of whether the assignee or the reporter wrote it."""
+    author_l = author_email.lower()
+    emails = {ticket.reporter_email}
+    emails.update(c["email"] for c in (ticket.responsible_to or []))
+    emails.update(c["email"] for c in (ticket.responsible_cc or []))
+    return [e for e in emails if e.lower() != author_l]
+
+
 def _approval_level_for(email: str) -> str:
     if _principal_location(email) is not None:
         return "Principal"
@@ -236,6 +247,22 @@ async def get_categories():
 @app.get("/api/locations")
 async def get_locations():
     return LOCATIONS
+
+
+@app.get("/api/routing")
+async def get_routing(location: str = Query(...)):
+    """For the ticket form's "who will this be sent to" note - a friendly display
+    label plus the actual to/cc recipients, per category, resolved for one location."""
+    if location not in LOCATIONS:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown location")
+    return {
+        category: {
+            "label": category_label(category, location),
+            "to": by_location[location]["to"],
+            "cc": by_location[location]["cc"],
+        }
+        for category, by_location in CATEGORY_ROUTING.items()
+    }
 
 
 # --- TICKETS ---
@@ -384,6 +411,58 @@ async def get_ticket_image(
     if not image:
         raise HTTPException(status_code=404, detail="Image not found")
     return Response(content=image.image_data, media_type=image.content_type)
+
+
+def _to_comment_out(comment: models.TicketComment) -> schemas.TicketCommentOut:
+    return schemas.TicketCommentOut(
+        id=comment.id, author_name=comment.author_name, author_email=comment.author_email,
+        message=comment.message, created_at=comment.created_at.replace(tzinfo=timezone.utc),
+    )
+
+
+@app.get("/api/tickets/{ticket_id}/comments", response_model=List[schemas.TicketCommentOut])
+async def list_comments(
+    ticket_id: int,
+    db: Session = Depends(get_db),
+    current_user: auth.CurrentUser = Depends(auth.get_current_user),
+):
+    ticket = crud.get_ticket(db, ticket_id)
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    if not _can_view_ticket(ticket, current_user.email):
+        raise HTTPException(status_code=403, detail="You don't have access to this ticket")
+    return [_to_comment_out(c) for c in ticket.comments]
+
+
+@app.post("/api/tickets/{ticket_id}/comments", response_model=schemas.TicketCommentOut, status_code=status.HTTP_201_CREATED)
+async def add_comment(
+    ticket_id: int,
+    body: schemas.TicketCommentIn,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user: auth.CurrentUser = Depends(auth.get_current_user),
+):
+    ticket = crud.get_ticket(db, ticket_id)
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    if not _can_view_ticket(ticket, current_user.email):
+        raise HTTPException(status_code=403, detail="You don't have access to this ticket")
+    if not body.message.strip():
+        raise HTTPException(status_code=400, detail="Message cannot be empty")
+
+    comment = crud.add_comment(db, ticket_id, current_user.name, current_user.email, body.message.strip())
+
+    recipients = _comment_notify_recipients(ticket, current_user.email)
+    if recipients:
+        ticket_url = f"{settings.APP_URL}/?ticket={ticket.id}"
+        background_tasks.add_task(
+            email_service.send_ticket_comment_notification,
+            ticket_number=crud.ticket_number(ticket), category=ticket.category,
+            author_name=current_user.name, message=comment.message,
+            recipients=recipients, ticket_url=ticket_url,
+        )
+
+    return _to_comment_out(comment)
 
 
 @app.post("/api/tickets/{ticket_id}/close", response_model=schemas.TicketOut)
