@@ -1,4 +1,4 @@
-export default function LoginView() {
+export default function LoginView({ error }) {
   const portalUrl = import.meta.env.VITE_PORTAL_URL || "http://localhost:3000/portal/login.html";
 
   return (
@@ -9,6 +9,7 @@ export default function LoginView() {
           <div className="brand-tagline">Harvest International School</div>
         </div>
         <p className="login-copy">Please sign in through the school portal to log or track a ticket.</p>
+        {error && <div className="form-error">Sign-in failed: {error}</div>}
         <a href={portalUrl} className="btn btn-primary btn-block">
           Go to School Portal →
         </a>
