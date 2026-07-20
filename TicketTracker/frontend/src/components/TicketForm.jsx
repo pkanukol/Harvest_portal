@@ -4,7 +4,15 @@ import { compressImage } from "../imageCompress";
 const MAX_IMAGES = 3;
 const ALLOWED_TYPES = ["image/jpeg", "image/png"];
 
-export default function TicketForm({ categories, onSubmit, submitting, submitError }) {
+function recipientNote(routing, category) {
+  const entry = routing[category];
+  if (!entry) return "";
+  const contacts = [...(entry.to || []), ...(entry.cc || [])].map((c) => `${c.name} (${c.email})`);
+  if (contacts.length === 0) return "";
+  return `This ticket will be sent to: ${contacts.join(", ")}`;
+}
+
+export default function TicketForm({ categories, routing = {}, onSubmit, submitting, submitError }) {
   const [category, setCategory] = useState("");
   const [description, setDescription] = useState("");
   const [itemName, setItemName] = useState("");
@@ -72,9 +80,12 @@ export default function TicketForm({ categories, onSubmit, submitting, submitErr
       <label className="field-label">Category</label>
       <select className="field-input" value={activeCategory} onChange={(e) => setCategory(e.target.value)}>
         {categories.map((c) => (
-          <option key={c} value={c}>{c}</option>
+          <option key={c} value={c}>{routing[c]?.label || c}</option>
         ))}
       </select>
+      {recipientNote(routing, activeCategory) && (
+        <div className="help-text">{recipientNote(routing, activeCategory)}</div>
+      )}
 
       {isStores ? (
         <>
