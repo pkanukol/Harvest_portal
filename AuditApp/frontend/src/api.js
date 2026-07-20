@@ -31,8 +31,13 @@ export const api = {
   login: (email, password) =>
     request("/auth/login", { method: "POST", body: { email, password } }),
 
-  getTeachers: (token, location) =>
-    request(`/users/teachers${location ? `?location=${encodeURIComponent(location)}` : ""}`, { token }),
+  getTeachers: (token, location, subject) => {
+    const params = new URLSearchParams();
+    if (location) params.set("location", location);
+    if (subject) params.set("subject", subject);
+    const qs = params.toString();
+    return request(`/users/teachers${qs ? `?${qs}` : ""}`, { token });
+  },
 
   getDashboard: (token, location) =>
     request(`/dashboard?location=${encodeURIComponent(location)}`, { token }),
@@ -94,4 +99,23 @@ export const api = {
 
   getSmeActivity: (token, location) =>
     request(`/dashboard/sme-activity?location=${encodeURIComponent(location)}`, { token }),
+
+  // --- SPA (Sports / Performing Arts) observations ---
+  createSpaObservation: (token, payload) =>
+    request("/spa-observations", { method: "POST", token, body: payload }),
+
+  getSpaObservation: (token, obsId) =>
+    request(`/spa-observations/${obsId}`, { token }),
+
+  getTeacherSpaObservations: (token, teacherId) =>
+    request(`/spa-observations/teacher/${teacherId}`, { token }),
+
+  updateSpaDraft: (token, observationId, payload) =>
+    request(`/spa-observations/${observationId}/draft`, { method: "PUT", token, body: payload }),
+
+  finaliseSpaObservation: (token, observationId, payload) =>
+    request(`/spa-observations/${observationId}/finalise`, { method: "POST", token, body: payload }),
+
+  getSpaAuditList: (token, location) =>
+    request(`/spa-dashboard/audit-list?location=${encodeURIComponent(location)}`, { token }),
 };
