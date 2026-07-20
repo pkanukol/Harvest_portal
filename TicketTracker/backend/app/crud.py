@@ -75,6 +75,16 @@ def get_ticket(db: Session, ticket_id: int) -> Optional[models.Ticket]:
     return db.query(models.Ticket).filter(models.Ticket.id == ticket_id).first()
 
 
+def add_comment(db: Session, ticket_id: int, author_name: str, author_email: str, message: str) -> models.TicketComment:
+    comment = models.TicketComment(
+        ticket_id=ticket_id, author_name=author_name, author_email=author_email, message=message,
+    )
+    db.add(comment)
+    db.commit()
+    db.refresh(comment)
+    return comment
+
+
 def resolve_ticket(db: Session, ticket: models.Ticket, new_status: str, remark: str,
                     actor_name: str, actor_email: str,
                     approval_level: Optional[str] = None) -> models.Ticket:
