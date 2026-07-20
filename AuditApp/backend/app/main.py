@@ -116,6 +116,7 @@ async def read_current_user(current_user: models.User = Depends(auth.get_current
 @app.get("/api/users/teachers", response_model=List[schemas.UserOut])
 async def get_teachers(
     location: Optional[str] = Query(None),
+    subject: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user),
 ):
@@ -146,6 +147,8 @@ async def get_teachers(
         query = query.filter(
             or_(models.User.location == location, models.User.location == "Both")
         )
+    if subject:
+        query = query.filter(models.User.subject.ilike(subject))
     return query.order_by(models.User.name).all()
 
 
@@ -387,6 +390,127 @@ async def add_observation_image_link(
     if obs.auditor_id != current_user.id:
         raise HTTPException(status_code=403, detail="You can only add images to audits done by you")
     return crud.add_observation_image(db, id, body.drive_link)
+
+
+# --- SPA (SPORTS / PERFORMING ARTS) OBSERVATION ROUTES ---
+
+@app.post("/api/spa-observations", response_model=schemas.SpaObservationOut)
+async def submit_spa_observation(
+    obs_in: schemas.SpaObservationCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.require_role(["auditor", "sme"])),
+):
+    teacher = crud.get_user_by_id(db, obs_in.teacher_id)
+    if not teacher or teacher.role != "teacher":
+        raise HTTPException(status_code=400, detail="Invalid SPA coach selected")
+    obs = crud.create_spa_observation(db, obs_in, current_user.id)
+    if not obs:
+        raise HTTPException(status_code=500, detail="Failed to create SPA observation")
+    return obs
+
+
+@app.put("/api/spa-observations/{id}/draft", response_model=schemas.SpaObservationOut)
+async def update_spa_draft(
+    id: int,
+    update: schemas.SpaObservationDraftUpdate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.require_role(["auditor", "sme"])),
+):
+    obs = crud.get_spa_observation_by_id(db, id)
+    if not obs:
+        raise HTTPException(status_code=404, detail="SPA observation not found")
+    if obs.auditor_id != current_user.id:
+        raise HTTPException(status_code=403, detail="You can only edit audits done by you")
+    if not obs.is_draft:
+        raise HTTPException(status_code=400, detail="Cannot edit a finalised observation")
+    return crud.update_spa_observation_draft(db, id, update)
+
+
+@app.post("/api/spa-observations/{id}/finalise", response_model=schemas.SpaObservationOut)
+async def finalise_spa_observation_route(
+    id: int,
+    body: schemas.SpaObservationFinalise,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.require_role(["auditor", "sme"])),
+):
+    obs = crud.get_spa_observation_by_id(db, id)
+    if not obs:
+        raise HTTPException(status_code=404, detail="SPA observation not found")
+    if obs.auditor_id != current_user.id:
+        raise HTTPException(status_code=403, detail="You can only finalise audits done by you")
+    if not obs.is_draft:
+        raise HTTPException(status_code=400, detail="Observation is already finalised")
+    if not body.ch_name.strip() or not body.ch_date:
+        raise HTTPException(status_code=400, detail="Curriculum Head name and date are required to finalise")
+
+    finalised_obs = crud.finalise_spa_observation(db, id, body)
+
+    background_tasks.add_task(
+        email_service.send_spa_audit_notification,
+        teacher_email=finalised_obs.teacher.email,
+        teacher_name=finalised_obs.teacher.name,
+        auditor_name=finalised_obs.auditor.name,
+        auditor_email=finalised_obs.auditor.email,
+        school=finalised_obs.school,
+        activity=finalised_obs.activity,
+        app_url=f"{settings.APP_URL}/?page=teacher",
+    )
+    finalised_obs.email_sent = True
+    db.commit()
+    return finalised_obs
+
+
+@app.get("/api/spa-observations/{obs_id}", response_model=schemas.SpaObservationOut)
+async def get_single_spa_observation(
+    obs_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
+    obs = crud.get_spa_observation_by_id(db, obs_id)
+    if not obs:
+        raise HTTPException(status_code=404, detail="SPA observation not found")
+    if current_user.role == "teacher" and obs.teacher_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    if current_user.role == "sme":
+        assigned = db.query(models.TeacherSME).filter_by(
+            teacher_id=obs.teacher_id, sme_id=current_user.id
+        ).first()
+        if not assigned:
+            raise HTTPException(status_code=403, detail="Access denied")
+    return obs
+
+
+@app.get("/api/spa-observations/teacher/{teacher_id}", response_model=List[schemas.SpaObservationOut])
+async def get_teacher_spa_observations(
+    teacher_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
+    if current_user.role == "teacher":
+        if current_user.id != teacher_id:
+            raise HTTPException(status_code=403, detail="Access denied to other teacher reports")
+        return crud.get_spa_observations_for_teacher(db, teacher_id, include_drafts=False)
+    elif current_user.role == "auditor":
+        return crud.get_spa_teacher_full_history(db, teacher_id)
+    elif current_user.role == "sme":
+        assigned = db.query(models.TeacherSME).filter_by(
+            teacher_id=teacher_id, sme_id=current_user.id
+        ).first()
+        if not assigned:
+            raise HTTPException(status_code=403, detail="Unauthorized access for this teacher")
+        return crud.get_spa_teacher_full_history(db, teacher_id)
+    raise HTTPException(status_code=403, detail="Unauthorized role")
+
+
+@app.get("/api/spa-dashboard/audit-list")
+async def get_spa_audit_list_route(
+    location: str = Query("Kodathi"),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.require_role(["auditor", "sme"])),
+):
+    sme_id = current_user.id if current_user.role == "sme" else None
+    return crud.get_spa_audit_list(db, location, sme_id)
 
 
 @app.get("/api/dashboard/audit-list")
