@@ -47,6 +47,25 @@ class Ticket(Base):
     approval_level = Column(String, nullable=True)  # "Principal" | "MD" - Stores only
 
     images = relationship("TicketImage", back_populates="ticket", cascade="all, delete-orphan")
+    comments = relationship("TicketComment", back_populates="ticket", cascade="all, delete-orphan",
+                             order_by="TicketComment.created_at")
+
+
+class TicketComment(Base):
+    """A chat-style message thread on a ticket - lets the assignee ask the reporter
+    for more detail (or the reporter reply) without needing a new ticket status.
+    Anyone who can view the ticket (reporter, responsible parties, principal,
+    super-admin) can post; each new message emails everyone else on the ticket."""
+    __tablename__ = "ticket_comments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    ticket_id = Column(Integer, ForeignKey("tickets.id"), nullable=False, index=True)
+    author_name = Column(String, nullable=False)
+    author_email = Column(String, nullable=False)
+    message = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, index=True)
+
+    ticket = relationship("Ticket", back_populates="comments")
 
 
 class TicketImage(Base):
