@@ -13,6 +13,7 @@ export default function App() {
   const [ssoLoading, setSsoLoading] = useState(() =>
     !!new URLSearchParams(window.location.search).get("sso")
   );
+  const [ssoError, setSsoError] = useState("");
   const [view, setView] = useState("list");
   const [location, setLocation] = useState(() => user?.home_location || "Kodathi");
   const [categories, setCategories] = useState([]);
@@ -41,7 +42,14 @@ export default function App() {
         const qs = params.toString();
         window.location.replace(window.location.pathname + (qs ? `?${qs}` : ""));
       })
-      .catch(() => setSsoLoading(false));
+      .catch((err) => {
+        // Surface the real reason (expired token, wrong domain, network/CORS issue,
+        // backend down, ...) instead of silently bouncing to a generic sign-in screen -
+        // and drop the now-unusable ?sso= param so retrying the page doesn't loop on it.
+        window.history.replaceState({}, "", window.location.pathname);
+        setSsoError(err.message || "Unknown error");
+        setSsoLoading(false);
+      });
   }, []);
 
   // Lock the campus to the user's home location once known (e.g. SSO resolves after mount)
@@ -130,7 +138,7 @@ export default function App() {
               <div className="sso-loading-sub">Signing you in via the school portal</div>
             </div>
           ) : (
-            <LoginView />
+            <LoginView error={ssoError} />
           )
         ) : (
           <>
