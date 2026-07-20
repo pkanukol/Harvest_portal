@@ -34,6 +34,7 @@ export const api = {
 
   getCategories: () => request("/categories"),
   getLocations: () => request("/locations"),
+  getRouting: (location) => request(`/routing?location=${encodeURIComponent(location)}`),
 
   createTicket: (token, { category, location, description, images, itemName, approxCost, quantity, specifications, orderByDate }) => {
     const formData = new FormData();
@@ -59,6 +60,11 @@ export const api = {
   },
 
   getTicket: (token, id) => request(`/tickets/${id}`, { token }),
+
+  getComments: (token, id) => request(`/tickets/${id}/comments`, { token }),
+
+  addComment: (token, id, message) =>
+    request(`/tickets/${id}/comments`, { method: "POST", token, body: { message } }),
 
   closeTicket: (token, id, remark) =>
     request(`/tickets/${id}/close`, { method: "POST", token, body: { remark } }),
