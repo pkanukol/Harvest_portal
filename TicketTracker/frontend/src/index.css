@@ -260,6 +260,25 @@ textarea.field-input { resize: vertical; }
 .approval-buttons { display: flex; gap: 10px; margin-top: 12px; }
 .approval-buttons .btn { flex: 1; }
 
+/* Ticket chat / messages */
+.comments-section { margin-top: 24px; border-top: 1px solid var(--border); padding-top: 20px; }
+.comments-heading { font-size: 15px; font-weight: 700; margin-bottom: 14px; }
+.comments-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
+.comment-bubble {
+  max-width: 85%;
+  background: var(--bg);
+  border-radius: 12px;
+  padding: 10px 14px;
+  align-self: flex-start;
+}
+.comment-bubble-mine { align-self: flex-end; background: #eaf7ff; }
+.comment-meta { display: flex; gap: 8px; align-items: baseline; margin-bottom: 4px; }
+.comment-author { font-size: 12px; font-weight: 700; color: var(--ink); }
+.comment-date { font-size: 11px; color: var(--muted); }
+.comment-message { font-size: 13px; color: var(--ink); line-height: 1.5; white-space: pre-wrap; }
+.comment-form { display: flex; flex-direction: column; gap: 8px; }
+.comment-form .btn { align-self: flex-end; }
+
 .order-details-box {
   margin-top: 18px;
   padding: 16px 18px;
