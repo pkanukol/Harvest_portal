@@ -60,6 +60,21 @@ class TicketDecision(BaseModel):
     remark: str
 
 
+class TicketCommentOut(BaseModel):
+    id: int
+    author_name: str
+    author_email: str
+    message: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class TicketCommentIn(BaseModel):
+    message: str
+
+
 class OrderDetails(BaseModel):
     order_date: str
     vendor_name: str
