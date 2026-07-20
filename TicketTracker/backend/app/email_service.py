@@ -117,6 +117,18 @@ async def send_ticket_resolved_notification(ticket_number: str, category: str, s
     )
 
 
+async def send_ticket_comment_notification(ticket_number: str, category: str,
+                                            author_name: str, message: str,
+                                            recipients: list, ticket_url: str):
+    card = _ticket_card_html(ticket_number, category, message, ticket_url)
+    await _send_resend(
+        recipients,
+        f"New message on {ticket_number} | {category}",
+        f"{author_name} wrote on ticket {ticket_number} ({category}):\n\n{message}\n\nReply here: {ticket_url}\n\nRegards,\nHarvest International School",
+        f"<p><strong>{author_name}</strong> wrote on this ticket:</p>{card}",
+    )
+
+
 async def send_order_placed_notification(ticket_number: str, category: str,
                                           reporter_name: str, reporter_email: str,
                                           vendor_name: str, order_date: str,
