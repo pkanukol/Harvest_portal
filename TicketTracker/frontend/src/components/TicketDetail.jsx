@@ -307,6 +307,8 @@ export default function TicketDetail({ token, user, ticketId, onBack }) {
         <OrderDetailsSection token={token} ticket={ticket} onUpdated={setTicket} />
       )}
 
+      <TicketComments token={token} userEmail={user.email} ticketId={ticket.id} />
+
       {canAct && isStores && (
         <form className="close-form">
           <label className="field-label">Approval remark</label>
@@ -345,8 +347,6 @@ export default function TicketDetail({ token, user, ticketId, onBack }) {
           </button>
         </form>
       )}
-
-      <TicketComments token={token} userEmail={user.email} ticketId={ticket.id} />
     </div>
   );
 }
