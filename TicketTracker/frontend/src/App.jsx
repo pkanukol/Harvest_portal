@@ -16,6 +16,7 @@ export default function App() {
   const [view, setView] = useState("list");
   const [location, setLocation] = useState(() => user?.home_location || "Kodathi");
   const [categories, setCategories] = useState([]);
+  const [routing, setRouting] = useState({});
   const [activeTicketId, setActiveTicketId] = useState(null);
   const [successTicket, setSuccessTicket] = useState(null);
   const [submitting, setSubmitting] = useState(false);
@@ -53,6 +54,13 @@ export default function App() {
     if (!isAuthenticated) return;
     api.getCategories().then(setCategories).catch(() => {});
   }, [isAuthenticated]);
+
+  // Routing (labels + who each category is sent to) is per-location, so refetch
+  // whenever the campus toggle changes.
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    api.getRouting(location).then(setRouting).catch(() => {});
+  }, [isAuthenticated, location]);
 
   // Deep link: ?ticket=<id> opens that ticket directly once authenticated
   useEffect(() => {
@@ -127,12 +135,13 @@ export default function App() {
         ) : (
           <>
             {view === "list" && (
-              <TicketList token={token} user={user} location={location} onOpenTicket={openTicket} onNew={goNew} />
+              <TicketList token={token} user={user} location={location} routing={routing} onOpenTicket={openTicket} onNew={goNew} />
             )}
 
             {view === "new" && (
               <TicketForm
                 categories={categories}
+                routing={routing}
                 onSubmit={handleSubmit}
                 submitting={submitting}
                 submitError={submitError}
