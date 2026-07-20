@@ -6,7 +6,18 @@ export function AuthProvider({ children }) {
   const [token, setToken] = useState(() => localStorage.getItem("token"));
   const [user, setUser] = useState(() => {
     const stored = localStorage.getItem("user");
-    return stored ? JSON.parse(stored) : null;
+    if (!stored) return null;
+    const parsed = JSON.parse(stored);
+    // A cached user from before the `views`/`home_location` fields existed has no
+    // `views` array at all (as opposed to a legitimately empty one, which the backend
+    // never returns) - treat that as a stale session and force a fresh SSO login
+    // rather than silently rendering a dashboard with no visible tickets or tabs.
+    if (!Array.isArray(parsed.views)) {
+      localStorage.removeItem("token");
+      localStorage.removeItem("user");
+      return null;
+    }
+    return parsed;
   });
 
   const login = (authData) => {
