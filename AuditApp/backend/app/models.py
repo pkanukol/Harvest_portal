@@ -1,5 +1,5 @@
 import datetime
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, ForeignKey, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Date, Text, ForeignKey, UniqueConstraint, JSON
 from sqlalchemy.orm import relationship
 from .database import Base
 
@@ -98,3 +98,44 @@ class ObservationImage(Base):
 
     # Relationships
     observation = relationship("Observation", back_populates="images")
+
+
+class SpaObservation(Base):
+    """SPA (Sports/Performing Arts) observation — a separate form from the classroom
+    Observation model since its 18 criteria have varying per-row max scores (not a
+    fixed 4-point rubric), so scores+comments are stored as one JSON blob keyed by
+    criterion id rather than fixed columns."""
+    __tablename__ = "spa_observations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    unique_id = Column(String, unique=True, index=True, nullable=False)
+    date_time = Column(DateTime, default=datetime.datetime.utcnow)
+
+    auditor_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    teacher_id = Column(Integer, ForeignKey("users.id"), nullable=False)  # SPA coach
+
+    school = Column(String, nullable=False)
+    activity = Column(String, nullable=False)
+    timing = Column(String, nullable=True)
+    grade_section = Column(String, nullable=True)
+
+    # {criterion_key: {"score": int, "comment": str}} — criteria defined in frontend spaRubrics.js
+    criteria_scores = Column(JSON, nullable=False, default=dict)
+    overall_score = Column(Integer, nullable=False, default=0)
+
+    strengths_observed = Column(Text, nullable=True)
+    areas_of_improvement = Column(Text, nullable=True)
+
+    feedback_shared_with_coach = Column(Boolean, nullable=True)
+    coach_name = Column(String, nullable=True)
+    coach_date = Column(Date, nullable=True)
+    spa_hod_name = Column(String, nullable=True)
+    spa_hod_date = Column(Date, nullable=True)
+    ch_name = Column(String, nullable=True)
+    ch_date = Column(Date, nullable=True)
+
+    is_draft = Column(Boolean, default=True)
+    email_sent = Column(Boolean, default=False)
+
+    auditor = relationship("User", foreign_keys=[auditor_id])
+    teacher = relationship("User", foreign_keys=[teacher_id])
