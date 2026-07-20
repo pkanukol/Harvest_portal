@@ -46,9 +46,10 @@ _ADMISSIONS_ATTIBELE = [{"name": "Admissions", "email": "admissions@harvestinnov
 # category -> location -> {"to": [{"name","email"}, ...], "cc": [...]}
 # "to" recipients can close/approve a ticket; "cc" recipients are notified only.
 CATEGORY_ROUTING = {
+    # Displayed to reporters as "School Admin (Principal)" - see CATEGORY_LABELS.
     "Admin": {
-        "Kodathi": {"to": [_ANKITA], "cc": [PRINCIPAL_BY_LOCATION["Kodathi"]]},
-        "Attibele": {"to": [_ANKITA], "cc": [PRINCIPAL_BY_LOCATION["Attibele"]]},
+        "Kodathi": {"to": [PRINCIPAL_BY_LOCATION["Kodathi"]], "cc": [_ANKITA]},
+        "Attibele": {"to": [PRINCIPAL_BY_LOCATION["Attibele"]], "cc": [_ANKITA]},
     },
     "HR": {
         "Kodathi": {"to": [_HR_KODATHI], "cc": []},
@@ -81,3 +82,18 @@ CATEGORY_ROUTING = {
         "Attibele": {"to": [PRINCIPAL_BY_LOCATION["Attibele"], MANAGING_DIRECTOR], "cc": []},
     },
 }
+
+# Friendly labels shown in the ticket form's category dropdown, per location - purely
+# cosmetic (decoupled from the CATEGORY_ROUTING keys above, so a relabel here never
+# touches the `category` value stored on a ticket or its routing lookup). Categories
+# not listed here just display their plain name. Infrastructure's label differs by
+# location since Kodathi/Attibele route to different people.
+CATEGORY_LABEL_OVERRIDES = {
+    "Admin": {"Kodathi": "School Admin (Principal)", "Attibele": "School Admin (Principal)"},
+    "DLP": {"Kodathi": "DLP (Pavani, Guru)", "Attibele": "DLP (Pavani, Guru)"},
+    "Infrastructure": {"Kodathi": "IT Admin (Satish)", "Attibele": "IT Admin (Suresh)"},
+}
+
+
+def category_label(category: str, location: str) -> str:
+    return CATEGORY_LABEL_OVERRIDES.get(category, {}).get(location, category)
