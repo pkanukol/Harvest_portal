@@ -6,6 +6,9 @@ import DetailDrawer from "./components/DetailDrawer";
 import Header from "./components/Header";
 import LoginView from "./components/LoginView";
 import ObservationForm, { EMPTY_SCORES } from "./components/ObservationForm";
+import SpaDashboard from "./components/SpaDashboard";
+import SpaDetailDrawer from "./components/SpaDetailDrawer";
+import SpaObservationForm from "./components/SpaObservationForm";
 import SuccessView from "./components/SuccessView";
 import TeacherView from "./components/TeacherView";
 import { useAuth } from "./context/AuthContext";
@@ -33,6 +36,18 @@ export default function App() {
   const [alerts, setAlerts] = useState(null);
   const [showAlert, setShowAlert] = useState(false);
 
+  // SPA (Sports / Performing Arts) observation state
+  const [formType, setFormType] = useState("classroom"); // "classroom" | "spa"
+  const [coaches, setCoaches] = useState([]);
+  const [spaDashboardRefreshKey, setSpaDashboardRefreshKey] = useState(0);
+  const [spaSubmitting, setSpaSubmitting] = useState(false);
+  const [spaSubmitError, setSpaSubmitError] = useState("");
+  const [spaDrawerOpen, setSpaDrawerOpen] = useState(false);
+  const [spaDrawerObsId, setSpaDrawerObsId] = useState(null);
+  const [spaTeacherReports, setSpaTeacherReports] = useState([]);
+  const [spaReportsLoading, setSpaReportsLoading] = useState(false);
+  const [spaReportsError, setSpaReportsError] = useState("");
+
   const loadTeachers = useCallback(async (loc) => {
     if (!token) return;
     try {
@@ -40,6 +55,16 @@ export default function App() {
       setTeachers(data);
     } catch (err) {
       console.error("Failed to load teachers:", err);
+    }
+  }, [token]);
+
+  const loadCoaches = useCallback(async (loc) => {
+    if (!token) return;
+    try {
+      const data = await api.getTeachers(token, loc, "SPA");
+      setCoaches(data);
+    } catch (err) {
+      console.error("Failed to load SPA coaches:", err);
     }
   }, [token]);
 
@@ -54,6 +79,20 @@ export default function App() {
       setReportsError(err.message);
     } finally {
       setReportsLoading(false);
+    }
+  }, [token, user]);
+
+  const loadSpaTeacherReports = useCallback(async () => {
+    if (!token || !user) return;
+    setSpaReportsLoading(true);
+    setSpaReportsError("");
+    try {
+      const data = await api.getTeacherSpaObservations(token, user.id);
+      setSpaTeacherReports(data);
+    } catch (err) {
+      setSpaReportsError(err.message);
+    } finally {
+      setSpaReportsLoading(false);
     }
   }, [token, user]);
 
@@ -105,12 +144,14 @@ export default function App() {
     if (user.role === "teacher") {
       setView("teacher");
       loadTeacherReports();
+      loadSpaTeacherReports();
     } else {
       setView("dashboard");
       loadTeachers("Kodathi");
+      loadCoaches("Kodathi");
     }
     loadAlerts();
-  }, [isAuthenticated, user, loadTeacherReports, loadTeachers, loadAlerts]);
+  }, [isAuthenticated, user, loadTeacherReports, loadSpaTeacherReports, loadTeachers, loadCoaches, loadAlerts]);
 
   const resetForm = () => {
     setFormScores({ ...EMPTY_SCORES });
@@ -167,14 +208,59 @@ export default function App() {
     }
   };
 
+  // Creates the draft on first save, then updates that same record on every subsequent
+  // save — lets the auditor keep saving as a draft repeatedly before finalising.
+  const handleSpaSaveDraft = async (payload, existingId) => {
+    setSpaSubmitError("");
+    if (!payload.teacher_id) { setSpaSubmitError("Please select a coach."); return null; }
+    if (!payload.activity) { setSpaSubmitError("Please enter the activity."); return null; }
+    const missing = Object.values(payload.criteria_scores).some((c) => c.score === null || c.score === undefined);
+    if (missing) { setSpaSubmitError("Please rate every criterion before saving draft."); return null; }
+    setSpaSubmitting(true);
+    try {
+      const obs = existingId
+        ? await api.updateSpaDraft(token, existingId, payload)
+        : await api.createSpaObservation(token, payload);
+      setSpaDashboardRefreshKey((k) => k + 1);
+      return obs;
+    } catch (err) {
+      setSpaSubmitError(err.message);
+      return null;
+    } finally {
+      setSpaSubmitting(false);
+    }
+  };
+
+  const handleSpaFinaliseFromForm = async (id, signoffPayload) => {
+    setSpaSubmitError("");
+    setSpaSubmitting(true);
+    try {
+      await api.finaliseSpaObservation(token, id, signoffPayload);
+      setSpaDashboardRefreshKey((k) => k + 1);
+      setView("spa-dashboard");
+    } catch (err) {
+      setSpaSubmitError(err.message);
+    } finally {
+      setSpaSubmitting(false);
+    }
+  };
+
   // Open drawer with a specific observation ID
   const openDrawer = (obsId) => {
     setDrawerObsId(obsId);
     setDrawerOpen(true);
   };
 
-  const headerSub = user?.role === "teacher" ? "My Observation Reports" : "Academic Quality Audit";
+  const openSpaDrawer = (obsId) => {
+    setSpaDrawerObsId(obsId);
+    setSpaDrawerOpen(true);
+  };
+
+  const headerSub = user?.role === "teacher" ? "My Observation Reports"
+    : view === "spa-dashboard" ? "SPA / Performing Arts Observation"
+    : "Academic Quality Audit";
   const showDashboardNav = isAuthenticated && user?.role !== "teacher" && view !== "dashboard";
+  const showSpaNav = isAuthenticated && user?.role !== "teacher" && view !== "spa-dashboard";
 
   return (
     <>
@@ -185,6 +271,8 @@ export default function App() {
           headerSub={headerSub}
           showDashboardNav={showDashboardNav}
           onDashboard={() => setView("dashboard")}
+          showSpaNav={showSpaNav}
+          onSpaDashboard={() => setView("spa-dashboard")}
           onLogout={handleLogout}
         />
       )}
@@ -203,27 +291,55 @@ export default function App() {
         ) : (
           <>
             {view === "form" && (
-              <ObservationForm
-                token={token}
-                teachers={teachers}
-                formScores={formScores}
-                setFormScores={setFormScores}
-                timestampedNotes={timestampedNotes}
-                setTimestampedNotes={setTimestampedNotes}
-                selectedImages={selectedImages}
-                setSelectedImages={setSelectedImages}
-                onSubmit={handleObservationSubmit}
-                submitting={submitting}
-                submitError={submitError}
-                onSchoolChange={(loc) => loadTeachers(loc)}
-              />
+              <>
+                <div className="form-type-toggle">
+                  <button
+                    className={`form-type-btn${formType === "classroom" ? " active" : ""}`}
+                    onClick={() => setFormType("classroom")}
+                  >
+                    Classroom Observation
+                  </button>
+                  <button
+                    className={`form-type-btn${formType === "spa" ? " active" : ""}`}
+                    onClick={() => setFormType("spa")}
+                  >
+                    SPA / Performing Arts
+                  </button>
+                </div>
+                {formType === "classroom" ? (
+                  <ObservationForm
+                    token={token}
+                    teachers={teachers}
+                    formScores={formScores}
+                    setFormScores={setFormScores}
+                    timestampedNotes={timestampedNotes}
+                    setTimestampedNotes={setTimestampedNotes}
+                    selectedImages={selectedImages}
+                    setSelectedImages={setSelectedImages}
+                    onSubmit={handleObservationSubmit}
+                    submitting={submitting}
+                    submitError={submitError}
+                    onSchoolChange={(loc) => loadTeachers(loc)}
+                  />
+                ) : (
+                  <SpaObservationForm
+                    user={user}
+                    coaches={coaches}
+                    onSaveDraft={handleSpaSaveDraft}
+                    onFinalise={handleSpaFinaliseFromForm}
+                    submitting={spaSubmitting}
+                    submitError={spaSubmitError}
+                    onSchoolChange={(loc) => loadCoaches(loc)}
+                  />
+                )}
+              </>
             )}
 
             {view === "success" && (
               <SuccessView
                 summary={successSummary}
                 onDashboard={() => setView("dashboard")}
-                onNewObservation={() => { resetForm(); setView("form"); }}
+                onNewObservation={() => { resetForm(); setFormType("classroom"); setView("form"); }}
               />
             )}
 
@@ -233,9 +349,21 @@ export default function App() {
                 user={user}
                 location={location}
                 onLocationChange={setLocation}
-                onNewObservation={() => { resetForm(); setView("form"); }}
+                onNewObservation={() => { resetForm(); setFormType("classroom"); setView("form"); }}
                 onOpenObs={openDrawer}
                 refreshKey={dashboardRefreshKey}
+              />
+            )}
+
+            {view === "spa-dashboard" && user.role !== "teacher" && (
+              <SpaDashboard
+                token={token}
+                user={user}
+                location={location}
+                onLocationChange={setLocation}
+                onNewObservation={() => { setSpaSubmitError(""); setFormType("spa"); setView("form"); }}
+                onOpenObs={openSpaDrawer}
+                refreshKey={spaDashboardRefreshKey}
               />
             )}
 
@@ -246,6 +374,10 @@ export default function App() {
                 loading={reportsLoading}
                 error={reportsError}
                 onOpenReport={(obsId) => openDrawer(obsId)}
+                spaReports={spaTeacherReports}
+                spaReportsLoading={spaReportsLoading}
+                spaReportsError={spaReportsError}
+                onOpenSpaReport={(obsId) => openSpaDrawer(obsId)}
               />
             )}
           </>
@@ -263,6 +395,21 @@ export default function App() {
             loadTeacherReports();
           } else {
             setDashboardRefreshKey((k) => k + 1);
+          }
+        }}
+      />
+
+      <SpaDetailDrawer
+        open={spaDrawerOpen}
+        token={token}
+        user={user}
+        obsId={spaDrawerObsId}
+        onClose={() => setSpaDrawerOpen(false)}
+        onUpdated={() => {
+          if (user?.role === "teacher") {
+            loadSpaTeacherReports();
+          } else {
+            setSpaDashboardRefreshKey((k) => k + 1);
           }
         }}
       />
