@@ -1,0 +1,44 @@
+services:
+  # ── Backend API (FastAPI) ─────────────────────────────────────
+  - type: web
+    name: harvest-curriculumtracker
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.3   # newer Pythons (3.13+) have no prebuilt pydantic-core wheel yet, forcing a Rust/maturin
+                        # source build that fails on Render's read-only build filesystem
+      - key: DATABASE_URL
+        sync: false   # set in the Render dashboard - same Supabase Postgres project as AuditApp/TicketTracker/Timetable
+      - key: SECRET_KEY
+        generateValue: true
+
+  # ── Frontend (React / Vite static site) ──────────────────────
+  - type: web
+    name: harvest-curriculumtracker-ui
+    runtime: static
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_API_URL
+        value: https://harvest-curriculumtracker.onrender.com   # update after backend deploys
+      - key: VITE_PORTAL_URL
+        value: https://harvest-portal.onrender.com/portal/login.html
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    headers:
+      # index.html carries the baked-in VITE_API_URL/VITE_PORTAL_URL and must
+      # always be revalidated - otherwise browsers/CDNs cache the app shell
+      # from an older build and every deploy after the first appears to do
+      # nothing until the visitor hard-refreshes.
+      - path: /
+        name: Cache-Control
+        value: no-cache, no-store, must-revalidate
+      - path: /index.html
+        name: Cache-Control
+        value: no-cache, no-store, must-revalidate
