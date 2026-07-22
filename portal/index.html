@@ -446,7 +446,7 @@
       desc: 'View real-time analytics and performance insights from CCT observations across grades.',
       icon: '📊',
       color: 'green',
-      href: 'https://script.google.com/macros/s/AKfycbyUOowu_Polb8kvZ72oWe_Yx7iILDMMgO-2i0ZOvdEq_Q__iJovxgu9BIdFlKOR8yj5/exec',
+      href: 'https://script.google.com/a/macros/harvestinternationalschool.in/s/AKfycbzsqgLeg3t_ror7gXWlpa5-Q1I5IW2elav5tJrPf2QuM1ZnFMKcIPOA4KSyScJYOmQ58w/exec',
       roles: ['teacher', 'auditor', 'sme'],
       btnLabel: 'Open Dashboard →'
     },
@@ -487,9 +487,12 @@
       desc: 'Track curriculum coverage, pacing and progress across grades and subjects.',
       icon: '📚',
       color: 'red',
-      href: 'https://script.google.com/a/macros/harvestinternationalschool.in/s/AKfycbxq8CKdp_JWH6eUxLiPbwaPVJQmj9FciqYQq-zH-apQAFPjzvmb9CsckHAgmHgAizGNYg/exec',
+      // Local dev only points at the new full-stack rebuild (CurriculumTracker/) - production
+      // still serves the old Apps Script app until that migration is reviewed and cut over.
+      href: IS_LOCAL ? 'http://localhost:5176' : 'https://script.google.com/a/macros/harvestinternationalschool.in/s/AKfycbxq8CKdp_JWH6eUxLiPbwaPVJQmj9FciqYQq-zH-apQAFPjzvmb9CsckHAgmHgAizGNYg/exec',
       roles: ['teacher', 'auditor', 'sme'],
-      btnLabel: 'Open Tracker →'
+      btnLabel: 'Open Tracker →',
+      sso: IS_LOCAL
     },
     {
       id: 'ticket-tracker',
@@ -526,13 +529,18 @@
           title: 'Claude Usage - The 12 Habit tips',
           desc: 'Claude counts tokens. Every habit in this guide tells you how to avoid wasting tokens, so you can spend them on what matters.',
           previewUrl: 'https://drive.google.com/file/d/1knc9Wfi-P5WyswZJpYQkKcNR_jHQdYCK/preview'
+       },
+       {
+          title: 'Ticket Tracker SOP',
+          desc: 'End-to-end process for raising, routing, tracking, and resolving issues or requests.',
+          previewUrl: 'https://drive.google.com/file/d/1-Sk8AJB4rho11QZuDQGp6NsqxppvSAyj/preview'
        }
       ]
     },
     {
       id: 'timetable',
       title: 'Timetable',
-      desc: 'View your weekly schedule, or (leadership) import allocations, generate and edit the school timetable.',
+      desc: 'View, generate and edit the school timetable.',
       icon: '🗓️',
       color: 'red',
       href: IS_LOCAL ? 'http://localhost:5174' : 'https://harvest-timetable-ui.onrender.com',
@@ -697,4 +705,3 @@ async function openApp(app) {
 </script>
 </body>
 </html>
-

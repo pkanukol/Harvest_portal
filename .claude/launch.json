@@ -1,0 +1,68 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "auditapp-backend",
+      "runtimeExecutable": "C:\\Pavani\\Apps\\AuditApp\\backend\\venv\\Scripts\\python.exe",
+      "runtimeArgs": ["-m", "uvicorn", "app.main:app", "--reload", "--port", "8000"],
+      "cwd": "C:\\Pavani\\Apps\\AuditApp\\backend",
+      "port": 8000
+    },
+    {
+      "name": "auditapp-frontend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "cwd": "C:\\Pavani\\Apps\\AuditApp\\frontend",
+      "port": 5173
+    },
+    {
+      "name": "portal",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["C:\\Pavani\\Apps\\server.py"],
+      "cwd": "C:\\Pavani\\Apps",
+      "port": 3000
+    },
+    {
+      "name": "timetable-backend",
+      "runtimeExecutable": "C:\\Pavani\\Apps\\Timetable\\backend\\venv\\Scripts\\python.exe",
+      "runtimeArgs": ["-m", "uvicorn", "app.main:app", "--reload", "--port", "8010"],
+      "cwd": "C:\\Pavani\\Apps\\Timetable\\backend",
+      "port": 8010
+    },
+    {
+      "name": "timetable-frontend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "cwd": "C:\\Pavani\\Apps\\Timetable\\frontend",
+      "port": 5174
+    },
+    {
+      "name": "tickettracker-backend",
+      "runtimeExecutable": "C:\\Pavani\\Apps\\TicketTracker\\backend\\venv\\Scripts\\python.exe",
+      "runtimeArgs": ["-m", "uvicorn", "app.main:app", "--reload", "--port", "8020"],
+      "cwd": "C:\\Pavani\\Apps\\TicketTracker\\backend",
+      "port": 8020
+    },
+    {
+      "name": "tickettracker-frontend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "cwd": "C:\\Pavani\\Apps\\TicketTracker\\frontend",
+      "port": 5175
+    },
+    {
+      "name": "curriculumtracker-backend",
+      "runtimeExecutable": "C:\\Pavani\\Apps\\CurriculumTracker\\backend\\venv\\Scripts\\python.exe",
+      "runtimeArgs": ["-m", "uvicorn", "app.main:app", "--reload", "--port", "8030"],
+      "cwd": "C:\\Pavani\\Apps\\CurriculumTracker\\backend",
+      "port": 8030
+    },
+    {
+      "name": "curriculumtracker-frontend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "cwd": "C:\\Pavani\\Apps\\CurriculumTracker\\frontend",
+      "port": 5176
+    }
+  ]
+}

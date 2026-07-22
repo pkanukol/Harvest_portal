@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+    <title>Harvest International School — Curriculum Tracker</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script>
+      // SSO: exchange the portal's Supabase token for a Curriculum Tracker JWT
+      // before React starts. Copied from Timetable's index.html — the more
+      // mature version of this pattern in this repo (retry-once, diagnostic
+      // logging, immune to Vite's blind %VAR% find-and-replace poisoning the
+      // unresolved-placeholder check).
+      (function () {
+        const LOG = "[CurriculumTracker SSO]";
+        const ssoToken = new URLSearchParams(location.search).get("sso");
+        const existingToken = localStorage.getItem("token");
+        console.log(LOG, "page loaded at", location.href);
+        console.log(LOG, "sso param present?", !!ssoToken, "| existing token in localStorage?", !!existingToken);
+
+        if (!ssoToken || existingToken) {
+          if (ssoToken) {
+            console.log(LOG, "Already have a token - skipping exchange, stripping sso param from URL.");
+            history.replaceState({}, "", location.pathname);
+          } else {
+            console.log(LOG, "No sso param, no existing token - normal app load, will show 'open from portal' screen.");
+          }
+          return;
+        }
+
+        var apiBase = "%VITE_API_URL%";
+        // Vite's HTML env substitution is a blind find-and-replace across the
+        // WHOLE file - if we check apiBase.indexOf("%VITE_API_URL%"), Vite
+        // rewrites that literal text inside the check too, so a successfully
+        // substituted value ends up comparing itself to itself and always
+        // "passes" as unresolved. Checking the first character for a literal
+        // "%" instead is immune to this, since a real URL never starts with one.
+        if (apiBase.charAt(0) === "%") apiBase = "";
+        var isLocalDev = location.hostname === "localhost" || location.hostname === "127.0.0.1";
+        var portalUrl = "%VITE_PORTAL_URL%";
+        if (portalUrl.charAt(0) === "%") {
+          portalUrl = isLocalDev ? "http://localhost:3000/portal/login.html" : "https://harvest-portal.onrender.com/portal/login.html";
+        }
+        console.log(LOG, "apiBase resolved to:", JSON.stringify(apiBase), "| portalUrl fallback resolved to:", portalUrl);
+
+        function attemptExchange(attemptNumber) {
+          console.log(LOG, "attempt", attemptNumber, "- POST to:", apiBase + "/api/auth/sso");
+          return fetch(apiBase + "/api/auth/sso", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ supabase_token: ssoToken }),
+          }).then(function (r) {
+            console.log(LOG, "attempt", attemptNumber, "- HTTP status:", r.status, r.ok ? "(ok)" : "(NOT ok)");
+            return r.text().then(function (text) {
+              console.log(LOG, "attempt", attemptNumber, "- raw response length:", text.length);
+              console.log(LOG, "attempt", attemptNumber, "- raw response text:", JSON.stringify(text));
+              if (!r.ok) throw new Error("SSO endpoint returned " + r.status + ": " + text);
+              if (!text) throw new Error("SSO endpoint returned an empty body");
+              return JSON.parse(text);
+            });
+          });
+        }
+
+        attemptExchange(1)
+          .catch(function (firstErr) {
+            console.warn(LOG, "attempt 1 failed (" + firstErr.message + "), retrying once after a short delay...");
+            return new Promise(function (resolve) { setTimeout(resolve, 800); }).then(function () {
+              return attemptExchange(2);
+            });
+          })
+          .then(function (data) {
+            console.log(LOG, "response body:", data);
+            if (data.access_token) {
+              localStorage.setItem("token", data.access_token);
+              localStorage.setItem("user", JSON.stringify({
+                name: data.name, email: data.email, role: data.role,
+                designation: data.designation, subject: data.subject, location: data.location,
+              }));
+              console.log(LOG, "token+user stored in localStorage, reloading page now.");
+            } else {
+              console.warn(LOG, "response had NO access_token field - staying logged out. Full body logged above.");
+            }
+            location.replace(location.pathname);
+          })
+          .catch(function (err) {
+            console.error(LOG, "exchange FAILED after retry with error:", err);
+            console.error(LOG, "redirecting to portal fallback:", portalUrl);
+            location.href = portalUrl;
+          });
+      })();
+    </script>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

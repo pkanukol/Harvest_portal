@@ -1,0 +1,1128 @@
+<script>
+// ── App state ──────────────────────────────────────────────────────────────
+const App = {
+  user: null,
+  history: [],
+  currentPowId: null,
+  progressChart: null,
+  topicCache: [],        // [{topic, subtopic, sessions, month}] for current subject
+  powFormMode: 'new',    // 'new' | 'impl_only'
+  powFormPrefill: null,
+  mappedTeachers: [],    // [{email, name, subject, location}] — populated for SME on dashboard load
+};
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+function showLoader()  { document.getElementById('loader').style.display = 'flex'; }
+function hideLoader()  { document.getElementById('loader').style.display = 'none'; }
+
+function showSection(id) {
+  document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+  const el = document.getElementById(id);
+  if (el) el.classList.add('active');
+  const navbar = document.getElementById('navbar');
+  if (id === 'loginSection') {
+    navbar.classList.add('d-none');
+    document.getElementById('loginSection').style.display = 'flex';
+  } else {
+    document.getElementById('loginSection').style.display = 'none';
+    navbar.classList.remove('d-none');
+  }
+}
+
+function navigate(sectionId) {
+  App.history.push(sectionId);
+  showSection(sectionId);
+}
+
+function goBack() {
+  if (App.history.length > 1) {
+    App.history.pop();
+    showSection(App.history[App.history.length - 1]);
+  } else {
+    showSection('dashboardSection');
+    App.history = ['dashboardSection'];
+  }
+}
+
+function fmtDate(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso + 'T00:00:00');
+  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+function nextWeekDates() {
+  const today = new Date();
+  const day = today.getDay(); // 0=Sun
+  let daysToMon = day === 0 ? 1 : 8 - day;
+  const mon = new Date(today);
+  mon.setDate(today.getDate() + daysToMon);
+  const fri = new Date(mon);
+  fri.setDate(mon.getDate() + 4);
+  return { mon, fri };
+}
+
+function toISO(d) {
+  return d.toISOString().slice(0, 10);
+}
+
+// thisMonday() and isPastWeek() are defined in the POW Form section above (IST-aware)
+
+function isSME() { return App.user && App.user.role === 'SME'; }
+function isLeadership() { return App.user && App.user.role === 'Leadership'; }
+// Read-only viewer: can browse POW cards + Progress Check, never create/edit a POW
+function isReadOnlyViewer() { return isSME() || isLeadership(); }
+
+function toast(msg, type = 'success') {
+  const el = document.createElement('div');
+  el.className = `alert alert-${type} position-fixed bottom-0 end-0 m-3`;
+  el.style.zIndex = 9000;
+  el.style.minWidth = '260px';
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 3500);
+}
+
+// ── Login ──────────────────────────────────────────────────────────────────
+function togglePwd() {
+  const inp = document.getElementById('loginPassword');
+  const icon = document.getElementById('eyeIcon');
+  if (inp.type === 'password') {
+    inp.type = 'text';
+    icon.className = 'bi bi-eye-slash';
+  } else {
+    inp.type = 'password';
+    icon.className = 'bi bi-eye';
+  }
+}
+
+function doLogin(e) {
+  e.preventDefault();
+  const email = document.getElementById('loginEmail').value.trim();
+  const password = document.getElementById('loginPassword').value;
+  const errEl = document.getElementById('loginError');
+  const btn = document.getElementById('loginBtn');
+  const spinner = document.getElementById('loginSpinner');
+
+  errEl.classList.add('d-none');
+  btn.disabled = true;
+  spinner.classList.remove('d-none');
+
+  google.script.run
+    .withSuccessHandler(function(user) {
+      btn.disabled = false;
+      spinner.classList.add('d-none');
+      if (!user || user.error) {
+        errEl.textContent = (user && user.error) ? user.error : 'Invalid email or password.';
+        errEl.classList.remove('d-none');
+        return;
+      }
+      App.user = user;
+      document.getElementById('navUser').textContent = user.name + ' (' + user.role + ')';
+      initDashboard();
+    })
+    .withFailureHandler(function(err) {
+      btn.disabled = false;
+      spinner.classList.add('d-none');
+      errEl.textContent = 'Login failed: ' + err.message;
+      errEl.classList.remove('d-none');
+    })
+    .login(email, password);
+}
+
+function doLogout() {
+  window.top.close();
+}
+
+// ── Dashboard ──────────────────────────────────────────────────────────────
+function initDashboard() {
+  // Show role-specific buttons
+  document.getElementById('btnNewPow').classList.toggle('d-none', isReadOnlyViewer());
+  document.getElementById('btnProgress').classList.toggle('d-none', !isReadOnlyViewer());
+
+  App.history = ['dashboardSection'];
+  showSection('dashboardSection');
+  loadDashboard();
+}
+
+function loadDashboard() {
+  if (!App.user) return;
+  const container = document.getElementById('powCardsContainer');
+  const noMsg     = document.getElementById('noCardsMsg');
+  container.innerHTML = '<div class="col-12 text-center py-4"><div class="spinner-border text-success"></div></div>';
+  noMsg.classList.add('d-none');
+
+  google.script.run
+    .withSuccessHandler(function(res) {
+      container.innerHTML = '';
+      if (!res || !res.success) {
+        container.innerHTML = '<div class="col-12"><div class="alert alert-danger">' + (res && res.message ? res.message : 'Failed to load') + '</div></div>';
+        return;
+      }
+
+      // Cache mapped teachers for Progress section
+      App.mappedTeachers = res.teachers || [];
+
+      var cards = res.cards || [];
+      if (cards.length === 0) { noMsg.classList.remove('d-none'); return; }
+
+      if (isReadOnlyViewer()) {
+        // Group cards by teacher
+        var byTeacher = {};
+        var order = [];
+        cards.forEach(function(c) {
+          if (!byTeacher[c.teacherEmail]) { byTeacher[c.teacherEmail] = []; order.push(c.teacherEmail); }
+          byTeacher[c.teacherEmail].push(c);
+        });
+        order.forEach(function(email) {
+          var teacherCards = byTeacher[email];
+          var name    = teacherCards[0].teacherName || email;
+          var subject = teacherCards[0].subject || '';
+          var html = '<div class="col-12 mb-3">'
+            + '<div class="fw-semibold mb-2" style="color:var(--green-dark)">'
+            + '<i class="bi bi-person-circle me-1"></i>' + name
+            + (subject ? ' <span class="text-muted fw-normal small ms-2">· ' + subject + '</span>' : '')
+            + '</div>'
+            + '<div class="row g-3">' + teacherCards.map(buildCard).join('') + '</div></div>';
+          container.insertAdjacentHTML('beforeend', html);
+        });
+      } else {
+        cards.forEach(function(c) { container.insertAdjacentHTML('beforeend', buildCard(c)); });
+      }
+    })
+    .withFailureHandler(function(err) {
+      container.innerHTML = '<div class="col-12"><div class="alert alert-danger">Failed to load: ' + err.message + '</div></div>';
+    })
+    .getPowCards(App.user.email, App.user.role);
+}
+
+function buildCard(c) {
+  var badgeClass = c.status === 'Approved'       ? 'badge-approved' :
+                   c.status === 'Pending Review' ? 'badge-pending'  : 'badge-created';
+  return '<div class="col-12 col-sm-6 col-lg-4">'
+    + '<div class="pow-card" onclick="openPow(\'' + c.id + '\')">'
+    + '<div class="card-header d-flex justify-content-between align-items-center px-3 py-2">'
+    + '<span>' + (c.subject || '') + '</span>'
+    + '<span class="badge ' + badgeClass + '">' + c.status + '</span>'
+    + '</div>'
+    + '<div class="p-3">'
+    + '<div class="small text-muted mb-1"><i class="bi bi-calendar3 me-1"></i>'
+    + fmtDate(c.weekStart) + ' – ' + fmtDate(c.weekEnd) + '</div>'
+    + '<div class="fw-semibold text-truncate"><i class="bi bi-book me-1"></i>' + (c.topic || '—') + '</div>'
+    + '</div></div></div>';
+}
+
+function goNewPow() {
+  initPowForm();
+  navigate('powFormSection');
+}
+
+function goProgress() {
+  initProgress();
+  navigate('progressSection');
+}
+
+// Called when a teacher clicks a card from the dashboard
+function openPow(id) {
+  App.currentPowId = id;
+  if (isReadOnlyViewer()) {
+    // SME / Leadership always go to the read-only view
+    loadPowView(id);
+  } else {
+    // Teacher: check if it is a past week — if so, open impl-only form
+    showLoader();
+    google.script.run
+      .withSuccessHandler(function(result) {
+        hideLoader();
+        if (!result || result.error || !result.pow) {
+          toast('POW lookup failed — ID sent: [' + id + '] | Server: ' + (result ? (result.message || result.error || 'unknown') : 'null'), 'danger');
+          return;
+        }
+        const pow = result.pow;
+        if (isPastWeek(pow.weekStart)) {
+          // Previous week → open form in impl-only mode
+          initPowForm(pow);
+          navigate('powFormSection');
+        } else {
+          // Current/future week → normal view
+          renderPowView(pow, result.review);
+          navigate('powViewSection');
+        }
+      })
+      .withFailureHandler(function(err) {
+        hideLoader();
+        toast('Failed to load POW: ' + err.message, 'danger');
+      })
+      .getPow(id);
+  }
+}
+
+// ── POW Form ───────────────────────────────────────────────────────────────
+// Returns current date in IST as a Date object (midnight IST)
+function nowIST() {
+  // IST = UTC+5:30
+  const now = new Date();
+  const utcMs = now.getTime() + now.getTimezoneOffset() * 60000;
+  return new Date(utcMs + 5.5 * 3600000);
+}
+
+function thisMonday() {
+  const t = nowIST();
+  const day = t.getDay(); // 0=Sun
+  const diff = day === 0 ? -6 : 1 - day;
+  const mon = new Date(t);
+  mon.setDate(t.getDate() + diff);
+  mon.setHours(0, 0, 0, 0);
+  return mon;
+}
+
+function isPastWeek(weekStartISO) {
+  if (!weekStartISO) return false;
+  const mon = thisMonday();
+  const ws  = new Date(weekStartISO + 'T00:00:00');
+  return ws < mon;
+}
+
+function isCurrentWeek(weekStartISO) {
+  if (!weekStartISO) return false;
+  const mon = thisMonday();
+  const ws  = new Date(weekStartISO + 'T00:00:00');
+  return ws.getTime() === mon.getTime();
+}
+
+function initPowForm(prefillPow) {
+  const u = App.user;
+
+  // If prefillPow is provided, this is a previous-week implementation fill-in
+  App.powFormMode = prefillPow ? 'impl_only' : 'new';
+  App.powFormPrefill = prefillPow || null;
+
+  const { mon, fri } = nextWeekDates();
+
+  // <input type="date"> expects ISO format (yyyy-mm-dd)
+  document.getElementById('pf_weekStart').value = prefillPow ? prefillPow.weekStart : toISO(mon);
+  document.getElementById('pf_weekEnd').value   = prefillPow ? prefillPow.weekEnd   : toISO(fri);
+  document.getElementById('pf_subject').value   = u.subject;
+
+  // Grade dropdown — kept for topic lookup from planner; pre-filled from POW if available
+  var gradeSel = document.getElementById('pf_grade');
+  if (gradeSel) {
+    gradeSel.innerHTML = '';
+    var gradeVal = (prefillPow && prefillPow.grade) ? prefillPow.grade : '';
+    if (gradeVal) {
+      gradeSel.innerHTML = '<option value="' + gradeVal + '">Grade ' + gradeVal + '</option>';
+    }
+    gradeSel.addEventListener('change', onGradeChange);
+  }
+
+  if (prefillPow) {
+    // ── Previous-week mode: lock everything, only show Implementation ──
+    _setPowFormReadonly(true);
+
+    document.getElementById('pf_topic').innerHTML     = '<option value="' + prefillPow.topic + '">' + prefillPow.topic + '</option>';
+    document.getElementById('pf_lpSession').innerHTML = '<option value="' + (prefillPow.lpSessionNum || '') + '">' + (prefillPow.lpSessionNum ? 'Session ' + prefillPow.lpSessionNum : '—') + '</option>';
+    var sc = document.getElementById('pf_subtopicContainer');
+    if (sc) sc.innerHTML = '<span class="text-muted small">' + (prefillPow.subtopic || '—') + '</span>';
+
+    ['pf_implA','pf_implB','pf_implC','pf_implD','pf_implE','pf_implF'].forEach(function(id) {
+      document.getElementById(id).value = prefillPow[id.replace('pf_impl', 'impl').toLowerCase()] || '';
+    });
+    updateImplLabels(prefillPow.grade || '');
+    _setPowSectionVisibility('impl_only', prefillPow);
+
+  } else {
+    // ── New POW mode ──────────────────────────────────────────────────
+    _setPowFormReadonly(false);
+
+    document.getElementById('pf_topic').innerHTML = '<option value="">— select topic —</option>';
+    var lpEl = document.getElementById('pf_lpSession');
+    if (lpEl) { lpEl.innerHTML = '<span class="text-muted small">— select topic first —</span>'; lpEl.dataset.sessions = ''; }
+    var sc2 = document.getElementById('pf_subtopicContainer');
+    if (sc2) sc2.innerHTML = '<span class="text-muted small">— select topic first —</span>';
+    ['pf_cw','pf_binder','pf_activity','pf_homework','pf_cctText','pf_tbsMom',
+     'pf_implA','pf_implB','pf_implC','pf_implD','pf_implE','pf_implF',
+     'pf_correctionDone','pf_instructions','pf_teacherRemarks'].forEach(function(id) {
+      document.getElementById(id).value = '';
+    });
+    document.getElementById('pf_cctNo').checked = true;
+    document.getElementById('cctTextBlock').classList.add('d-none');
+    var cctDb = document.getElementById('pf_cctDashboard');
+    if (cctDb) cctDb.checked = false;
+    populateMonthDropdown();
+    _setPowSectionVisibility('hide_impl', null);
+
+    // Load topics for the teacher's subject
+    if (u.subject) loadTopicsForSubject(u.subject);
+    updateImplLabels('');
+  }
+}
+
+// Show/hide form sections based on mode and update contextual labels
+function _setPowSectionVisibility(mode, prefillPow) {
+  const implSection = document.getElementById('powImplSection');
+  const mainSection = document.getElementById('powMainSection');
+  const banner      = document.getElementById('implPrevBanner');
+  const weekLabel   = document.getElementById('implPrevWeekLabel');
+  const subtitle    = document.getElementById('implSectionSubtitle');
+  const hint        = document.getElementById('implSectionHint');
+  const formTitle   = document.getElementById('powFormTitle');
+  const submitLabel = document.getElementById('powSubmitLabel');
+
+  const implExtras = document.getElementById('powImplExtras');
+  if (mode === 'impl_only') {
+    if (mainSection) mainSection.classList.add('d-none');
+    if (implSection) implSection.classList.remove('d-none');
+    if (implExtras)  implExtras.classList.remove('d-none');
+    if (banner)      banner.classList.remove('d-none');
+    if (weekLabel && prefillPow) {
+      weekLabel.textContent = fmtDate(prefillPow.weekStart) + ' – ' + fmtDate(prefillPow.weekEnd);
+    }
+    if (subtitle)    subtitle.textContent = 'Previous Week';
+    if (hint)        hint.innerHTML = 'Fill in how each section progressed <strong>last week</strong>.';
+    if (formTitle)   formTitle.innerHTML = '<i class="bi bi-clock-history me-2"></i>Add Implementation — Previous Week';
+    if (submitLabel) submitLabel.innerHTML = '<i class="bi bi-save me-1"></i>Save as Draft';
+  } else if (mode === 'hide_impl') {
+    if (mainSection) mainSection.classList.remove('d-none');
+    if (implSection) implSection.classList.add('d-none');
+    if (implExtras)  implExtras.classList.add('d-none');
+    if (banner)      banner.classList.add('d-none');
+    if (subtitle)    subtitle.textContent = 'Current Week';
+    if (hint)        hint.innerHTML = 'Fill in how each section progressed <strong>this week</strong>.';
+    if (formTitle)   formTitle.innerHTML = '<i class="bi bi-file-earmark-plus me-2"></i>New Plan of Work';
+    if (submitLabel) submitLabel.innerHTML = '<i class="bi bi-send me-1"></i>Submit POW';
+  } else {
+    // 'all' — new POW with implementation visible (future weeks)
+    if (mainSection) mainSection.classList.remove('d-none');
+    if (implSection) implSection.classList.remove('d-none');
+    if (banner)      banner.classList.add('d-none');
+    if (subtitle)    subtitle.textContent = 'Current / Previous Week';
+    if (hint)        hint.innerHTML = 'Fill in how each section progressed <strong>this week</strong>.';
+    if (formTitle)   formTitle.innerHTML = '<i class="bi bi-file-earmark-plus me-2"></i>New Plan of Work';
+    if (submitLabel) submitLabel.innerHTML = '<i class="bi bi-send me-1"></i>Submit POW';
+  }
+}
+
+// Lock or unlock the non-implementation fields
+function _setPowFormReadonly(lock) {
+  const ids = ['pf_grade','pf_month','pf_topic',
+               'pf_cw','pf_binder','pf_activity','pf_homework',
+               'pf_cctYes','pf_cctNo','pf_cctText','pf_cctDashboard','pf_tbsMom'];
+  ids.forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (lock) {
+      el.setAttribute('disabled', 'disabled');
+    } else {
+      el.removeAttribute('disabled');
+    }
+  });
+}
+
+function updateImplLabels(grade) {
+  ['A','B','C','D','E','F'].forEach(function(s) {
+    var el = document.getElementById('implLabel' + s);
+    if (el) el.textContent = (grade ? 'Grade ' + grade + ' — ' : '') + 'Section ' + s;
+  });
+}
+
+function onGradeChange() {
+  var grade = document.getElementById('pf_grade') ? document.getElementById('pf_grade').value : '';
+  updateImplLabels(grade);
+  if (App.user && App.user.subject) loadTopicsForSubject(App.user.subject);
+}
+
+var MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+function populateMonthDropdown() {
+  var monthSel = document.getElementById('pf_month');
+  if (!monthSel) return;
+  var currentMonthName = new Date().toLocaleString('en-US', { month: 'long' });
+  monthSel.innerHTML = '<option value="">— select month —</option>';
+  MONTHS.forEach(function(m) {
+    var opt = document.createElement('option');
+    opt.value = m; opt.textContent = m;
+    monthSel.appendChild(opt);
+  });
+  monthSel.value = currentMonthName;
+}
+
+function loadTopicsForSubject(subject) {
+  var grade = document.getElementById('pf_grade') ? document.getElementById('pf_grade').value.trim() : '';
+  var topicSel = document.getElementById('pf_topic');
+  var sc = document.getElementById('pf_subtopicContainer');
+  var lpSel = document.getElementById('pf_lpSession');
+
+  App.topicCache = [];
+  if (sc) sc.innerHTML = '<span class="text-muted small">— select topic first —</span>';
+  if (lpSel) lpSel.innerHTML = '<option value="">— select topic first —</option>';
+
+  if (!grade) {
+    topicSel.innerHTML = '<option value="">— enter grade first —</option>';
+    return;
+  }
+
+  topicSel.innerHTML = '<option value="">Loading…</option>';
+
+  google.script.run
+    .withSuccessHandler(function(res) {
+      App.topicCache = (res && res.topics) ? res.topics : [];
+      onMonthChange();
+    })
+    .withFailureHandler(function(err) {
+      topicSel.innerHTML = '<option value="">Failed to load</option>';
+    })
+    .getTopics(subject, grade);
+}
+
+function onMonthChange() {
+  var month = document.getElementById('pf_month') ? document.getElementById('pf_month').value : '';
+  var topicSel = document.getElementById('pf_topic');
+  var sc = document.getElementById('pf_subtopicContainer');
+  var lpSel = document.getElementById('pf_lpSession');
+
+  if (sc) sc.innerHTML = '<span class="text-muted small">— select topic first —</span>';
+  if (lpSel) lpSel.innerHTML = '<span class="text-muted small">— select topic first —</span>';
+
+  var filtered = month
+    ? App.topicCache.filter(function(t) { return t.month && t.month.toLowerCase() === month.toLowerCase(); })
+    : App.topicCache;
+
+  topicSel.innerHTML = filtered.length
+    ? '<option value="">— select topic —</option>'
+    : '<option value="">No topics for ' + (month || 'this month') + '</option>';
+  filtered.forEach(function(t) {
+    var opt = document.createElement('option');
+    opt.value = t.topic; opt.textContent = t.topic;
+    topicSel.appendChild(opt);
+  });
+}
+
+function onTopicChange() {
+  const topic = document.getElementById('pf_topic').value;
+  const container = document.getElementById('pf_subtopicContainer');
+  const lpSel     = document.getElementById('pf_lpSession');
+
+  if (!topic) {
+    container.innerHTML = '<span class="text-muted small">— select topic first —</span>';
+    lpSel.innerHTML = '<option value="">— select topic first —</option>';
+    return;
+  }
+
+  const cached = App.topicCache.find(function(t) { return t.topic === topic; });
+  if (!cached) return;
+
+  // ── Subtopic checkboxes (all checked by default) ──
+  const subs = cached.subtopic
+    ? cached.subtopic.split(/[,\n]/).map(function(s) { return s.trim(); }).filter(Boolean)
+    : [];
+
+  if (subs.length === 0) {
+    container.innerHTML = '<span class="text-muted small">No sub-topics for this topic</span>';
+  } else {
+    container.innerHTML = '';
+    subs.forEach(function(s, idx) {
+      var id = 'pf_sub_' + idx;
+      var wrap = document.createElement('div');
+      wrap.className = 'form-check';
+      wrap.innerHTML =
+        '<input class="form-check-input" type="checkbox" id="' + id + '" value="' + s.replace(/"/g, '&quot;') + '" checked>' +
+        '<label class="form-check-label" for="' + id + '">' + s + '</label>';
+      container.appendChild(wrap);
+    });
+  }
+
+  // ── Sessions planned — checkboxes ──
+  const count = parseInt(cached.sessions) || 0;
+  lpSel.innerHTML = '';
+  for (var s = 1; s <= count; s++) {
+    var id = 'pf_sess_' + s;
+    var wrap = document.createElement('div');
+    wrap.className = 'form-check';
+    wrap.innerHTML = '<input class="form-check-input" type="checkbox" id="' + id + '" value="' + s + '" checked>'
+                   + '<label class="form-check-label" for="' + id + '">Session ' + s + '</label>';
+    lpSel.appendChild(wrap);
+  }
+}
+
+function toggleCCTText() {
+  const yes = document.getElementById('pf_cctYes').checked;
+  document.getElementById('cctTextBlock').classList.toggle('d-none', !yes);
+  if (!yes) {
+    var cb = document.getElementById('pf_cctDashboard');
+    if (cb) cb.checked = false;
+  }
+}
+
+function submitPow(e) {
+  e.preventDefault();
+  const btn     = document.getElementById('powSubmitBtn');
+  const spinner = document.getElementById('powSubmitSpinner');
+  btn.disabled  = true;
+  spinner.classList.remove('d-none');
+
+  // ── Previous-week impl-only mode ───────────────────────────────────────
+  if (App.powFormMode === 'impl_only' && App.powFormPrefill) {
+    var finalSaveChk = document.getElementById('pf_finalSaveCheck');
+    var finalSave = finalSaveChk ? finalSaveChk.checked : false;
+    const implData = {
+      implA: document.getElementById('pf_implA').value,
+      implB: document.getElementById('pf_implB').value,
+      implC: document.getElementById('pf_implC').value,
+      implD: document.getElementById('pf_implD').value,
+      implE: document.getElementById('pf_implE').value,
+      implF: document.getElementById('pf_implF').value,
+      tbsMom:         document.getElementById('pf_tbsMom').value,
+      correctionDone: document.getElementById('pf_correctionDone').value,
+      instructions:   document.getElementById('pf_instructions').value,
+      teacherRemarks: document.getElementById('pf_teacherRemarks').value,
+    };
+    google.script.run
+      .withSuccessHandler(function(res) {
+        btn.disabled = false;
+        spinner.classList.add('d-none');
+        if (res && !res.success) { toast(res.message || 'Save failed', 'danger'); return; }
+        toast('Draft saved!');
+        App.history = ['dashboardSection'];
+        showSection('dashboardSection');
+        loadDashboard();
+      })
+      .withFailureHandler(function(err) {
+        btn.disabled = false;
+        spinner.classList.add('d-none');
+        toast('Error: ' + err.message, 'danger');
+      })
+      .updatePowImpl(App.powFormPrefill.id, implData, finalSave);
+    return;
+  }
+
+  // ── New POW mode ───────────────────────────────────────────────────────
+  const data = {
+    teacherEmail:   App.user.email,
+    subject:        document.getElementById('pf_subject').value,
+    grade:          document.getElementById('pf_grade').value,
+    weekStart:      document.getElementById('pf_weekStart').value,
+    weekEnd:        document.getElementById('pf_weekEnd').value,
+    topic:          document.getElementById('pf_topic').value,
+    subtopic:       Array.from(document.querySelectorAll('#pf_subtopicContainer input[type=checkbox]:checked'))
+                      .map(function(cb) { return cb.value; }).join(', '),
+    lpSessionNum:   Array.from(document.querySelectorAll('#pf_lpSession input[type=checkbox]:checked')).map(function(cb){ return cb.value; }).join(', '),
+    cw:             document.getElementById('pf_cw').value,
+    binder:         document.getElementById('pf_binder').value,
+    activity:       document.getElementById('pf_activity').value,
+    homework:       document.getElementById('pf_homework').value,
+    cctTopicYN:     document.getElementById('pf_cctYes').checked ? 'Yes' : 'No',
+    cctTopicText:   document.getElementById('pf_cctText').value,
+    cctDashboardUpdated: document.getElementById('pf_cctDashboard') ? document.getElementById('pf_cctDashboard').checked : false,
+    tbsMom:         document.getElementById('pf_tbsMom').value,
+    implA:          '', implB: '', implC: '', implD: '', implE: '', implF: '',  // hidden for current week
+    correctionDone: document.getElementById('pf_correctionDone').value,
+    instructions:   document.getElementById('pf_instructions').value,
+    teacherRemarks: document.getElementById('pf_teacherRemarks').value,
+  };
+
+  google.script.run
+    .withSuccessHandler(function(res) {
+      btn.disabled = false;
+      spinner.classList.add('d-none');
+      if (!res || !res.success) {
+        toast((res && res.message) || (res && res.error) || 'Failed to submit POW', 'danger');
+        return;
+      }
+      toast('POW submitted successfully!');
+      goBack();
+      loadDashboard();
+    })
+    .withFailureHandler(function(err) {
+      btn.disabled = false;
+      spinner.classList.add('d-none');
+      toast('Error: ' + err.message, 'danger');
+    })
+    .createPow(data);
+}
+
+// ── POW View ───────────────────────────────────────────────────────────────
+function loadPowView(powId) {
+  showLoader();
+  google.script.run
+    .withSuccessHandler(function(result) {
+      hideLoader();
+      if (!result || result.error) {
+        toast(result ? result.error : 'POW not found', 'danger');
+        return;
+      }
+      renderPowView(result.pow, result.review);
+      navigate('powViewSection');
+    })
+    .withFailureHandler(function(err) {
+      hideLoader();
+      toast('Failed to load POW: ' + err.message, 'danger');
+    })
+    .getPow(powId);
+}
+
+function txt(id, val) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = val || '—';
+}
+
+function renderPowView(pow, review) {
+  txt('pv_week',    fmtDate(pow.weekStart) + ' – ' + fmtDate(pow.weekEnd));
+  txt('pv_subject', pow.subject);
+  txt('pv_grade',   'Grade ' + pow.grade);
+  txt('pv_teacher', pow.teacherName);
+  txt('pv_topic',   pow.topic);
+  txt('pv_subtopic',pow.subtopic);
+  txt('pv_lpSession', pow.lpSessionNum || '—');
+  txt('pv_cw',      pow.cw);
+  txt('pv_binder',  pow.binder);
+  txt('pv_activity',pow.activity);
+  txt('pv_homework',pow.homework);
+  txt('pv_cctYN',   pow.cctTopicYn || pow.cctTopicYN);
+  txt('pv_cctText', pow.cctTopicText ? 'Topic: ' + pow.cctTopicText : '');
+  var tbsEl = document.getElementById('pv_tbsMom');
+  if (tbsEl) tbsEl.value = pow.tbsMom || '';
+  var finalChk = document.getElementById('pv_finalSaveCheck');
+  if (finalChk) finalChk.checked = false;
+  // Implementation — textareas
+  ['A','B','C','D','E','F'].forEach(function(s) {
+    var lbl = document.getElementById('pv_implLabel' + s);
+    if (lbl) lbl.textContent = 'Grade ' + pow.grade + ' — Section ' + s;
+    var ta = document.getElementById('pv_impl' + s);
+    if (ta) ta.value = pow['impl' + s] || '';
+  });
+
+  // Teacher Notes — form elements
+  var corrSel = document.getElementById('pv_correctionDone');
+  if (corrSel) corrSel.value = pow.correctionDone || '';
+  var instrTa = document.getElementById('pv_instructions');
+  if (instrTa) instrTa.value = pow.instructions || '';
+  var rmkTa = document.getElementById('pv_teacherRemarks');
+  if (rmkTa) rmkTa.value = pow.teacherRemarks || '';
+
+  // Lock fields once impl has been saved (pending or approved) OR for SME/Leadership
+  var isTeacher  = !isReadOnlyViewer();
+  var powStatus  = (pow.status || '').toLowerCase();
+  var isLocked   = !isTeacher || powStatus === 'approved' || powStatus === 'final';
+
+  var saveBar = document.getElementById('teacherSaveBar');
+  if (saveBar) saveBar.classList.toggle('d-none', isLocked);
+
+  ['pv_implA','pv_implB','pv_implC','pv_implD','pv_implE','pv_implF',
+   'pv_tbsMom','pv_correctionDone','pv_instructions','pv_teacherRemarks'].forEach(function(id) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    if (isLocked) {
+      el.setAttribute('readonly', 'readonly');
+      el.setAttribute('disabled', 'disabled');
+    } else {
+      el.removeAttribute('readonly');
+      el.removeAttribute('disabled');
+    }
+  });
+
+  // Print button — visible for pending or approved
+  var printBtn = document.getElementById('printBtn');
+  if (printBtn) {
+    var showPrint = powStatus === 'approved';
+    printBtn.classList.toggle('d-none', !showPrint);
+  }
+
+  // ── SME section ──────────────────────────────────────────────────────────
+  var smeMain = document.getElementById('smeSectionMain');
+  smeMain.classList.add('d-none');
+  if (!isSME()) return;
+
+  smeMain.classList.remove('d-none');
+
+  var implDoneBlock  = document.getElementById('smeImplDoneBlock');
+  var cctBlock       = document.getElementById('smeCCTBlock');
+  implDoneBlock.classList.add('d-none');
+  cctBlock.classList.add('d-none');
+
+  // Has the teacher filled in any implementation field?
+  var hasImpl = ['implA','implB','implC','implD','implE','implF'].some(function(k) {
+    return pow[k] && pow[k].toString().trim().length > 0;
+  });
+  var cctYes = (pow.cctTopicYn || pow.cctTopicYN || '').toLowerCase() === 'yes';
+
+  if (cctYes) {
+    cctBlock.classList.remove('d-none');
+    var discEl = document.getElementById('sme_cctDiscussed');
+    if (discEl) discEl.checked = review ? !!review.cctDiscussed : false;
+  }
+  if (hasImpl) {
+    // Implementation filled → show Approved & Closed
+    implDoneBlock.classList.remove('d-none');
+    document.getElementById('sme_approvedClosed').checked = review ? !!review.approvedClosed : false;
+  }
+
+  // Remarks always pre-filled
+  document.getElementById('sme_remarks').value = review ? (review.remarks || '') : '';
+
+  // Lock SME section once Approved & Closed is saved
+  var isApproved = review && review.approvedClosed;
+  ['sme_cctDiscussed', 'sme_approvedClosed', 'sme_remarks'].forEach(function(id) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    if (isApproved) {
+      el.setAttribute('disabled', 'disabled');
+    } else {
+      el.removeAttribute('disabled');
+    }
+  });
+  var smeSaveBtn = document.getElementById('smeSaveBtn');
+  if (smeSaveBtn) smeSaveBtn.classList.toggle('d-none', !!isApproved);
+}
+
+function toggleFinalSaveLabel(checked) {
+  var lbl = document.getElementById('teacherSaveLabel');
+  if (!lbl) return;
+  lbl.innerHTML = checked
+    ? '<i class="bi bi-lock-fill me-1"></i>Save Final'
+    : '<i class="bi bi-save me-1"></i>Save as Draft';
+}
+
+function saveTeacherImpl() {
+  var finalSaveChk = document.getElementById('pv_finalSaveCheck');
+  var finalSave = finalSaveChk ? finalSaveChk.checked : false;
+  var spinner = document.getElementById('teacherSaveSpinner');
+  spinner.classList.remove('d-none');
+
+  var data = {
+    implA: document.getElementById('pv_implA').value,
+    implB: document.getElementById('pv_implB').value,
+    implC: document.getElementById('pv_implC').value,
+    implD: document.getElementById('pv_implD').value,
+    implE: document.getElementById('pv_implE').value,
+    implF: document.getElementById('pv_implF').value,
+    tbsMom:         document.getElementById('pv_tbsMom').value,
+    correctionDone: document.getElementById('pv_correctionDone').value,
+    instructions:   document.getElementById('pv_instructions').value,
+    teacherRemarks: document.getElementById('pv_teacherRemarks').value,
+  };
+
+  google.script.run
+    .withSuccessHandler(function(res) {
+      spinner.classList.add('d-none');
+      if (res && !res.success) { toast(res.message || 'Save failed', 'danger'); return; }
+      if (res && res.finalSave) {
+        toast('Implementation saved and locked!');
+        // Lock all impl + notes fields immediately
+        ['pv_implA','pv_implB','pv_implC','pv_implD','pv_implE','pv_implF',
+         'pv_tbsMom','pv_correctionDone','pv_instructions','pv_teacherRemarks'].forEach(function(fid) {
+          var el = document.getElementById(fid);
+          if (el) { el.setAttribute('readonly','readonly'); el.setAttribute('disabled','disabled'); }
+        });
+        var saveBar = document.getElementById('teacherSaveBar');
+        if (saveBar) saveBar.classList.add('d-none');
+      } else {
+        toast('Draft saved!');
+        App.history = ['dashboardSection'];
+        showSection('dashboardSection');
+        loadDashboard();
+      }
+    })
+    .withFailureHandler(function(err) {
+      spinner.classList.add('d-none');
+      toast('Error: ' + err.message, 'danger');
+    })
+    .updatePowImpl(App.currentPowId, data, finalSave);
+}
+
+function saveSmeReview() {
+  var hasImpl = !document.getElementById('smeImplDoneBlock').classList.contains('d-none');
+  var hasCCT  = !document.getElementById('smeCCTBlock').classList.contains('d-none');
+
+  // Mandatory: Approved & Closed must be checked when implementation exists
+  if (hasImpl && !document.getElementById('sme_approvedClosed').checked) {
+    toast('Please check "Approved & Closed" before saving.', 'danger');
+    return;
+  }
+
+  var spinner = document.getElementById('smeSpinner');
+  spinner.classList.remove('d-none');
+
+  var reviewData = {
+    remarks: document.getElementById('sme_remarks').value,
+  };
+
+  if (hasImpl) {
+    reviewData.approvedClosed = 1;
+  }
+  if (hasCCT) {
+    var discEl = document.getElementById('sme_cctDiscussed');
+    reviewData.cctDiscussed = discEl ? (discEl.checked ? 1 : 0) : 0;
+  }
+
+  google.script.run
+    .withSuccessHandler(function(res) {
+      spinner.classList.add('d-none');
+      if (res && !res.success) { toast(res.message || 'Save failed', 'danger'); return; }
+      toast('Review saved!');
+      goBack();
+      loadDashboard();
+    })
+    .withFailureHandler(function(err) {
+      spinner.classList.add('d-none');
+      toast('Error: ' + err.message, 'danger');
+    })
+    .saveSmeReview(App.currentPowId, reviewData, App.user.email);
+}
+
+// ── Progress ───────────────────────────────────────────────────────────────
+function initProgress() {
+  var u = App.user;
+  var subSel = document.getElementById('pg_subject');
+
+  if (isReadOnlyViewer()) {
+    // SME / Leadership: populate subjects from mapped teachers stored in App.mappedTeachers
+    subSel.innerHTML = '';
+    var seen = {};
+    (App.mappedTeachers || []).forEach(function(t) {
+      if (t.subject && !seen[t.subject]) {
+        seen[t.subject] = true;
+        var opt = document.createElement('option');
+        opt.value = t.subject; opt.textContent = t.subject;
+        subSel.appendChild(opt);
+      }
+    });
+    if (!subSel.options.length) {
+      subSel.innerHTML = '<option value="">No subjects available</option>';
+    }
+    document.getElementById('pgSubjectWrap').style.display = '';
+  } else {
+    // Teacher: subject fixed from profile
+    subSel.innerHTML = '<option value="' + u.subject + '">' + u.subject + '</option>';
+    document.getElementById('pgSubjectWrap').style.display = 'none';
+  }
+
+  loadProgress();
+}
+
+function loadProgress() {
+  var subject = document.getElementById('pg_subject').value;
+  var grade   = document.getElementById('pg_grade') ? document.getElementById('pg_grade').value.trim() : '';
+  if (!subject) return;
+
+  document.getElementById('pgStats').style.display     = 'none';
+  document.getElementById('pgChartCard').style.display = 'none';
+  document.getElementById('pgMonthlySummary').classList.add('d-none');
+  var tbl = document.getElementById('pgAnalysisTable');
+  if (tbl) tbl.style.display = 'none';
+  document.getElementById('pgNoData').classList.add('d-none');
+
+  // Monthly summary (requires grade)
+  if (grade) {
+    google.script.run
+      .withSuccessHandler(function(data) {
+        if (!data) { toast('Progress summary returned empty response', 'danger'); return; }
+        if (!data.success) { toast('Progress summary error: ' + (data.message || 'unknown'), 'danger'); return; }
+        renderProgressSummary(data);
+      })
+      .withFailureHandler(function(err) {
+        toast('Progress summary failed: ' + err.message, 'danger');
+      })
+      .getProgressSummary(subject, grade, isReadOnlyViewer() ? '' : App.user.email);
+  }
+
+  // Chart-based progress
+  google.script.run
+    .withSuccessHandler(function(data) {
+      if (!data || !data.success || !data.labels || data.labels.length === 0) {
+        if (!grade) document.getElementById('pgNoData').classList.remove('d-none');
+        return;
+      }
+      renderProgress(data);
+    })
+    .withFailureHandler(function(err) {
+      toast('Progress load failed: ' + err.message, 'danger');
+    })
+    .getProgressData(subject);
+}
+
+function renderProgressSummary(d) {
+  document.getElementById('pgMonthTitle').textContent = d.month + ' — Grade ' + d.grade + ' Progress';
+  var daysEl = document.getElementById('pgDaysLeft');
+  daysEl.textContent = d.daysLeft + ' days left in ' + d.month;
+  daysEl.className = 'badge ' + (d.daysLeft <= 5 ? 'bg-danger' : d.daysLeft <= 10 ? 'bg-warning text-dark' : 'bg-secondary');
+
+  var stats = [
+    { label: 'Topics Planned',   value: d.topicsPlanned },
+    { label: 'Topics Covered',   value: d.topicsCovered },
+    { label: 'Sessions Planned', value: d.totalSessionsPlanned },
+    { label: 'Sessions Done',    value: d.sessionsDone },
+    { label: 'Sessions Left',    value: d.sessionsLeft },
+    { label: 'Sessions/Week Needed', value: d.sessPerWeekNeeded },
+  ];
+  document.getElementById('pgSummaryStats').innerHTML = stats.map(function(s) {
+    return '<div class="col-6 col-md-4 col-lg-2">'
+      + '<div class="border rounded p-2 text-center">'
+      + '<div class="text-muted small">' + s.label + '</div>'
+      + '<div class="fw-bold fs-5">' + s.value + '</div>'
+      + '</div></div>';
+  }).join('');
+
+  var statusBadge = { done: 'bg-success', in_progress: 'bg-warning text-dark', pending: 'bg-secondary' };
+  var statusLabel = { done: 'Done', in_progress: 'In Progress', pending: 'Pending' };
+  document.getElementById('pgTopicTableBody').innerHTML = (d.topicRows || []).map(function(t) {
+    var bar = '<div class="progress" style="height:8px"><div class="progress-bar bg-success" style="width:' + t.pct + '%"></div></div>'
+            + '<div class="text-center small">' + t.pct + '%</div>';
+    return '<tr>'
+      + '<td>' + t.topic + '</td>'
+      + '<td class="text-muted small">' + (t.subtopic || '—') + '</td>'
+      + '<td class="text-center">' + t.sessionsPlanned + '</td>'
+      + '<td class="text-center">' + t.sessionsDone + '</td>'
+      + '<td class="text-center">' + t.sessionsLeft + '</td>'
+      + '<td>' + bar + '</td>'
+      + '<td class="text-center"><span class="badge ' + (statusBadge[t.status]||'bg-secondary') + '">' + (statusLabel[t.status]||t.status) + '</span></td>'
+      + '</tr>';
+  }).join('');
+
+  var extraDiv  = document.getElementById('pgExtraTopics');
+  var extraList = document.getElementById('pgExtraTopicsList');
+  if (d.extraTopics && d.extraTopics.length) {
+    extraList.innerHTML = d.extraTopics.map(function(t) {
+      return '<span class="badge bg-info text-dark me-1">' + t + '</span>';
+    }).join('');
+    extraDiv.classList.remove('d-none');
+  } else {
+    extraDiv.classList.add('d-none');
+  }
+
+  document.getElementById('pgMonthlySummary').classList.remove('d-none');
+}
+
+function renderProgress(data) {
+  // Stats
+  const verdictEl = document.getElementById('pgVerdict');
+  verdictEl.textContent = data.verdict;
+  verdictEl.className = 'verdict-badge ' +
+    (data.verdict.includes('Ahead') ? 'verdict-ahead' :
+     data.verdict.includes('Behind') ? 'verdict-behind' : 'verdict-ontrack');
+  document.getElementById('pgTotalPlanned').textContent = data.totalPlanned;
+  document.getElementById('pgCurrentActual').textContent = data.currentActual;
+  document.getElementById('pgStats').style.display = 'block';
+
+  // Chart
+  document.getElementById('pgChartCard').style.display = 'block';
+  const ctx = document.getElementById('progressChart').getContext('2d');
+  if (App.progressChart) App.progressChart.destroy();
+  App.progressChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: data.labels,
+      datasets: [
+        {
+          label: 'Planned (cumulative)',
+          data: data.planned,
+          borderColor: '#2e7d52',
+          backgroundColor: 'rgba(46,125,82,.1)',
+          borderWidth: 2,
+          pointRadius: 4,
+          tension: 0.3,
+          fill: true,
+        },
+        {
+          label: 'Actual (cumulative)',
+          data: data.actual,
+          borderColor: '#f0a500',
+          backgroundColor: 'rgba(240,165,0,.08)',
+          borderWidth: 2,
+          pointRadius: 4,
+          tension: 0.3,
+          fill: true,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { position: 'top' },
+        tooltip: { mode: 'index', intersect: false },
+      },
+      scales: {
+        y: {
+          beginAtZero: true,
+          title: { display: true, text: 'Cumulative Sessions' },
+        },
+        x: {
+          title: { display: true, text: 'Week' },
+        },
+      },
+    },
+  });
+
+  // Analysis breakdown table
+  var tableDiv = document.getElementById('pgAnalysisTable');
+  if (tableDiv && data.analysis && data.analysis.length) {
+    var rows = data.analysis.map(function(a) {
+      var badgeCls = a.status === 'on_track' ? 'bg-warning text-dark'
+                   : a.status === 'ahead'    ? 'bg-success'
+                   : a.status === 'behind'   ? 'bg-danger'
+                   : 'bg-secondary';
+      var label = a.status === 'on_track' ? 'On Track'
+                : a.status === 'ahead'    ? 'Ahead'
+                : a.status === 'behind'   ? 'Behind'
+                : 'Unknown';
+      return '<tr>'
+        + '<td class="text-nowrap">' + a.week + '</td>'
+        + '<td>' + a.topic + '</td>'
+        + '<td>' + a.powMonth + '</td>'
+        + '<td>' + a.plannerMonth + '</td>'
+        + '<td class="text-center">' + a.lpSession + ' / ' + a.plannerSessions + '</td>'
+        + '<td><span class="badge ' + badgeCls + '">' + label + '</span></td>'
+        + '<td class="text-muted small">' + a.statusDetail + '</td>'
+        + '</tr>';
+    }).join('');
+    tableDiv.innerHTML = '<div class="progress-card mt-4">'
+      + '<div class="section-title mb-3">Week-by-week Analysis</div>'
+      + '<div class="table-responsive">'
+      + '<table class="table table-sm table-bordered align-middle mb-0">'
+      + '<thead class="table-light"><tr>'
+      + '<th>Week</th><th>Topic</th><th>Actual Month</th><th>Planned Month</th>'
+      + '<th class="text-center">Session</th><th>Status</th><th>Detail</th>'
+      + '</tr></thead><tbody>' + rows + '</tbody></table></div></div>';
+    tableDiv.style.display = 'block';
+  } else if (tableDiv) {
+    tableDiv.style.display = 'none';
+  }
+}
+
+// ── Boot ───────────────────────────────────────────────────────────────────
+window.addEventListener('load', function() {
+  showLoader();
+  google.script.run
+    .withSuccessHandler(function(user) {
+      hideLoader();
+      if (!user || user.error) {
+        var errEl = document.getElementById('autoLoginError');
+        if (errEl) {
+          errEl.textContent = (user && user.error) ? user.error : 'Auto-login failed. Please refresh.';
+          errEl.classList.remove('d-none');
+        }
+        showSection('loginSection');
+        var spinner = document.getElementById('autoLoginSpinner');
+        if (spinner) spinner.classList.add('d-none');
+        var closeBtn = document.getElementById('closeWindowBtn');
+        if (closeBtn) closeBtn.classList.remove('d-none');
+        return;
+      }
+      App.user = user;
+      document.getElementById('navUser').textContent = user.name + ' (' + user.role + ')';
+      initDashboard();
+    })
+    .withFailureHandler(function(err) {
+      hideLoader();
+      var errEl = document.getElementById('autoLoginError');
+      if (errEl) {
+        errEl.textContent = 'Login failed: ' + err.message;
+        errEl.classList.remove('d-none');
+      }
+      showSection('loginSection');
+      var spinner = document.getElementById('autoLoginSpinner');
+      if (spinner) spinner.classList.add('d-none');
+      var closeBtn = document.getElementById('closeWindowBtn');
+      if (closeBtn) closeBtn.classList.remove('d-none');
+    })
+    .getAutoLoginUser();
+});
+</script>
