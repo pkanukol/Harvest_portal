@@ -484,12 +484,13 @@
     {
       id: 'curriculum',
       title: 'Curriculum Tracker',
-      desc: 'Currently on Hold.',
+      desc: 'Track curriculum coverage, pacing and progress across grades and subjects.',
       icon: '📚',
       color: 'red',
-      href: 'https://script.google.com/a/macros/harvestinternationalschool.in/s/AKfycbxq8CKdp_JWH6eUxLiPbwaPVJQmj9FciqYQq-zH-apQAFPjzvmb9CsckHAgmHgAizGNYg/exec',
+      href: IS_LOCAL ? 'http://localhost:5176' : 'https://harvest-curriculumtracker-ui.onrender.com',
       roles: ['teacher', 'auditor', 'sme'],
-      btnLabel: 'Open Tracker →'
+      btnLabel: 'Open Tracker →',
+      sso: true
     },
     {
       id: 'ticket-tracker',
