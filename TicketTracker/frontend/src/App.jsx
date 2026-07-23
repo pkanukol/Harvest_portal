@@ -23,15 +23,14 @@ export default function App() {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
 
-  // Handle SSO token from portal (?sso=<supabase_token>)
+  // Handle SSO token from portal (?sso=<supabase_token>) - always trust a freshly
+  // presented token over whatever's cached, so switching Google accounts in the
+  // portal correctly switches the signed-in identity here too, rather than silently
+  // keeping the previous person's session just because *a* token already existed.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const ssoToken = params.get("sso");
     if (!ssoToken) return;
-    if (localStorage.getItem("token")) {
-      window.history.replaceState({}, "", window.location.pathname);
-      return;
-    }
     api.ssoLogin(ssoToken)
       .then((data) => {
         localStorage.setItem("token", data.access_token);
