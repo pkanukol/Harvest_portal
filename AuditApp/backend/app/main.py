@@ -7,7 +7,7 @@ from typing import List, Optional
 from fastapi import FastAPI, Depends, HTTPException, Request, status, BackgroundTasks, File, UploadFile, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from .config import settings
 from .database import engine, Base, get_db, run_migrations
@@ -344,7 +344,9 @@ async def compare_teacher_progress(
         if not assigned:
             raise HTTPException(status_code=403, detail="This teacher is not assigned to you")
 
-    history = db.query(models.Observation).filter(
+    history = db.query(models.Observation).options(
+        joinedload(models.Observation.auditor),
+    ).filter(
         models.Observation.teacher_id == req.teacher_id,
         models.Observation.is_draft == False,
     ).order_by(models.Observation.date_time.asc()).all()
@@ -519,7 +521,10 @@ async def get_audit_list(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.require_role(["auditor", "sme"])),
 ):
-    obs_query = db.query(models.Observation).filter(models.Observation.school == location)
+    obs_query = db.query(models.Observation).options(
+        joinedload(models.Observation.teacher),
+        joinedload(models.Observation.auditor),
+    ).filter(models.Observation.school == location)
     if current_user.role == "sme":
         assigned_ids = db.query(models.TeacherSME.teacher_id).filter(
             models.TeacherSME.sme_id == current_user.id
@@ -535,7 +540,8 @@ async def get_audit_list(
             "subject": obs.subject,
             "grade": obs.grade,
             "section": obs.section,
-            "date_time": obs.date_time.isoformat(),
+            "observation_type": obs.observation_type or "Unannounced",
+            "date_time": crud.utc_iso(obs.date_time),
             "overall_score": obs.overall_score,
             "domain1_score": obs.domain1_score,
             "domain2_score": obs.domain2_score,
@@ -555,7 +561,9 @@ async def get_subject_summary(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.require_role(["auditor", "sme"])),
 ):
-    obs_query = db.query(models.Observation).filter(
+    obs_query = db.query(models.Observation).options(
+        joinedload(models.Observation.teacher),
+    ).filter(
         models.Observation.school == location,
         models.Observation.subject == subject,
         models.Observation.is_draft == False,
@@ -611,13 +619,24 @@ async def get_sme_activity(
     return crud.get_leadership_sme_stats(db, location)
 
 
+@app.get("/api/dashboard/observation-coverage")
+async def get_observation_coverage(
+    location: str = Query("Kodathi"),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.require_leadership),
+):
+    return crud.get_teacher_observation_coverage(db, location)
+
+
 @app.get("/api/alerts")
 async def get_alerts(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user),
 ):
     if current_user.role in ["auditor", "sme"]:
-        drafts = db.query(models.Observation).filter(
+        drafts = db.query(models.Observation).options(
+            joinedload(models.Observation.teacher),
+        ).filter(
             models.Observation.auditor_id == current_user.id,
             models.Observation.is_draft == True
         ).all()
