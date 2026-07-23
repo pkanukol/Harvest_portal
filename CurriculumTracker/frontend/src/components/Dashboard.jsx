@@ -70,7 +70,7 @@ export default function Dashboard({ token, isReadOnlyViewer, onNewPow, onProgres
 
       <div className="dashboard-actions">
         {!isReadOnlyViewer && <button className="btn btn-primary" onClick={onNewPow}>+ New POW</button>}
-        {isReadOnlyViewer && <button className="btn btn-warning btn-sm" onClick={onProgress}>Progress Check</button>}
+        {isReadOnlyViewer && <button className="btn btn-primary btn-sm" onClick={onProgress}>Progress Check</button>}
       </div>
 
       {error && <div className="form-error">{error}</div>}
