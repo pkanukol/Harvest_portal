@@ -204,6 +204,7 @@ function handlePrint(obs, isTeacher) {
   <div class="meta-item"><span class="meta-key">Campus:</span><span class="meta-val">${escHtml(obs.school)}</span></div>
   <div class="meta-item"><span class="meta-key">Grade:</span><span class="meta-val">${escHtml(obs.grade)} — ${escHtml(obs.section)}</span></div>
   <div class="meta-item"><span class="meta-key">Auditor:</span><span class="meta-val">${escHtml(obs.auditor.name)}</span></div>
+  <div class="meta-item"><span class="meta-key">Type:</span><span class="meta-val">${escHtml(obs.observation_type || "Unannounced")}</span></div>
 </div>
 
 <div class="score-banner">
@@ -268,6 +269,7 @@ export default function DetailDrawer({ open, token, user, obsId, onClose, onUpda
   const [editedDomain2Remarks, setEditedDomain2Remarks] = useState("");
   const [editedDomain3Remarks, setEditedDomain3Remarks] = useState("");
   const [editedScores, setEditedScores] = useState({});
+  const [editedObservationType, setEditedObservationType] = useState("Unannounced");
   const [acknowledged, setAcknowledged] = useState(false);
   const [witnessName, setWitnessName] = useState("");
   const [witnessDesignation, setWitnessDesignation] = useState("");
@@ -303,6 +305,7 @@ export default function DetailDrawer({ open, token, user, obsId, onClose, onUpda
           p11: data.p11, p12: data.p12, p21: data.p21,
           p31: data.p31, p32: data.p32, p33: data.p33, p34: data.p34,
         });
+        setEditedObservationType(data.observation_type || "Unannounced");
       })
       .catch((err) => setLoadError(err.message))
       .finally(() => setLoading(false));
@@ -335,6 +338,7 @@ export default function DetailDrawer({ open, token, user, obsId, onClose, onUpda
     domain1_remarks: editedDomain1Remarks,
     domain2_remarks: editedDomain2Remarks,
     domain3_remarks: editedDomain3Remarks,
+    observation_type: editedObservationType,
     ...editedScores,
   });
 
@@ -432,11 +436,23 @@ export default function DetailDrawer({ open, token, user, obsId, onClose, onUpda
                   <div className="drawer-score-lbl">
                     {formatDateStr(obs.date_time)} · Auditor: {obs.auditor.name}
                   </div>
-                  {obs.is_draft && (
-                    <div style={{ marginTop: "4px" }}>
-                      <span className="tc-status-badge draft">DRAFT</span>
-                    </div>
-                  )}
+                  <div style={{ marginTop: "4px", display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
+                    {obs.is_draft && <span className="tc-status-badge draft">DRAFT</span>}
+                    {isDraftEditable ? (
+                      <div style={{ display: "flex", gap: "12px", fontSize: "12px" }}>
+                        <label style={{ display: "flex", alignItems: "center", gap: "4px", cursor: "pointer" }}>
+                          <input type="radio" name="editObservationType" checked={editedObservationType === "Unannounced"} onChange={() => setEditedObservationType("Unannounced")} /> Unannounced
+                        </label>
+                        <label style={{ display: "flex", alignItems: "center", gap: "4px", cursor: "pointer" }}>
+                          <input type="radio" name="editObservationType" checked={editedObservationType === "Invited"} onChange={() => setEditedObservationType("Invited")} /> Invited
+                        </label>
+                      </div>
+                    ) : (
+                      <span className="tc-status-badge" style={{ background: "rgba(41,171,226,0.12)", color: "var(--harvest-blue)", border: "1px solid rgba(41,171,226,0.3)" }}>
+                        {obs.observation_type || "Unannounced"}
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
 
