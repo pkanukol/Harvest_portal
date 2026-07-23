@@ -43,6 +43,12 @@ export default function Dashboard({
   const [expandedSme, setExpandedSme] = useState(null);
   const [smeView, setSmeView] = useState("observed"); // "observed" | "notObserved"
 
+  // Observation Coverage report modal (leadership-only)
+  const [coverageModal, setCoverageModal] = useState(false);
+  const [coverageData, setCoverageData] = useState(null);
+  const [coverageLoading, setCoverageLoading] = useState(false);
+  const [coverageError, setCoverageError] = useState("");
+
   useEffect(() => {
     if (!token) return;
     setLoading(true);
@@ -150,9 +156,26 @@ export default function Dashboard({
     loadSmeStats();
   };
 
-  // Reload if the campus toggle changes while the report is open
+  const loadCoverageStats = () => {
+    if (!token) return;
+    setCoverageLoading(true);
+    setCoverageError("");
+    api
+      .getObservationCoverage(token, location)
+      .then(setCoverageData)
+      .catch((err) => setCoverageError(err.message))
+      .finally(() => setCoverageLoading(false));
+  };
+
+  const openCoverageModal = () => {
+    setCoverageModal(true);
+    loadCoverageStats();
+  };
+
+  // Reload if the campus toggle changes while a report modal is open
   useEffect(() => {
     if (smeModal) loadSmeStats();
+    if (coverageModal) loadCoverageStats();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location]);
 
@@ -193,6 +216,11 @@ export default function Dashboard({
               SME Activity Report
             </button>
           )}
+          {isLeadership && (
+            <button className="btn btn-subject-compare" onClick={openCoverageModal}>
+              Observation Coverage
+            </button>
+          )}
           <button className="btn btn-subject-compare" onClick={openSubjectModal}>
             Subject Compare
           </button>
@@ -231,6 +259,7 @@ export default function Dashboard({
             <div className="audit-card-meta">
               <span className="meta-tag subj">{esc(obs.subject)}</span>
               <span className="meta-tag obs">Gr {esc(obs.grade)} · {esc(obs.section)}</span>
+              <span className="meta-tag">{esc(obs.observation_type || "Unannounced")}</span>
             </div>
             <div className="audit-card-sub">
               <span>&#128100; {esc(obs.auditor_name)}</span>
@@ -592,6 +621,74 @@ export default function Dashboard({
                   </>
                 );
               })()}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Observation Coverage report modal (leadership-only) */}
+      {coverageModal && (
+        <div className="modal-overlay" onClick={() => setCoverageModal(false)}>
+          <div className="modal-card modal-wide" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div>
+                <div className="modal-title">Observation Coverage</div>
+                <div className="modal-subtitle">{location} Campus · Unannounced vs Invited, by term (target: 3 per term)</div>
+              </div>
+              <button className="btn-close-drawer flex-center" onClick={() => setCoverageModal(false)}>✕</button>
+            </div>
+            <div className="modal-body">
+              {coverageLoading && <div className="msg"><span className="spinner"></span>Loading...</div>}
+              {coverageError && <div className="error-banner">{coverageError}</div>}
+
+              {!coverageLoading && !coverageError && coverageData && (
+                <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
+                  {["term1", "term2"].map((termKey) => {
+                    const term = coverageData[termKey];
+                    if (!term) return null;
+                    return (
+                      <div key={termKey}>
+                        <div className="drawer-section-label">{term.label}</div>
+                        <div className="ctable-wrap">
+                          <table className="ctable">
+                            <thead>
+                              <tr>
+                                <th>Teacher</th>
+                                <th>Unannounced</th>
+                                <th>Invited</th>
+                                <th>Total</th>
+                                <th>Auditors</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {term.rows.map((r) => (
+                                <tr
+                                  key={r.teacher_id}
+                                  style={r.never_observed ? { background: "rgba(232,64,28,0.10)" } : undefined}
+                                >
+                                  <td style={r.never_observed ? { fontWeight: 700, color: "var(--harvest-red)" } : undefined}>
+                                    {esc(r.teacher_name)}
+                                  </td>
+                                  <td className="ctable-score">{r.unannounced_count}</td>
+                                  <td className="ctable-score">{r.invited_count}</td>
+                                  <td className="ctable-score ctable-total">{r.total}</td>
+                                  <td style={{ fontSize: "12px", color: "var(--text-gray)" }}>
+                                    {r.never_observed ? (
+                                      <span style={{ color: "var(--harvest-red)", fontWeight: 700 }}>Never observed</span>
+                                    ) : (
+                                      esc(r.auditors)
+                                    )}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
         </div>
