@@ -45,6 +45,7 @@ class Observation(Base):
     subject = Column(String, nullable=False)
     grade = Column(String, nullable=False)
     section = Column(String, nullable=False)
+    observation_type = Column(String, nullable=True)  # 'Unannounced' or 'Invited'
     
     # Domain Scores
     p11 = Column(Integer, nullable=False)
