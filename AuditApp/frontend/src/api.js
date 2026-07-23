@@ -100,6 +100,9 @@ export const api = {
   getSmeActivity: (token, location) =>
     request(`/dashboard/sme-activity?location=${encodeURIComponent(location)}`, { token }),
 
+  getObservationCoverage: (token, location) =>
+    request(`/dashboard/observation-coverage?location=${encodeURIComponent(location)}`, { token }),
+
   // --- SPA (Sports / Performing Arts) observations ---
   createSpaObservation: (token, payload) =>
     request("/spa-observations", { method: "POST", token, body: payload }),
