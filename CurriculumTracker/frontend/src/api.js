@@ -27,6 +27,9 @@ async function request(path, { method = "GET", token, body } = {}) {
 }
 
 export const api = {
+  ssoLogin: (supabaseToken) =>
+    request("/auth/sso", { method: "POST", body: { supabase_token: supabaseToken } }),
+
   getPlannerTopics: (token, subject, grade) =>
     request(`/planner/topics?subject=${encodeURIComponent(subject)}&grade=${encodeURIComponent(grade)}`, { token }),
 
