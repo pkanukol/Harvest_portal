@@ -5,6 +5,7 @@ from urllib.parse import quote
 from fastapi import FastAPI, Depends, HTTPException, Request, Response, status, BackgroundTasks, Query, Form, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 
 from .config import settings
 from .database import engine, Base, get_db, run_migrations, SessionLocal
@@ -201,7 +202,7 @@ def _to_ticket_out(ticket: models.Ticket, current_user: auth.CurrentUser) -> sch
 # --- AUTH ---
 
 @app.post("/api/auth/sso", response_model=schemas.TokenOut)
-async def sso_login(request: Request):
+async def sso_login(request: Request, db: Session = Depends(get_db)):
     import httpx
     body = await request.json()
     supabase_token = body.get("supabase_token", "")
@@ -226,8 +227,16 @@ async def sso_login(request: Request):
     if not email.endswith("@harvestinternationalschool.in"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Unauthorized domain")
 
+    # Prefer the shared `users` table (same Supabase Postgres project as AuditApp/
+    # Timetable/the portal) for the display name - it's the school's curated identity
+    # for an email (e.g. a role-based address like a department HOD), which is what
+    # every other module shows. Google's own OAuth profile name is just a fallback for
+    # emails not yet in that table, since it can lag behind the real assigned holder.
+    row = db.execute(
+        text("SELECT name FROM users WHERE lower(email) = :email LIMIT 1"), {"email": email},
+    ).first()
     user_metadata = supabase_user.get("user_metadata") or {}
-    name = user_metadata.get("full_name") or user_metadata.get("name") or email.split("@")[0]
+    name = (row[0] if row else None) or user_metadata.get("full_name") or user_metadata.get("name") or email.split("@")[0]
 
     access_token = auth.create_access_token(data={"sub": email, "name": name})
     return schemas.TokenOut(
