@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "./api";
 import { useAuth } from "./context/AuthContext";
 import { isPastWeek } from "./dateUtils";
@@ -9,9 +9,50 @@ import POWForm from "./components/POWForm";
 import POWView from "./components/POWView";
 import Progress from "./components/Progress";
 
+const LOG = "[CurriculumTracker SSO]";
+
 export default function App() {
-  const { user, token, logout, isAuthenticated } = useAuth();
-  const [ssoLoading] = useState(() => !!new URLSearchParams(window.location.search).get("sso"));
+  const { user, token, login, logout, isAuthenticated } = useAuth();
+  const [ssoLoading, setSsoLoading] = useState(() => !!new URLSearchParams(window.location.search).get("sso"));
+  const [ssoError, setSsoError] = useState("");
+
+  // Exchange the portal's Supabase token for a Curriculum Tracker JWT inside
+  // React, instead of a pre-mount <script> + full page reload — the reload
+  // was the single biggest avoidable chunk of the "Loading your workspace…"
+  // wait, since it re-fetched and re-parsed the whole JS bundle a second time
+  // just so AuthContext would notice the token. login() now updates state
+  // directly, so the Dashboard can render the moment the exchange resolves.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const ssoToken = params.get("sso");
+    if (!ssoToken) return;
+    if (localStorage.getItem("token")) {
+      window.history.replaceState({}, "", window.location.pathname);
+      setSsoLoading(false);
+      return;
+    }
+
+    function attemptExchange(attemptNumber) {
+      console.log(LOG, "attempt", attemptNumber);
+      return api.ssoLogin(ssoToken);
+    }
+
+    attemptExchange(1)
+      .catch((firstErr) => {
+        console.warn(LOG, "attempt 1 failed:", firstErr.message, "— retrying once");
+        return new Promise((resolve) => setTimeout(resolve, 800)).then(() => attemptExchange(2));
+      })
+      .then((data) => {
+        window.history.replaceState({}, "", window.location.pathname);
+        login(data);
+      })
+      .catch((err) => {
+        console.error(LOG, "exchange failed after retry:", err);
+        window.history.replaceState({}, "", window.location.pathname);
+        setSsoError(err.message || "Unknown error");
+        setSsoLoading(false);
+      });
+  }, []);
 
   const [view, setView] = useState("dashboard");
   const [currentPowId, setCurrentPowId] = useState(null);
@@ -70,7 +111,7 @@ export default function App() {
               <div className="sso-loading-sub">Signing you in via the school portal</div>
             </div>
           ) : (
-            <LoginView />
+            <LoginView error={ssoError} />
           )
         ) : (
           <>
