@@ -146,9 +146,12 @@ export default function App() {
       loadTeacherReports();
       loadSpaTeacherReports();
     } else {
+      // Default to the user's own campus; "Both" (covers multiple campuses) defaults to Kodathi.
+      const defaultLocation = user.location === "Attibele" ? "Attibele" : "Kodathi";
       setView("dashboard");
-      loadTeachers("Kodathi");
-      loadCoaches("Kodathi");
+      setLocation(defaultLocation);
+      loadTeachers(defaultLocation);
+      loadCoaches(defaultLocation);
     }
     loadAlerts();
   }, [isAuthenticated, user, loadTeacherReports, loadSpaTeacherReports, loadTeachers, loadCoaches, loadAlerts]);
