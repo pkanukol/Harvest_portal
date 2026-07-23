@@ -1,6 +1,16 @@
-from pydantic import BaseModel, EmailStr
-from typing import Dict, List, Optional
-from datetime import date, datetime
+from pydantic import BaseModel, EmailStr, field_serializer
+from typing import Dict, List, Literal, Optional
+from datetime import date, datetime, timezone
+
+def _utc_iso(dt):
+    """Naive datetimes in this app are always UTC (written via datetime.utcnow()), but
+    lack an explicit timezone marker — without one, browsers parse the ISO string as
+    local time instead of converting from UTC, showing times ~5:30h off in India."""
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.isoformat()
 
 # --- USER SCHEMAS ---
 class UserBase(BaseModel):
@@ -60,6 +70,10 @@ class ObservationImageOut(ObservationImageBase):
     observation_id: int
     uploaded_at: datetime
 
+    @field_serializer("uploaded_at")
+    def _ser_uploaded_at(self, dt, _info):
+        return _utc_iso(dt)
+
     class Config:
         from_attributes = True
 
@@ -69,6 +83,7 @@ class ObservationBase(BaseModel):
     subject: str
     grade: str
     section: str
+    observation_type: Literal["Unannounced", "Invited"] = "Unannounced"
     p11: int
     p12: int
     p21: int
@@ -92,6 +107,7 @@ class ObservationDraftUpdate(BaseModel):
     domain1_remarks: Optional[str] = ""
     domain2_remarks: Optional[str] = ""
     domain3_remarks: Optional[str] = ""
+    observation_type: Optional[Literal["Unannounced", "Invited"]] = None
     p11: Optional[int] = None
     p12: Optional[int] = None
     p21: Optional[int] = None
@@ -132,6 +148,10 @@ class ObservationOut(ObservationBase):
     auditor: UserMinimal
     teacher: UserMinimal
     images: List[ObservationImageOut] = []
+
+    @field_serializer("date_time")
+    def _ser_date_time(self, dt, _info):
+        return _utc_iso(dt)
 
     class Config:
         from_attributes = True
@@ -210,6 +230,10 @@ class SpaObservationOut(SpaObservationBase):
 
     auditor: UserMinimal
     teacher: UserMinimal
+
+    @field_serializer("date_time")
+    def _ser_date_time(self, dt, _info):
+        return _utc_iso(dt)
 
     class Config:
         from_attributes = True
