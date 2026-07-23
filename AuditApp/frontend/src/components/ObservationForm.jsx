@@ -65,6 +65,7 @@ export default function ObservationForm({
   const [subject, setSubject] = useState("");
   const [grade, setGrade] = useState("");
   const [section, setSection] = useState("");
+  const [observationType, setObservationType] = useState("Unannounced");
   const [infraIssues, setInfraIssues] = useState("");
   const [otherIssues, setOtherIssues] = useState("");
   const [domain1Remarks, setDomain1Remarks] = useState("");
@@ -119,6 +120,7 @@ export default function ObservationForm({
       subject: subject || "General",
       grade: grade || "N/A",
       section: section || "N/A",
+      observation_type: observationType,
       infrastructure_issues: infraIssues.trim(),
       other_issues: otherIssues.trim(),
       objective_observations: timestampedNotes.join("\n"),
@@ -215,6 +217,17 @@ export default function ObservationForm({
                     </option>
                   ))}
                 </select>
+              </div>
+            </div>
+            <div className="form-group">
+              <label className="field-label">Observation Type</label>
+              <div style={{ display: "flex", gap: "16px" }}>
+                <label style={{ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer" }}>
+                  <input type="radio" name="observationType" checked={observationType === "Unannounced"} onChange={() => setObservationType("Unannounced")} /> Unannounced
+                </label>
+                <label style={{ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer" }}>
+                  <input type="radio" name="observationType" checked={observationType === "Invited"} onChange={() => setObservationType("Invited")} /> Invited
+                </label>
               </div>
             </div>
           </div>
