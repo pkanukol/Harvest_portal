@@ -1,9 +1,18 @@
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func, or_
-from datetime import datetime
+from datetime import datetime, timezone
 import string
 import random
 from . import models, schemas, auth
+
+def utc_iso(dt):
+    """Serialize a naive datetime (always UTC in this app, via datetime.utcnow()) with an
+    explicit UTC marker, so the browser's `new Date(...)` doesn't misread it as local time."""
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.isoformat()
 
 # --- USER CRUD ---
 def get_user_by_email(db: Session, email: str):
@@ -84,6 +93,7 @@ def create_observation(db: Session, obs_in: schemas.ObservationCreate, auditor_i
         subject=obs_in.subject,
         grade=obs_in.grade,
         section=obs_in.section,
+        observation_type=obs_in.observation_type,
         p11=obs_in.p11,
         p12=obs_in.p12,
         domain1_score=d1,
@@ -111,17 +121,28 @@ def create_observation(db: Session, obs_in: schemas.ObservationCreate, auditor_i
     return db_obs
 
 def get_observation_by_id(db: Session, obs_id: int):
-    return db.query(models.Observation).filter(models.Observation.id == obs_id).first()
+    return db.query(models.Observation).options(
+        joinedload(models.Observation.teacher),
+        joinedload(models.Observation.auditor),
+        joinedload(models.Observation.images),
+    ).filter(models.Observation.id == obs_id).first()
 
 def get_observations_for_teacher(db: Session, teacher_id: int, include_drafts: bool = False):
-    query = db.query(models.Observation).filter(models.Observation.teacher_id == teacher_id)
+    query = db.query(models.Observation).options(
+        joinedload(models.Observation.teacher),
+        joinedload(models.Observation.auditor),
+        joinedload(models.Observation.images),
+    ).filter(models.Observation.teacher_id == teacher_id)
     if not include_drafts:
         query = query.filter(models.Observation.is_draft == False)
     return query.order_by(models.Observation.date_time.desc()).all()
 
 def get_dashboard_teachers(db: Session, location: str, sme_user_id: int = None):
     # Filter observations by location
-    obs_query = db.query(models.Observation).filter(models.Observation.school == location)
+    obs_query = db.query(models.Observation).options(
+        joinedload(models.Observation.teacher),
+        joinedload(models.Observation.auditor),
+    ).filter(models.Observation.school == location)
     
     # If filtered by SME, use the teacher_sme join table (many-to-many)
     if sme_user_id:
@@ -195,7 +216,11 @@ def get_dashboard_teachers(db: Session, location: str, sme_user_id: int = None):
 
 def get_teacher_full_history(db: Session, teacher_id: int):
     # Returns all observations for details view
-    return db.query(models.Observation).filter(
+    return db.query(models.Observation).options(
+        joinedload(models.Observation.teacher),
+        joinedload(models.Observation.auditor),
+        joinedload(models.Observation.images),
+    ).filter(
         models.Observation.teacher_id == teacher_id
     ).order_by(models.Observation.date_time.desc()).all()
 
@@ -208,6 +233,8 @@ def update_observation_draft(db: Session, obs_id: int, update_in: schemas.Observ
     db_obs.domain1_remarks = update_in.domain1_remarks
     db_obs.domain2_remarks = update_in.domain2_remarks
     db_obs.domain3_remarks = update_in.domain3_remarks
+    if update_in.observation_type is not None:
+        db_obs.observation_type = update_in.observation_type
     scores = [update_in.p11, update_in.p12, update_in.p21, update_in.p31, update_in.p32, update_in.p33, update_in.p34]
     if all(v is not None for v in scores):
         d1, d2, d3, overall, rating = calculate_scores_and_rating(
@@ -257,7 +284,9 @@ def get_leadership_sme_stats(db: Session, location: str):
     academic_year_start_year = now.year if now.month >= 6 else now.year - 1
     academic_year_start = datetime(academic_year_start_year, 6, 1)
 
-    observations = db.query(models.Observation).join(
+    observations = db.query(models.Observation).options(
+        joinedload(models.Observation.teacher),
+    ).join(
         models.User, models.Observation.auditor_id == models.User.id
     ).filter(
         models.User.role == "sme",
@@ -278,7 +307,7 @@ def get_leadership_sme_stats(db: Session, location: str):
             "teacher_name": obs.teacher.name,
             "rating": obs.rating,
             "overall_score": obs.overall_score,
-            "date_time": obs.date_time.isoformat(),
+            "date_time": utc_iso(obs.date_time),
             "is_draft": obs.is_draft,
         })
         observed_by_anyone.add(obs.teacher_id)
@@ -327,11 +356,85 @@ def get_leadership_sme_stats(db: Session, location: str):
     )
 
     return {
-        "academic_year_start": academic_year_start.isoformat(),
+        "academic_year_start": utc_iso(academic_year_start),
         "total_observations": len(observations),
         "smes": smes,
         "teachers_not_observed_overall": teachers_not_observed_overall,
     }
+
+
+# --- TERM-WISE OBSERVATION COVERAGE (Unannounced vs Invited) ---
+def _get_term_bounds(now=None):
+    """Term 1: June-September, Term 2: November-February, of the current academic year
+    (which itself starts in June). Upper bounds are exclusive (first day of the month
+    after the term ends), so Term 2's Feb end is correct in leap and non-leap years alike."""
+    now = now or datetime.utcnow()
+    year = now.year if now.month >= 6 else now.year - 1
+    return {
+        "term1": {
+            "label": "Term 1 (June - September)",
+            "start": datetime(year, 6, 1),
+            "end": datetime(year, 10, 1),
+        },
+        "term2": {
+            "label": "Term 2 (November - February)",
+            "start": datetime(year, 11, 1),
+            "end": datetime(year + 1, 3, 1),
+        },
+    }
+
+def get_teacher_observation_coverage(db: Session, location: str):
+    """For each teacher at this campus, per term: how many Unannounced vs Invited
+    observations they've had so far this academic year, and by whom. Includes drafts —
+    the observation happened even if the report isn't finalised yet."""
+    term_bounds = _get_term_bounds()
+
+    teachers = db.query(models.User).filter(
+        models.User.role == "teacher",
+        or_(models.User.location == location, models.User.location == "Both"),
+    ).order_by(models.User.name).all()
+
+    result = {}
+    for term_key, term in term_bounds.items():
+        observations = db.query(models.Observation).options(
+            joinedload(models.Observation.auditor),
+        ).filter(
+            models.Observation.school == location,
+            models.Observation.date_time >= term["start"],
+            models.Observation.date_time < term["end"],
+        ).all()
+
+        by_teacher = {}
+        for obs in observations:
+            entry = by_teacher.setdefault(obs.teacher_id, {"unannounced": 0, "invited": 0, "auditors": set()})
+            if obs.observation_type == "Invited":
+                entry["invited"] += 1
+            else:
+                entry["unannounced"] += 1
+            entry["auditors"].add(obs.auditor.name)
+
+        rows = []
+        for t in teachers:
+            entry = by_teacher.get(t.id, {"unannounced": 0, "invited": 0, "auditors": set()})
+            total = entry["unannounced"] + entry["invited"]
+            rows.append({
+                "teacher_id": t.id,
+                "teacher_name": t.name,
+                "unannounced_count": entry["unannounced"],
+                "invited_count": entry["invited"],
+                "total": total,
+                "auditors": ", ".join(sorted(entry["auditors"])),
+                "never_observed": total == 0,
+            })
+
+        result[term_key] = {
+            "label": term["label"],
+            "start": utc_iso(term["start"]),
+            "end": utc_iso(term["end"]),
+            "rows": rows,
+        }
+
+    return result
 
 
 # --- OBSERVATION IMAGES ---
@@ -384,7 +487,10 @@ def create_spa_observation(db: Session, obs_in: schemas.SpaObservationCreate, au
     return db_obs
 
 def get_spa_observation_by_id(db: Session, obs_id: int):
-    return db.query(models.SpaObservation).filter(models.SpaObservation.id == obs_id).first()
+    return db.query(models.SpaObservation).options(
+        joinedload(models.SpaObservation.teacher),
+        joinedload(models.SpaObservation.auditor),
+    ).filter(models.SpaObservation.id == obs_id).first()
 
 def update_spa_observation_draft(db: Session, obs_id: int, update_in: schemas.SpaObservationDraftUpdate):
     db_obs = get_spa_observation_by_id(db, obs_id)
@@ -418,18 +524,27 @@ def finalise_spa_observation(db: Session, obs_id: int, finalise_in: schemas.SpaO
     return db_obs
 
 def get_spa_observations_for_teacher(db: Session, teacher_id: int, include_drafts: bool = False):
-    query = db.query(models.SpaObservation).filter(models.SpaObservation.teacher_id == teacher_id)
+    query = db.query(models.SpaObservation).options(
+        joinedload(models.SpaObservation.teacher),
+        joinedload(models.SpaObservation.auditor),
+    ).filter(models.SpaObservation.teacher_id == teacher_id)
     if not include_drafts:
         query = query.filter(models.SpaObservation.is_draft == False)
     return query.order_by(models.SpaObservation.date_time.desc()).all()
 
 def get_spa_teacher_full_history(db: Session, teacher_id: int):
-    return db.query(models.SpaObservation).filter(
+    return db.query(models.SpaObservation).options(
+        joinedload(models.SpaObservation.teacher),
+        joinedload(models.SpaObservation.auditor),
+    ).filter(
         models.SpaObservation.teacher_id == teacher_id
     ).order_by(models.SpaObservation.date_time.desc()).all()
 
 def get_spa_audit_list(db: Session, location: str, sme_user_id: int = None):
-    query = db.query(models.SpaObservation).filter(models.SpaObservation.school == location)
+    query = db.query(models.SpaObservation).options(
+        joinedload(models.SpaObservation.teacher),
+        joinedload(models.SpaObservation.auditor),
+    ).filter(models.SpaObservation.school == location)
     if sme_user_id:
         assigned_ids = db.query(models.TeacherSME.teacher_id).filter(
             models.TeacherSME.sme_id == sme_user_id
@@ -444,7 +559,7 @@ def get_spa_audit_list(db: Session, location: str, sme_user_id: int = None):
             "auditor_name": obs.auditor.name,
             "activity": obs.activity,
             "grade_section": obs.grade_section,
-            "date_time": obs.date_time.isoformat(),
+            "date_time": utc_iso(obs.date_time),
             "overall_score": obs.overall_score,
             "is_draft": obs.is_draft,
         }
