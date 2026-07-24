@@ -18,6 +18,7 @@ export default function SpaObservationForm({
   const [activity, setActivity] = useState("");
   const [timing, setTiming] = useState("");
   const [gradeSection, setGradeSection] = useState("");
+  const [observationType, setObservationType] = useState("Unannounced");
   const [criteriaScores, setCriteriaScores] = useState({ ...EMPTY_SPA_CRITERIA_SCORES });
   const [strengthsObserved, setStrengthsObserved] = useState("");
   const [areasOfImprovement, setAreasOfImprovement] = useState("");
@@ -49,6 +50,7 @@ export default function SpaObservationForm({
     activity: activity.trim(),
     timing: timing.trim(),
     grade_section: gradeSection.trim(),
+    observation_type: observationType,
     criteria_scores: criteriaScores,
     strengths_observed: strengthsObserved.trim(),
     areas_of_improvement: areasOfImprovement.trim(),
@@ -150,6 +152,17 @@ export default function SpaObservationForm({
                 value={gradeSection}
                 onChange={(e) => setGradeSection(e.target.value)}
               />
+            </div>
+            <div className="form-group">
+              <label className="field-label">Observation Type</label>
+              <div style={{ display: "flex", gap: "16px" }}>
+                <label style={{ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer" }}>
+                  <input type="radio" name="spaObservationType" checked={observationType === "Unannounced"} onChange={() => setObservationType("Unannounced")} /> Unannounced
+                </label>
+                <label style={{ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer" }}>
+                  <input type="radio" name="spaObservationType" checked={observationType === "Invited"} onChange={() => setObservationType("Invited")} /> Invited
+                </label>
+              </div>
             </div>
           </div>
 
