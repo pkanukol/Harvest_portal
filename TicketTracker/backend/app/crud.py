@@ -122,7 +122,6 @@ def list_tickets(db: Session, category: Optional[str] = None,
                   date_from: Optional[datetime.datetime] = None,
                   date_to: Optional[datetime.datetime] = None,
                   sort: str = "desc",
-                  open_only: bool = False,
                   restrict_location: Optional[str] = None,
                   restrict_reporter_email: Optional[str] = None,
                   restrict_assigned_email: Optional[str] = None):
@@ -133,12 +132,6 @@ def list_tickets(db: Session, category: Optional[str] = None,
         query = query.filter(models.Ticket.location == restrict_location)
     if restrict_reporter_email:
         query = query.filter(models.Ticket.reporter_email.ilike(restrict_reporter_email))
-
-    # Fast default dashboard load: only still-open tickets, until the user actually
-    # picks a filter (see TicketList.jsx) - "Needs immediate attention" is just an
-    # age-based display label for a status="Open" row, so this one check covers both.
-    if open_only:
-        query = query.filter(models.Ticket.status == "Open")
 
     if category:
         query = query.filter(models.Ticket.category == category)
