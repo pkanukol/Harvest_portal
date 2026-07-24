@@ -122,6 +122,7 @@ def list_tickets(db: Session, category: Optional[str] = None,
                   date_from: Optional[datetime.datetime] = None,
                   date_to: Optional[datetime.datetime] = None,
                   sort: str = "desc",
+                  open_only: bool = False,
                   restrict_location: Optional[str] = None,
                   restrict_reporter_email: Optional[str] = None,
                   restrict_assigned_email: Optional[str] = None):
@@ -132,6 +133,12 @@ def list_tickets(db: Session, category: Optional[str] = None,
         query = query.filter(models.Ticket.location == restrict_location)
     if restrict_reporter_email:
         query = query.filter(models.Ticket.reporter_email.ilike(restrict_reporter_email))
+
+    # Fast default dashboard load: still-open tickets only (this covers BOTH the
+    # "Open" and "Needs immediate attention" display buckets, since the latter is
+    # just an age-based label for a status="Open" row, not a separate stored value).
+    if open_only:
+        query = query.filter(models.Ticket.status == "Open")
 
     if category:
         query = query.filter(models.Ticket.category == category)
@@ -147,9 +154,14 @@ def list_tickets(db: Session, category: Optional[str] = None,
     if date_to:
         query = query.filter(models.Ticket.created_at <= date_to)
 
-    query = query.order_by(
-        models.Ticket.created_at.desc() if sort != "asc" else models.Ticket.created_at.asc()
-    )
+    secondary_order = models.Ticket.created_at.desc() if sort != "asc" else models.Ticket.created_at.asc()
+    if open_only:
+        # Needs-immediate-attention tickets (older than the attention cutoff) first,
+        # then still-fresh Open ones - each bucket then ordered by the usual sort.
+        cutoff = datetime.datetime.utcnow() - datetime.timedelta(hours=TICKET_ATTENTION_HOURS)
+        query = query.order_by((models.Ticket.created_at < cutoff).desc(), secondary_order)
+    else:
+        query = query.order_by(secondary_order)
     tickets = query.all()
 
     if restrict_assigned_email:
