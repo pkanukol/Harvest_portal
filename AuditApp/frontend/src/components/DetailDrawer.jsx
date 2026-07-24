@@ -54,7 +54,7 @@ function ScoreSelectP34({ value, onChange }) {
 }
 
 function handlePrint(obs, isTeacher) {
-  const ratingColor = { DISTINGUISHED: "#1a7f37", PROFICIENT: "#0969da", DEVELOPING: "#9a6700", BEGINNING: "#cf222e" };
+  const ratingColor = { DISTINGUISHED: "#5A9E47", PROFICIENT: "#4BA3D3", DEVELOPING: "#E5A11E", BEGINNING: "#B8272C" };
   const color = ratingColor[obs.rating] || "#333";
 
   const paramLabels = [
@@ -148,39 +148,39 @@ function handlePrint(obs, isTeacher) {
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 12px; color: #1a1a1a; background: #fff; padding: 28px 36px; }
-  .report-header { display: flex; align-items: center; gap: 20px; border-bottom: 2.5px solid #2d6a2d; padding-bottom: 16px; margin-bottom: 20px; }
+  .report-header { display: flex; align-items: center; gap: 20px; border-bottom: 2.5px solid #4BA3D3; padding-bottom: 16px; margin-bottom: 20px; }
   .logo { height: 56px; }
-  .school-name { font-size: 18px; font-weight: 700; color: #2d6a2d; }
+  .school-name { font-size: 18px; font-weight: 700; color: #4BA3D3; }
   .report-title { font-size: 13px; color: #555; margin-top: 2px; }
-  .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 24px; background: #f6f8f6; border: 1px solid #d0e4d0; border-radius: 6px; padding: 12px 16px; margin-bottom: 18px; }
+  .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 24px; background: #EBF5FB; border: 1px solid #CFE7F6; border-radius: 6px; padding: 12px 16px; margin-bottom: 18px; }
   .meta-item { display: flex; gap: 6px; }
   .meta-key { color: #555; min-width: 80px; }
   .meta-val { font-weight: 600; }
-  .score-banner { display: flex; align-items: center; gap: 20px; background: #f6f8f6; border: 1px solid #d0e4d0; border-radius: 6px; padding: 12px 18px; margin-bottom: 20px; }
+  .score-banner { display: flex; align-items: center; gap: 20px; background: #EBF5FB; border: 1px solid #CFE7F6; border-radius: 6px; padding: 12px 18px; margin-bottom: 20px; }
   .score-big { font-size: 36px; font-weight: 800; color: ${color}; line-height: 1; }
   .score-denom { font-size: 16px; color: #888; }
   .rating-badge { font-size: 13px; font-weight: 700; color: ${color}; border: 2px solid ${color}; border-radius: 4px; padding: 3px 10px; }
   .domain-pills { display: flex; gap: 10px; margin-left: auto; }
   .dpill { background: #fff; border: 1px solid #ccc; border-radius: 4px; padding: 4px 10px; font-size: 11px; font-weight: 600; }
   section { margin-bottom: 20px; }
-  h3 { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #2d6a2d; border-bottom: 1px solid #cce0cc; padding-bottom: 4px; margin-bottom: 10px; }
+  h3 { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #4BA3D3; border-bottom: 1px solid #CFE7F6; padding-bottom: 4px; margin-bottom: 10px; }
   .domain-block { margin-bottom: 14px; }
-  .domain-header { display: flex; justify-content: space-between; font-weight: 700; font-size: 12px; background: #eaf4ea; padding: 6px 10px; border-radius: 4px 4px 0 0; border: 1px solid #cce0cc; border-bottom: none; }
-  .domain-score { color: #2d6a2d; }
-  .param-table { width: 100%; border-collapse: collapse; border: 1px solid #cce0cc; }
-  .param-table th { background: #f0f7f0; padding: 5px 10px; text-align: left; font-size: 11px; font-weight: 600; color: #555; border-bottom: 1px solid #cce0cc; }
-  .param-table td { padding: 5px 10px; border-bottom: 1px solid #e8f0e8; font-size: 12px; }
+  .domain-header { display: flex; justify-content: space-between; font-weight: 700; font-size: 12px; background: #EBF5FB; padding: 6px 10px; border-radius: 4px 4px 0 0; border: 1px solid #CFE7F6; border-bottom: none; }
+  .domain-score { color: #4BA3D3; }
+  .param-table { width: 100%; border-collapse: collapse; border: 1px solid #CFE7F6; }
+  .param-table th { background: #EBF5FB; padding: 5px 10px; text-align: left; font-size: 11px; font-weight: 600; color: #555; border-bottom: 1px solid #CFE7F6; }
+  .param-table td { padding: 5px 10px; border-bottom: 1px solid #E2E5EC; font-size: 12px; }
   .param-table tr:last-child td { border-bottom: none; }
   .remarks-box { background: #fffbf0; border: 1px solid #f0d070; border-top: none; padding: 6px 10px; border-radius: 0 0 4px 4px; font-size: 11px; color: #555; }
   .remarks-label { font-weight: 700; color: #9a6700; }
   .notes-box { background: #f8f8f8; border: 1px solid #ddd; border-radius: 4px; padding: 10px 14px; font-size: 11px; line-height: 1.8; }
   .ts { color: #888; font-style: italic; margin-right: 6px; }
   .feedback-box { background: #f0f7ff; border: 1px solid #c0d8f0; border-radius: 4px; padding: 10px 14px; font-size: 12px; line-height: 1.7; white-space: pre-wrap; }
-  .teacher-box { background: #f6f8f6; border: 1px solid #cce0cc; border-radius: 4px; padding: 10px 14px; font-size: 12px; line-height: 1.7; }
+  .teacher-box { background: #EBF5FB; border: 1px solid #CFE7F6; border-radius: 4px; padding: 10px 14px; font-size: 12px; line-height: 1.7; }
   .rubric-row td { font-size: 11px; color: #555; background: #fbfbfb; padding: 4px 10px 8px; }
   .img-grid { display: flex; flex-wrap: wrap; gap: 12px; }
   .img-thumb-link { display: block; width: 120px; text-decoration: none; color: #333; position: relative; }
-  .img-thumb { width: 120px; height: 88px; object-fit: cover; border-radius: 4px; border: 1px solid #cce0cc; }
+  .img-thumb { width: 120px; height: 88px; object-fit: cover; border-radius: 4px; border: 1px solid #CFE7F6; }
   .img-thumb-broken { display: none; width: 120px; height: 88px; align-items: center; justify-content: center; text-align: center; font-size: 10px; color: #888; background: #f2f2f2; border: 1px dashed #ccc; border-radius: 4px; padding: 4px; }
   .img-caption { display: block; font-size: 9px; text-align: center; margin-top: 3px; color: #555; }
   .img-permission-note { font-size: 10px; color: #888; margin-top: 8px; }
@@ -214,7 +214,7 @@ function handlePrint(obs, isTeacher) {
     <span class="dpill">D1: ${obs.domain1_score}/8</span>
     <span class="dpill">D2: ${obs.domain2_score}/4</span>
     <span class="dpill">D3: ${obs.domain3_score}/12</span>
-    ${p34Tech !== null ? `<span class="dpill" style="color:#9a6700;border-color:#c8a830">3.4 Tech: ${p34Tech}/4</span>` : `<span class="dpill" style="color:#888">3.4 Tech: N/A</span>`}
+    ${p34Tech !== null ? `<span class="dpill" style="color:#9a6700;border-color:#E5A11E">3.4 Tech: ${p34Tech}/4</span>` : `<span class="dpill" style="color:#888">3.4 Tech: N/A</span>`}
   </div>
 </div>
 
@@ -448,7 +448,7 @@ export default function DetailDrawer({ open, token, user, obsId, onClose, onUpda
                         </label>
                       </div>
                     ) : (
-                      <span className="tc-status-badge" style={{ background: "rgba(41,171,226,0.12)", color: "var(--harvest-blue)", border: "1px solid rgba(41,171,226,0.3)" }}>
+                      <span className="tc-status-badge" style={{ background: "rgba(42, 123, 173,0.12)", color: "var(--harvest-blue)", border: "1px solid rgba(42, 123, 173,0.3)" }}>
                         {obs.observation_type || "Unannounced"}
                       </span>
                     )}
@@ -506,7 +506,7 @@ export default function DetailDrawer({ open, token, user, obsId, onClose, onUpda
                   <span className="domain-total-pill">D2: {isDraftEditable ? liveD2 : obs.domain2_score}/4</span>
                   <span className="domain-total-pill">D3: {isDraftEditable ? liveD3 : obs.domain3_score}/12</span>
                   {(isDraftEditable ? editedScores.p34 : obs.p34) > 0 ? (
-                    <span className="domain-total-pill" style={{ background: "rgba(232,160,28,0.12)", color: "var(--harvest-amber)", border: "1px solid rgba(232,160,28,0.3)" }}>
+                    <span className="domain-total-pill" style={{ background: "rgba(229, 161, 30,0.12)", color: "var(--harvest-amber)", border: "1px solid rgba(229, 161, 30,0.3)" }}>
                       3.4 Tech: {isDraftEditable ? editedScores.p34 : obs.p34}/4
                     </span>
                   ) : (
@@ -712,7 +712,7 @@ export default function DetailDrawer({ open, token, user, obsId, onClose, onUpda
                     <div className="error-banner" style={{ marginBottom: "12px" }}>{actionError}</div>
                   )}
                   {savedMsg && (
-                    <div style={{ marginBottom: "12px", padding: "8px 14px", borderRadius: "8px", background: "rgba(45,106,45,0.1)", border: "1px solid rgba(45,106,45,0.3)", color: "var(--harvest-green)", fontSize: "13px", textAlign: "center" }}>
+                    <div style={{ marginBottom: "12px", padding: "8px 14px", borderRadius: "8px", background: "rgba(75, 163, 211,0.1)", border: "1px solid rgba(75, 163, 211,0.3)", color: "var(--harvest-green)", fontSize: "13px", textAlign: "center" }}>
                       {savedMsg}
                     </div>
                   )}
