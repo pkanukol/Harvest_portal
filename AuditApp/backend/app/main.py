@@ -515,9 +515,23 @@ async def get_spa_audit_list_route(
     return crud.get_spa_audit_list(db, location, sme_id)
 
 
+@app.get("/api/dashboard/filter-options")
+async def get_dashboard_filter_options(
+    location: str = Query("Kodathi"),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.require_role(["auditor", "sme"])),
+):
+    return crud.get_dashboard_filter_options(db, location)
+
+
 @app.get("/api/dashboard/audit-list")
 async def get_audit_list(
     location: str = Query("Kodathi"),
+    subject: Optional[str] = Query(None),
+    grade: Optional[str] = Query(None),
+    auditor_id: Optional[int] = Query(None),
+    teacher_id: Optional[int] = Query(None),
+    status: Optional[str] = Query(None, description="'draft', 'saved', or omitted for all"),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.require_role(["auditor", "sme"])),
 ):
@@ -530,6 +544,18 @@ async def get_audit_list(
             models.TeacherSME.sme_id == current_user.id
         ).subquery()
         obs_query = obs_query.filter(models.Observation.teacher_id.in_(assigned_ids))
+    if subject:
+        obs_query = obs_query.filter(models.Observation.subject == subject)
+    if grade:
+        obs_query = obs_query.filter(models.Observation.grade == grade)
+    if auditor_id:
+        obs_query = obs_query.filter(models.Observation.auditor_id == auditor_id)
+    if teacher_id:
+        obs_query = obs_query.filter(models.Observation.teacher_id == teacher_id)
+    if status == "draft":
+        obs_query = obs_query.filter(models.Observation.is_draft == True)
+    elif status == "saved":
+        obs_query = obs_query.filter(models.Observation.is_draft == False)
     observations = obs_query.order_by(models.Observation.date_time.desc()).all()
     return [
         {
