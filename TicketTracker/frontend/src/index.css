@@ -219,9 +219,10 @@ textarea.field-input { resize: vertical; }
   margin-bottom: 10px;
   align-items: end;
 }
-.date-range-row { display: flex; gap: 10px; margin-bottom: 20px; }
+.date-range-row { display: flex; gap: 10px; margin-bottom: 20px; align-items: end; }
 .date-range-field { display: flex; flex-direction: column; gap: 3px; }
 .date-range-label { font-size: 10px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.btn-search { margin-left: auto; padding: 11px 24px; }
 .empty-state { text-align: center; color: var(--muted); font-size: 14px; padding: 30px 0; }
 
 .ticket-rows { display: flex; flex-direction: column; gap: 10px; }
@@ -296,4 +297,6 @@ textarea.field-input { resize: vertical; }
 @media (max-width: 600px) {
   .filter-bar { grid-template-columns: 1fr 1fr; }
   .card { padding: 20px; }
+  .date-range-row { flex-wrap: wrap; }
+  .btn-search { margin-left: 0; width: 100%; }
 }
