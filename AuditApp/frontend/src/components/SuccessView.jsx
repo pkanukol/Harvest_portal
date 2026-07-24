@@ -11,7 +11,7 @@ export default function SuccessView({ summary, onDashboard, onNewObservation }) 
           borderRadius: "50%",
           fontSize: "36px",
           margin: "0 auto 24px",
-          boxShadow: "0 8px 30px rgba(45,106,45,0.4)",
+          boxShadow: "0 8px 30px rgba(75, 163, 211,0.4)",
         }}
         className="flex-center"
       >
