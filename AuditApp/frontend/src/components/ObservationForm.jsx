@@ -138,12 +138,12 @@ export default function ObservationForm({
       return { color: "#4ff57f", background: "rgba(79, 255, 127, 0.1)", borderColor: "rgba(79, 255, 127, 0.3)" };
     }
     if (total >= 15) {
-      return { color: "var(--harvest-blue)", background: "rgba(41, 171, 226, 0.1)", borderColor: "rgba(41, 171, 226, 0.3)" };
+      return { color: "var(--harvest-blue)", background: "rgba(42, 123, 173, 0.1)", borderColor: "rgba(42, 123, 173, 0.3)" };
     }
     if (total >= 10) {
-      return { color: "var(--harvest-amber)", background: "rgba(232, 160, 28, 0.1)", borderColor: "rgba(232, 160, 28, 0.3)" };
+      return { color: "var(--harvest-amber)", background: "rgba(229, 161, 30, 0.1)", borderColor: "rgba(229, 161, 30, 0.3)" };
     }
-    return { color: "var(--harvest-red)", background: "rgba(232, 64, 28, 0.1)", borderColor: "rgba(232, 64, 28, 0.3)" };
+    return { color: "var(--harvest-red)", background: "rgba(184, 39, 44, 0.1)", borderColor: "rgba(184, 39, 44, 0.3)" };
   })();
 
   return (
@@ -287,7 +287,7 @@ export default function ObservationForm({
                       color: "var(--harvest-blue)",
                       marginBottom: "20px",
                       marginTop: idx > 0 ? "30px" : 0,
-                      borderBottom: "1.5px solid rgba(41,171,226,0.2)",
+                      borderBottom: "1.5px solid rgba(42, 123, 173,0.2)",
                       paddingBottom: "5px",
                     }}
                   >
