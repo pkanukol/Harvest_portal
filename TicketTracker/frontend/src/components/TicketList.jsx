@@ -3,6 +3,7 @@ import { api } from "../api";
 import { formatDateTime } from "../dateFormat";
 
 const STATUSES = ["Open", "Needs immediate attention", "Closed", "Approved", "Ordered", "Rejected"];
+const DEFAULT_STATUS = "Open";
 
 const VIEW_LABELS = {
   mine: "Logged by Me",
@@ -28,37 +29,47 @@ export default function TicketList({ token, user, location, routing = {}, onOpen
   const [error, setError] = useState("");
   const [category, setCategory] = useState("");
   const [categories, setCategories] = useState([]);
-  const [status, setStatus] = useState("");
+  const [status, setStatus] = useState(DEFAULT_STATUS);
   const [reporter, setReporter] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [sort, setSort] = useState("desc");
-  // Until the user actually touches a filter, only fetch Open tickets - a much
-  // smaller/faster default load. Any filter-bar change flips this permanently for
-  // the rest of this visit, since at that point they want full control again.
-  const [filtersTouched, setFiltersTouched] = useState(false);
 
   useEffect(() => { api.getCategories().then(setCategories).catch(() => {}); }, []);
 
-  const load = useCallback(async () => {
+  const fetchTickets = useCallback(async (filters = {}) => {
     setLoading(true);
     setError("");
     try {
-      const data = await api.listTickets(token, {
-        view, category, location, status, reporter,
-        date_from: dateFrom ? new Date(dateFrom).toISOString() : "",
-        date_to: dateTo ? new Date(dateTo).toISOString() : "",
-        sort, open_only: filtersTouched ? "" : "true",
-      });
+      const data = await api.listTickets(token, { view, location, ...filters });
       setTickets(data);
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
-  }, [token, view, category, location, status, reporter, dateFrom, dateTo, sort, filtersTouched]);
+  }, [token, view, location]);
 
-  useEffect(() => { load(); }, [load]);
+  // Switching tabs or campus always shows the full set for that bucket, regardless
+  // of whatever's staged in the filter bar below - those only take effect once
+  // "Search" is clicked, so a forgotten filter can't silently hide tickets here.
+  useEffect(() => {
+    setCategory("");
+    setStatus(DEFAULT_STATUS);
+    setReporter("");
+    setDateFrom("");
+    setDateTo("");
+    setSort("desc");
+    fetchTickets();
+  }, [fetchTickets]);
+
+  const handleSearch = () => {
+    fetchTickets({
+      category, status, reporter, sort,
+      date_from: dateFrom ? new Date(dateFrom).toISOString() : "",
+      date_to: dateTo ? new Date(dateTo).toISOString() : "",
+    });
+  };
 
   return (
     <div className="card list-card">
@@ -83,12 +94,12 @@ export default function TicketList({ token, user, location, routing = {}, onOpen
       )}
 
       <div className="filter-bar">
-        <select className="field-input" value={category} onChange={(e) => { setFiltersTouched(true); setCategory(e.target.value); }}>
+        <select className="field-input" value={category} onChange={(e) => setCategory(e.target.value)}>
           <option value="">All Categories</option>
           {categories.map((c) => <option key={c} value={c}>{routing[c]?.label || c}</option>)}
         </select>
 
-        <select className="field-input" value={status} onChange={(e) => { setFiltersTouched(true); setStatus(e.target.value); }}>
+        <select className="field-input" value={status} onChange={(e) => setStatus(e.target.value)}>
           <option value="">All Statuses</option>
           {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
         </select>
@@ -97,10 +108,10 @@ export default function TicketList({ token, user, location, routing = {}, onOpen
           className="field-input"
           placeholder="Search by reporter name/email"
           value={reporter}
-          onChange={(e) => { setFiltersTouched(true); setReporter(e.target.value); }}
+          onChange={(e) => setReporter(e.target.value)}
         />
 
-        <select className="field-input" value={sort} onChange={(e) => { setFiltersTouched(true); setSort(e.target.value); }}>
+        <select className="field-input" value={sort} onChange={(e) => setSort(e.target.value)}>
           <option value="desc">Newest first</option>
           <option value="asc">Oldest first</option>
         </select>
@@ -109,12 +120,15 @@ export default function TicketList({ token, user, location, routing = {}, onOpen
       <div className="date-range-row">
         <div className="date-range-field">
           <label className="date-range-label">From</label>
-          <input className="field-input" type="date" value={dateFrom} onChange={(e) => { setFiltersTouched(true); setDateFrom(e.target.value); }} />
+          <input className="field-input" type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
         </div>
         <div className="date-range-field">
           <label className="date-range-label">To</label>
-          <input className="field-input" type="date" value={dateTo} onChange={(e) => { setFiltersTouched(true); setDateTo(e.target.value); }} />
+          <input className="field-input" type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
         </div>
+        <button type="button" className="btn btn-primary btn-search" onClick={handleSearch} disabled={loading}>
+          {loading ? "Searching…" : "Search"}
+        </button>
       </div>
 
       {loading && <div className="empty-state">Loading…</div>}
