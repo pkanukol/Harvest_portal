@@ -30,19 +30,19 @@ function handleSpaPrint(obs) {
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 12px; color: #1a1a1a; background: #fff; padding: 28px 36px; }
-  .report-header { border-bottom: 2.5px solid #2d6a2d; padding-bottom: 16px; margin-bottom: 20px; }
-  .school-name { font-size: 18px; font-weight: 700; color: #2d6a2d; }
-  .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 24px; background: #f6f8f6; border: 1px solid #d0e4d0; border-radius: 6px; padding: 12px 16px; margin-bottom: 18px; }
+  .report-header { border-bottom: 2.5px solid #4BA3D3; padding-bottom: 16px; margin-bottom: 20px; }
+  .school-name { font-size: 18px; font-weight: 700; color: #4BA3D3; }
+  .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 24px; background: #EBF5FB; border: 1px solid #CFE7F6; border-radius: 6px; padding: 12px 16px; margin-bottom: 18px; }
   .meta-item { display: flex; gap: 6px; }
   .meta-key { color: #555; min-width: 90px; }
   .meta-val { font-weight: 600; }
-  .score-banner { background: #f6f8f6; border: 1px solid #d0e4d0; border-radius: 6px; padding: 12px 18px; margin-bottom: 20px; font-size: 20px; font-weight: 800; color: #2d6a2d; }
+  .score-banner { background: #EBF5FB; border: 1px solid #CFE7F6; border-radius: 6px; padding: 12px 18px; margin-bottom: 20px; font-size: 20px; font-weight: 800; color: #4BA3D3; }
   section { margin-bottom: 20px; }
-  h3 { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #2d6a2d; border-bottom: 1px solid #cce0cc; padding-bottom: 4px; margin-bottom: 10px; }
-  table { width: 100%; border-collapse: collapse; border: 1px solid #cce0cc; }
-  th { background: #f0f7f0; padding: 6px 10px; text-align: left; font-size: 11px; font-weight: 600; color: #555; border-bottom: 1px solid #cce0cc; }
-  td { padding: 6px 10px; border-bottom: 1px solid #e8f0e8; font-size: 11px; }
-  .box { background: #f6f8f6; border: 1px solid #cce0cc; border-radius: 4px; padding: 10px 14px; font-size: 12px; line-height: 1.6; white-space: pre-wrap; }
+  h3 { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #4BA3D3; border-bottom: 1px solid #CFE7F6; padding-bottom: 4px; margin-bottom: 10px; }
+  table { width: 100%; border-collapse: collapse; border: 1px solid #CFE7F6; }
+  th { background: #EBF5FB; padding: 6px 10px; text-align: left; font-size: 11px; font-weight: 600; color: #555; border-bottom: 1px solid #CFE7F6; }
+  td { padding: 6px 10px; border-bottom: 1px solid #E2E5EC; font-size: 11px; }
+  .box { background: #EBF5FB; border: 1px solid #CFE7F6; border-radius: 4px; padding: 10px 14px; font-size: 12px; line-height: 1.6; white-space: pre-wrap; }
   .signoff-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 24px; }
   .footer { margin-top: 30px; padding-top: 12px; border-top: 1px solid #ddd; font-size: 10px; color: #999; }
   @media print { body { padding: 16px 20px; } }
@@ -57,6 +57,7 @@ function handleSpaPrint(obs) {
   <div class="meta-item"><span class="meta-key">Timing:</span><span class="meta-val">${escHtml(obs.timing)}</span></div>
   <div class="meta-item"><span class="meta-key">Grade & Section:</span><span class="meta-val">${escHtml(obs.grade_section)}</span></div>
   <div class="meta-item"><span class="meta-key">Observer:</span><span class="meta-val">${escHtml(obs.auditor.name)}</span></div>
+  <div class="meta-item"><span class="meta-key">Type:</span><span class="meta-val">${escHtml(obs.observation_type || "Unannounced")}</span></div>
 </div>
 <div class="score-banner">Score Achieved: ${obs.overall_score} / ${SPA_MAX_SCORE}</div>
 <section><h3>Observation Criteria</h3><table><thead><tr><th>Criteria</th><th style="text-align:center">Rating</th><th>Comments</th></tr></thead><tbody>${rowsHtml}</tbody></table></section>
@@ -95,6 +96,7 @@ export default function SpaDetailDrawer({ open, token, user, obsId, onClose, onU
   const [editedStrengths, setEditedStrengths] = useState("");
   const [editedAreas, setEditedAreas] = useState("");
 
+  const [editedObservationType, setEditedObservationType] = useState("Unannounced");
   const [feedbackShared, setFeedbackShared] = useState(null);
   const [coachName, setCoachName] = useState("");
   const [coachDate, setCoachDate] = useState("");
@@ -122,6 +124,7 @@ export default function SpaDetailDrawer({ open, token, user, obsId, onClose, onU
         setEditedGradeSection(data.grade_section || "");
         setEditedStrengths(data.strengths_observed || "");
         setEditedAreas(data.areas_of_improvement || "");
+        setEditedObservationType(data.observation_type || "Unannounced");
         setFeedbackShared(data.feedback_shared_with_coach ?? null);
         setCoachName(data.coach_name || "");
         setCoachDate(data.coach_date || "");
@@ -154,6 +157,7 @@ export default function SpaDetailDrawer({ open, token, user, obsId, onClose, onU
     activity: editedActivity,
     timing: editedTiming,
     grade_section: editedGradeSection,
+    observation_type: editedObservationType,
     criteria_scores: editedCriteria,
     strengths_observed: editedStrengths,
     areas_of_improvement: editedAreas,
@@ -237,11 +241,23 @@ export default function SpaDetailDrawer({ open, token, user, obsId, onClose, onU
                   <div className="drawer-score-lbl">
                     {formatDateStr(obs.date_time)} · Observer: {obs.auditor.name}
                   </div>
-                  {obs.is_draft && (
-                    <div style={{ marginTop: "4px" }}>
-                      <span className="tc-status-badge draft">DRAFT</span>
-                    </div>
-                  )}
+                  <div style={{ marginTop: "4px", display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
+                    {obs.is_draft && <span className="tc-status-badge draft">DRAFT</span>}
+                    {isDraftEditable ? (
+                      <div style={{ display: "flex", gap: "12px", fontSize: "12px" }}>
+                        <label style={{ display: "flex", alignItems: "center", gap: "4px", cursor: "pointer" }}>
+                          <input type="radio" name="editSpaObservationType" checked={editedObservationType === "Unannounced"} onChange={() => setEditedObservationType("Unannounced")} /> Unannounced
+                        </label>
+                        <label style={{ display: "flex", alignItems: "center", gap: "4px", cursor: "pointer" }}>
+                          <input type="radio" name="editSpaObservationType" checked={editedObservationType === "Invited"} onChange={() => setEditedObservationType("Invited")} /> Invited
+                        </label>
+                      </div>
+                    ) : (
+                      <span className="tc-status-badge" style={{ background: "rgba(42, 123, 173,0.12)", color: "var(--harvest-blue)", border: "1px solid rgba(42, 123, 173,0.3)" }}>
+                        {obs.observation_type || "Unannounced"}
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -439,7 +455,7 @@ export default function SpaDetailDrawer({ open, token, user, obsId, onClose, onU
                 <div className="drawer-draft-actions">
                   {actionError && <div className="error-banner" style={{ marginBottom: "12px" }}>{actionError}</div>}
                   {savedMsg && (
-                    <div style={{ marginBottom: "12px", padding: "8px 14px", borderRadius: "8px", background: "rgba(45,106,45,0.1)", border: "1px solid rgba(45,106,45,0.3)", color: "var(--harvest-green)", fontSize: "13px", textAlign: "center" }}>
+                    <div style={{ marginBottom: "12px", padding: "8px 14px", borderRadius: "8px", background: "rgba(75, 163, 211,0.1)", border: "1px solid rgba(75, 163, 211,0.3)", color: "var(--harvest-green)", fontSize: "13px", textAlign: "center" }}>
                       {savedMsg}
                     </div>
                   )}
