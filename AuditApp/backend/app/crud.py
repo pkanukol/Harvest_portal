@@ -224,6 +224,32 @@ def get_teacher_full_history(db: Session, teacher_id: int):
         models.Observation.teacher_id == teacher_id
     ).order_by(models.Observation.date_time.desc()).all()
 
+def get_dashboard_filter_options(db: Session, location: str):
+    """Lightweight lookup data to populate the dashboard's filter dropdowns —
+    loaded once up front so the (expensive) observation list itself doesn't have
+    to be fetched until the user actually picks a filter or clicks 'All'."""
+    teachers = db.query(models.User).filter(
+        models.User.role == "teacher",
+        or_(models.User.location == location, models.User.location == "Both"),
+    ).order_by(models.User.name).all()
+
+    observers = db.query(models.User).filter(
+        models.User.role.in_(["auditor", "sme"]),
+        or_(models.User.location == location, models.User.location == "Both"),
+    ).order_by(models.User.name).all()
+
+    subject_rows = db.query(models.User.subject).filter(
+        models.User.subject.isnot(None), models.User.subject != ""
+    ).distinct().all()
+    subjects = sorted({row[0] for row in subject_rows if row[0]})
+
+    return {
+        "teachers": [{"id": t.id, "name": t.name} for t in teachers],
+        "observers": [{"id": o.id, "name": o.name} for o in observers],
+        "subjects": subjects,
+        "grades": [f"Grade {i}" for i in range(1, 13)],
+    }
+
 def update_observation_draft(db: Session, obs_id: int, update_in: schemas.ObservationDraftUpdate):
     db_obs = get_observation_by_id(db, obs_id)
     if not db_obs:
@@ -420,6 +446,7 @@ def get_teacher_observation_coverage(db: Session, location: str):
             rows.append({
                 "teacher_id": t.id,
                 "teacher_name": t.name,
+                "subject": t.subject,
                 "unannounced_count": entry["unannounced"],
                 "invited_count": entry["invited"],
                 "total": total,
@@ -475,6 +502,7 @@ def create_spa_observation(db: Session, obs_in: schemas.SpaObservationCreate, au
         activity=obs_in.activity,
         timing=obs_in.timing,
         grade_section=obs_in.grade_section,
+        observation_type=obs_in.observation_type,
         criteria_scores=criteria_dict,
         overall_score=overall_score,
         strengths_observed=obs_in.strengths_observed,
@@ -499,6 +527,8 @@ def update_spa_observation_draft(db: Session, obs_id: int, update_in: schemas.Sp
     db_obs.activity = update_in.activity
     db_obs.timing = update_in.timing
     db_obs.grade_section = update_in.grade_section
+    if update_in.observation_type is not None:
+        db_obs.observation_type = update_in.observation_type
     db_obs.criteria_scores = {k: v.model_dump() for k, v in update_in.criteria_scores.items()}
     db_obs.overall_score = _sum_spa_scores(update_in.criteria_scores)
     db_obs.strengths_observed = update_in.strengths_observed
@@ -559,6 +589,7 @@ def get_spa_audit_list(db: Session, location: str, sme_user_id: int = None):
             "auditor_name": obs.auditor.name,
             "activity": obs.activity,
             "grade_section": obs.grade_section,
+            "observation_type": obs.observation_type or "Unannounced",
             "date_time": utc_iso(obs.date_time),
             "overall_score": obs.overall_score,
             "is_draft": obs.is_draft,
