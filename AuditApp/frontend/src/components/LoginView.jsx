@@ -21,7 +21,7 @@ export default function LoginView() {
             display: "block",
             textAlign: "center",
             padding: "12px 24px",
-            background: "#4a8c2a",
+            background: "#3893C4",
             color: "#fff",
             borderRadius: "8px",
             textDecoration: "none",
