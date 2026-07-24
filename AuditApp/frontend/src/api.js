@@ -91,8 +91,18 @@ export const api = {
   ssoLogin: (supabaseToken) =>
     request("/auth/sso", { method: "POST", body: { supabase_token: supabaseToken } }),
 
-  getAuditList: (token, location) =>
-    request(`/dashboard/audit-list?location=${encodeURIComponent(location)}`, { token }),
+  getAuditList: (token, location, filters = {}) => {
+    const params = new URLSearchParams({ location });
+    if (filters.subject) params.set("subject", filters.subject);
+    if (filters.grade) params.set("grade", filters.grade);
+    if (filters.auditorId) params.set("auditor_id", filters.auditorId);
+    if (filters.teacherId) params.set("teacher_id", filters.teacherId);
+    if (filters.status) params.set("status", filters.status);
+    return request(`/dashboard/audit-list?${params.toString()}`, { token });
+  },
+
+  getDashboardFilterOptions: (token, location) =>
+    request(`/dashboard/filter-options?location=${encodeURIComponent(location)}`, { token }),
 
   getSubjectSummary: (token, location, subject) =>
     request(`/dashboard/subject-summary?location=${encodeURIComponent(location)}&subject=${encodeURIComponent(subject)}`, { token }),
