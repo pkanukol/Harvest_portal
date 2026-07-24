@@ -18,6 +18,16 @@ export default function Dashboard({
   const [auditList, setAuditList] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [hasSearched, setHasSearched] = useState(false);
+
+  // Filter-first controls — nothing is fetched until "All Observations" is clicked
+  // or at least one filter is set, since the list only grows over the school year.
+  const [filterOptions, setFilterOptions] = useState({ teachers: [], observers: [], subjects: [], grades: [] });
+  const [filterSubject, setFilterSubject] = useState("");
+  const [filterGrade, setFilterGrade] = useState("");
+  const [filterObserverId, setFilterObserverId] = useState("");
+  const [filterTeacherId, setFilterTeacherId] = useState("");
+  const [filterStatus, setFilterStatus] = useState("");
 
   // Subject compare modal
   const [subjectModal, setSubjectModal] = useState(false);
@@ -27,9 +37,15 @@ export default function Dashboard({
   const [subjectError, setSubjectError] = useState("");
   const [expandedTeacher, setExpandedTeacher] = useState(null);
 
-  // Teacher audit compare modal
+  // Teacher audit compare modal — fetches its own data on open, independent of the
+  // (possibly not-yet-fetched) main filtered list.
   const [teacherModal, setTeacherModal] = useState(false);
+  const [teacherSummaries, setTeacherSummaries] = useState([]);
+  const [teacherSummariesLoading, setTeacherSummariesLoading] = useState(false);
+  const [teacherSummariesError, setTeacherSummariesError] = useState("");
   const [selectedTeacherId, setSelectedTeacherId] = useState("");
+  const [teacherAudits, setTeacherAudits] = useState([]);
+  const [teacherAuditsLoading, setTeacherAuditsLoading] = useState(false);
   const [teacherAnalysis, setTeacherAnalysis] = useState("");
   const [teacherAnalysisLoading, setTeacherAnalysisLoading] = useState(false);
   const [teacherAnalysisError, setTeacherAnalysisError] = useState("");
@@ -49,35 +65,102 @@ export default function Dashboard({
   const [coverageLoading, setCoverageLoading] = useState(false);
   const [coverageError, setCoverageError] = useState("");
 
+  // Filter options (teachers/observers/subjects/grades) load immediately — they're
+  // cheap lookups, unlike the observation list itself which can grow large over a term.
   useEffect(() => {
     if (!token) return;
+    api
+      .getDashboardFilterOptions(token, location)
+      .then(setFilterOptions)
+      .catch(() => {});
+  }, [token, location]);
+
+  const hasActiveFilter = !!(filterSubject || filterGrade || filterObserverId || filterTeacherId || filterStatus);
+
+  const runSearch = () => {
+    if (!token) return;
+    setHasSearched(true);
     setLoading(true);
     setError("");
     api
-      .getAuditList(token, location)
+      .getAuditList(token, location, {
+        subject: filterSubject,
+        grade: filterGrade,
+        auditorId: filterObserverId,
+        teacherId: filterTeacherId,
+        status: filterStatus,
+      })
       .then(setAuditList)
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
-  }, [token, location, refreshKey]);
+  };
 
-  const subjectOptions = [...new Set(auditList.map((a) => a.subject).filter(Boolean))];
+  const showAllObservations = () => {
+    setFilterSubject(""); setFilterGrade(""); setFilterObserverId(""); setFilterTeacherId(""); setFilterStatus("");
+    setHasSearched(true);
+    setLoading(true);
+    setError("");
+    api
+      .getAuditList(token, location, {})
+      .then(setAuditList)
+      .catch((err) => setError(err.message))
+      .finally(() => setLoading(false));
+  };
 
-  // Teachers with 1+ finalized audits
-  const multiAuditTeachers = useMemo(() => {
-    const map = {};
-    auditList.filter((a) => !a.is_draft).forEach((a) => {
-      if (!map[a.teacher_id]) map[a.teacher_id] = { id: a.teacher_id, name: a.teacher_name, audits: [] };
-      map[a.teacher_id].audits.push(a);
-    });
-    return Object.values(map).filter((t) => t.audits.length >= 1);
-  }, [auditList]);
+  // Re-run the current search automatically whenever a filter changes (only once a
+  // search has actually been started this session) or when the campus toggle / an
+  // update elsewhere (refreshKey) changes.
+  useEffect(() => {
+    if (!hasSearched && !hasActiveFilter) return;
+    runSearch();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterSubject, filterGrade, filterObserverId, filterTeacherId, filterStatus, location, refreshKey]);
 
-  const teacherAudits = useMemo(() => {
-    if (!selectedTeacherId) return [];
-    return auditList
-      .filter((a) => String(a.teacher_id) === String(selectedTeacherId) && !a.is_draft)
-      .sort((a, b) => new Date(b.date_time) - new Date(a.date_time));
-  }, [auditList, selectedTeacherId]);
+  const resetSearch = () => {
+    setFilterSubject(""); setFilterGrade(""); setFilterObserverId(""); setFilterTeacherId(""); setFilterStatus("");
+    setHasSearched(false);
+    setAuditList([]);
+    setError("");
+  };
+
+  const openTeacherModal = () => {
+    setTeacherModal(true);
+    setTeacherSummariesError("");
+    setTeacherSummariesLoading(true);
+    setTeacherAnalysis("");
+    setTeacherAnalysisError("");
+    api
+      .getDashboard(token, location)
+      .then((summaries) => {
+        const withAudits = summaries.filter((t) => t.obs_count >= 1);
+        setTeacherSummaries(withAudits);
+        const first = withAudits[0];
+        if (first) {
+          setSelectedTeacherId(String(first.teacher_id));
+          loadSelectedTeacherAudits(first.teacher_id, first.obs_count);
+        } else {
+          setSelectedTeacherId("");
+          setTeacherAudits([]);
+        }
+      })
+      .catch((err) => setTeacherSummariesError(err.message))
+      .finally(() => setTeacherSummariesLoading(false));
+  };
+
+  const loadSelectedTeacherAudits = async (teacherId, obsCount) => {
+    setTeacherAuditsLoading(true);
+    setTeacherAudits([]);
+    try {
+      const audits = await api.getTeacherObservations(token, teacherId);
+      const finalised = audits.filter((a) => !a.is_draft).sort((a, b) => new Date(b.date_time) - new Date(a.date_time));
+      setTeacherAudits(finalised);
+      if ((obsCount ?? finalised.length) >= 2) loadTeacherAnalysis(teacherId);
+    } catch (err) {
+      setTeacherAnalysisError(err.message);
+    } finally {
+      setTeacherAuditsLoading(false);
+    }
+  };
 
   const teacherAverages = useMemo(() => {
     if (!teacherAudits.length) return null;
@@ -96,7 +179,7 @@ export default function Dashboard({
     setSubjectData([]);
     setSubjectError("");
     setExpandedTeacher(null);
-    const first = subjectOptions[0] || "";
+    const first = filterOptions.subjects[0] || "";
     setSelectedSubject(first);
     if (first) loadSubjectSummary(first);
   };
@@ -112,15 +195,6 @@ export default function Dashboard({
       .then(setSubjectData)
       .catch((err) => setSubjectError(err.message))
       .finally(() => setSubjectLoading(false));
-  };
-
-  const openTeacherModal = () => {
-    const first = multiAuditTeachers[0];
-    setSelectedTeacherId(first ? String(first.id) : "");
-    setTeacherAnalysis("");
-    setTeacherAnalysisError("");
-    setTeacherModal(true);
-    if (first && first.audits.length >= 2) loadTeacherAnalysis(first.id);
   };
 
   const loadTeacherAnalysis = async (teacherId) => {
@@ -224,25 +298,90 @@ export default function Dashboard({
           <button className="btn btn-subject-compare" onClick={openSubjectModal}>
             Subject Compare
           </button>
-          {multiAuditTeachers.length > 0 && (
-            <button className="btn btn-teacher-compare" onClick={openTeacherModal}>
-              Teacher Audit Compare
-            </button>
-          )}
+          <button className="btn btn-teacher-compare" onClick={openTeacherModal}>
+            Teacher Audit Compare
+          </button>
           <button className="btn btn-add-audit" onClick={onNewObservation}>
             + New Observation
           </button>
         </div>
       </div>
 
+      <div className="card" style={{ marginBottom: "20px" }}>
+        <div style={{ display: "flex", gap: "10px", marginBottom: hasSearched ? "16px" : 0, flexWrap: "wrap" }}>
+          <button
+            className="btn btn-add-audit"
+            style={{ background: !hasSearched || hasActiveFilter ? "var(--bg-card)" : undefined, color: !hasSearched || hasActiveFilter ? "var(--text-white)" : undefined }}
+            onClick={showAllObservations}
+          >
+            All Observations
+          </button>
+          {hasSearched && (
+            <button
+              className="btn btn-subject-compare"
+              onClick={resetSearch}
+            >
+              Reset
+            </button>
+          )}
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "12px" }}>
+          <div className="form-group" style={{ margin: 0 }}>
+            <label className="field-label">Subject</label>
+            <select className="filter-select" value={filterSubject} onChange={(e) => setFilterSubject(e.target.value)}>
+              <option value="">-- Any Subject --</option>
+              {filterOptions.subjects.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+          <div className="form-group" style={{ margin: 0 }}>
+            <label className="field-label">Grade</label>
+            <select className="filter-select" value={filterGrade} onChange={(e) => setFilterGrade(e.target.value)}>
+              <option value="">-- Any Grade --</option>
+              {filterOptions.grades.map((g) => <option key={g} value={g}>{g}</option>)}
+            </select>
+          </div>
+          <div className="form-group" style={{ margin: 0 }}>
+            <label className="field-label">Observed By</label>
+            <select className="filter-select" value={filterObserverId} onChange={(e) => setFilterObserverId(e.target.value)}>
+              <option value="">-- Anyone --</option>
+              {filterOptions.observers.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+            </select>
+          </div>
+          <div className="form-group" style={{ margin: 0 }}>
+            <label className="field-label">Teacher</label>
+            <select className="filter-select" value={filterTeacherId} onChange={(e) => setFilterTeacherId(e.target.value)}>
+              <option value="">-- Any Teacher --</option>
+              {filterOptions.teachers.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+          </div>
+          <div className="form-group" style={{ margin: 0 }}>
+            <label className="field-label">Status</label>
+            <select className="filter-select" value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
+              <option value="">-- All --</option>
+              <option value="draft">Draft</option>
+              <option value="saved">Saved</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      {!hasSearched && (
+        <div className="card text-center" style={{ padding: "40px" }}>
+          <h3 style={{ color: "var(--text-muted)", marginBottom: "8px" }}>Choose a Filter, or Click "All Observations"</h3>
+          <p style={{ fontSize: "14px", color: "var(--text-gray)" }}>
+            Nothing is loaded until you pick at least one filter above or click "All Observations" — keeps this page fast.
+          </p>
+        </div>
+      )}
+
       {loading && <div className="msg">Loading audit records...</div>}
       {error && <div className="error-banner">{error}</div>}
 
-      {!loading && !error && auditList.length === 0 && (
+      {hasSearched && !loading && !error && auditList.length === 0 && (
         <div className="card text-center" style={{ padding: "40px" }}>
           <h3 style={{ color: "var(--text-muted)", marginBottom: "8px" }}>No Audit Records Found</h3>
           <p style={{ fontSize: "14px", color: "var(--text-gray)" }}>
-            Observations for the {location} campus will appear here.
+            No observations match the current filters for the {location} campus.
           </p>
         </div>
       )}
@@ -292,7 +431,7 @@ export default function Dashboard({
             <div className="modal-body">
               <div className="form-group" style={{ marginBottom: "16px" }}>
                 <label className="field-label">Select Subject</label>
-                {subjectOptions.length === 0 ? (
+                {filterOptions.subjects.length === 0 ? (
                   <div style={{ color: "var(--text-muted)", fontSize: "13px" }}>No subjects found.</div>
                 ) : (
                   <select
@@ -300,7 +439,7 @@ export default function Dashboard({
                     value={selectedSubject}
                     onChange={(e) => { setSelectedSubject(e.target.value); loadSubjectSummary(e.target.value); }}
                   >
-                    {subjectOptions.map((s) => <option key={s} value={s}>{s}</option>)}
+                    {filterOptions.subjects.map((s) => <option key={s} value={s}>{s}</option>)}
                   </select>
                 )}
               </div>
@@ -379,33 +518,46 @@ export default function Dashboard({
               <button className="btn-close-drawer flex-center" onClick={() => setTeacherModal(false)}>✕</button>
             </div>
             <div className="modal-body">
-              <div className="form-group" style={{ marginBottom: "16px" }}>
-                <label className="field-label">Select Teacher</label>
-                <select
-                  className="input-text"
-                  value={selectedTeacherId}
-                  onChange={(e) => {
-                    const id = e.target.value;
-                    setSelectedTeacherId(id);
-                    setTeacherAnalysis("");
-                    setTeacherAnalysisError("");
-                    const t = multiAuditTeachers.find((t) => String(t.id) === id);
-                    if (t && t.audits.length >= 2) loadTeacherAnalysis(id);
-                  }}
-                >
-                  {multiAuditTeachers.map((t) => (
-                    <option key={t.id} value={String(t.id)}>{t.name}</option>
-                  ))}
-                </select>
-              </div>
+              {teacherSummariesLoading && <div className="msg"><span className="spinner"></span>Loading...</div>}
+              {teacherSummariesError && <div className="error-banner">{teacherSummariesError}</div>}
 
-              {teacherAudits.length === 1 && (
+              {!teacherSummariesLoading && !teacherSummariesError && teacherSummaries.length === 0 && (
+                <div style={{ color: "var(--text-muted)", fontSize: "13px", padding: "12px", background: "var(--bg-card)", borderRadius: "8px" }}>
+                  No finalised or draft audits recorded yet for the {location} campus.
+                </div>
+              )}
+
+              {teacherSummaries.length > 0 && (
+                <div className="form-group" style={{ marginBottom: "16px" }}>
+                  <label className="field-label">Select Teacher</label>
+                  <select
+                    className="input-text"
+                    value={selectedTeacherId}
+                    onChange={(e) => {
+                      const id = e.target.value;
+                      setSelectedTeacherId(id);
+                      setTeacherAnalysis("");
+                      setTeacherAnalysisError("");
+                      const t = teacherSummaries.find((t) => String(t.teacher_id) === id);
+                      loadSelectedTeacherAudits(id, t?.obs_count);
+                    }}
+                  >
+                    {teacherSummaries.map((t) => (
+                      <option key={t.teacher_id} value={String(t.teacher_id)}>{t.teacher_name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {teacherAuditsLoading && <div className="msg"><span className="spinner"></span>Loading audit history...</div>}
+
+              {!teacherAuditsLoading && teacherAudits.length === 1 && (
                 <div style={{ color: "var(--text-muted)", fontSize: "13px", padding: "12px", background: "var(--bg-card)", borderRadius: "8px", marginBottom: "12px" }}>
                   Only 1 audit recorded for this teacher. Comparison and AI analysis require at least 2 audits.
                 </div>
               )}
 
-              {teacherAudits.length > 0 && (
+              {!teacherAuditsLoading && teacherAudits.length > 0 && (
                 <>
                   <div className="ctable-wrap">
                     <table className="ctable">
@@ -498,7 +650,7 @@ export default function Dashboard({
                         onClick={() => setSmeView("observed")}
                         style={{
                           flex: 1, textAlign: "center", padding: "14px", borderRadius: "10px", cursor: "pointer",
-                          background: smeView === "observed" ? "rgba(45,106,45,0.08)" : "var(--bg-card)",
+                          background: smeView === "observed" ? "rgba(75, 163, 211,0.08)" : "var(--bg-card)",
                           border: smeView === "observed" ? "1.5px solid var(--harvest-green)" : "1.5px solid var(--border)",
                         }}
                       >
@@ -509,7 +661,7 @@ export default function Dashboard({
                         onClick={() => setSmeView("notObserved")}
                         style={{
                           flex: 1, textAlign: "center", padding: "14px", borderRadius: "10px", cursor: "pointer",
-                          background: smeView === "notObserved" ? "rgba(232,64,28,0.08)" : "var(--bg-card)",
+                          background: smeView === "notObserved" ? "rgba(184, 39, 44,0.08)" : "var(--bg-card)",
                           border: smeView === "notObserved" ? "1.5px solid var(--harvest-red)" : "1.5px solid var(--border)",
                         }}
                       >
@@ -664,10 +816,15 @@ export default function Dashboard({
                               {term.rows.map((r) => (
                                 <tr
                                   key={r.teacher_id}
-                                  style={r.never_observed ? { background: "rgba(232,64,28,0.10)" } : undefined}
+                                  style={r.never_observed ? { background: "rgba(184, 39, 44,0.10)" } : undefined}
                                 >
                                   <td style={r.never_observed ? { fontWeight: 700, color: "var(--harvest-red)" } : undefined}>
                                     {esc(r.teacher_name)}
+                                    {r.subject && (
+                                      <span style={{ fontSize: "11px", color: "var(--text-gray)", fontWeight: 400, marginLeft: "6px" }}>
+                                        ({esc(r.subject)})
+                                      </span>
+                                    )}
                                   </td>
                                   <td className="ctable-score">{r.unannounced_count}</td>
                                   <td className="ctable-score">{r.invited_count}</td>
