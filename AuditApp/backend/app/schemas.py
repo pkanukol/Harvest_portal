@@ -187,6 +187,7 @@ class SpaObservationBase(BaseModel):
     activity: str
     timing: Optional[str] = ""
     grade_section: Optional[str] = ""
+    observation_type: Literal["Unannounced", "Invited"] = "Unannounced"
     criteria_scores: Dict[str, CriterionScore]
     strengths_observed: Optional[str] = ""
     areas_of_improvement: Optional[str] = ""
@@ -198,6 +199,7 @@ class SpaObservationDraftUpdate(BaseModel):
     activity: str
     timing: Optional[str] = ""
     grade_section: Optional[str] = ""
+    observation_type: Optional[Literal["Unannounced", "Invited"]] = None
     criteria_scores: Dict[str, CriterionScore]
     strengths_observed: Optional[str] = ""
     areas_of_improvement: Optional[str] = ""
