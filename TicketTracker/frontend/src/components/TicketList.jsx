@@ -50,10 +50,13 @@ export default function TicketList({ token, user, location, routing = {}, onOpen
     }
   }, [token, view, location]);
 
-  // First load of the dashboard: fast, filtered to just the still-open tickets for
-  // the default tab (usually "Assigned to Me"). Runs exactly once.
+  // First load of the dashboard: fast, filtered to just the still-open tickets (both
+  // "Open" and "Needs immediate attention" - the latter is just an aged-Open ticket,
+  // not a separate stored status) for the default tab (usually "Assigned to Me").
+  // The backend sorts attention-needed ones first, then the rest by recency. Runs
+  // exactly once.
   useEffect(() => {
-    fetchTickets({ status: DEFAULT_STATUS, sort: "desc" });
+    fetchTickets({ open_only: true, sort: "desc" });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
