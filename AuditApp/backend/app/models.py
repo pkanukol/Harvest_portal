@@ -119,6 +119,7 @@ class SpaObservation(Base):
     activity = Column(String, nullable=False)
     timing = Column(String, nullable=True)
     grade_section = Column(String, nullable=True)
+    observation_type = Column(String, nullable=True)  # 'Unannounced' or 'Invited'
 
     # {criterion_key: {"score": int, "comment": str}} — criteria defined in frontend spaRubrics.js
     criteria_scores = Column(JSON, nullable=False, default=dict)
