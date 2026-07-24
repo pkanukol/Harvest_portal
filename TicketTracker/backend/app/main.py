@@ -363,7 +363,6 @@ async def list_tickets(
     date_from: Optional[datetime] = Query(None),
     date_to: Optional[datetime] = Query(None),
     sort: str = Query("desc"),
-    open_only: bool = Query(False),
     db: Session = Depends(get_db),
     current_user: auth.CurrentUser = Depends(auth.get_current_user),
 ):
@@ -384,7 +383,7 @@ async def list_tickets(
 
     tickets = crud.list_tickets(
         db, category=category, location=location, status_filter=status_filter, reporter=reporter,
-        date_from=date_from, date_to=date_to, sort=sort, open_only=open_only,
+        date_from=date_from, date_to=date_to, sort=sort,
         restrict_location=restrict_location, restrict_reporter_email=restrict_reporter_email,
         restrict_assigned_email=restrict_assigned_email,
     )
