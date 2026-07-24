@@ -83,6 +83,7 @@ export default function SpaDashboard({
             <div className="audit-card-meta">
               <span className="meta-tag subj">{esc(obs.activity)}</span>
               {obs.grade_section && <span className="meta-tag obs">{esc(obs.grade_section)}</span>}
+              <span className="meta-tag">{esc(obs.observation_type || "Unannounced")}</span>
             </div>
             <div className="audit-card-sub">
               <span>&#128100; {esc(obs.auditor_name)}</span>
