@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { api } from "../api";
 import { formatDateTime } from "../dateFormat";
 
@@ -50,10 +50,25 @@ export default function TicketList({ token, user, location, routing = {}, onOpen
     }
   }, [token, view, location]);
 
-  // Switching tabs or campus always shows the full set for that bucket, regardless
-  // of whatever's staged in the filter bar below - those only take effect once
-  // "Search" is clicked, so a forgotten filter can't silently hide tickets here.
+  // First load of the dashboard: fast, filtered to just the still-open tickets for
+  // the default tab (usually "Assigned to Me"). Runs exactly once.
   useEffect(() => {
+    fetchTickets({ status: DEFAULT_STATUS, sort: "desc" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Any later tab or campus change always shows the full set for that bucket,
+  // regardless of whatever's staged in the filter bar below - those only take
+  // effect once "Search" is clicked, so a forgotten filter can't silently hide
+  // tickets when you're just navigating between tabs. Compares against the
+  // previous view/location (rather than a simple "have I mounted" flag) so this
+  // correctly skips the initial mount even under StrictMode's dev-only double
+  // effect invocation, which would otherwise wrongly treat that as a real change.
+  const prevViewLocation = useRef(`${view}|${location}`);
+  useEffect(() => {
+    const key = `${view}|${location}`;
+    if (prevViewLocation.current === key) return;
+    prevViewLocation.current = key;
     setCategory("");
     setStatus(DEFAULT_STATUS);
     setReporter("");
@@ -61,7 +76,7 @@ export default function TicketList({ token, user, location, routing = {}, onOpen
     setDateTo("");
     setSort("desc");
     fetchTickets();
-  }, [fetchTickets]);
+  }, [view, location, fetchTickets]);
 
   const handleSearch = () => {
     fetchTickets({
