@@ -49,8 +49,11 @@ def create_ticket(db: Session, category: str, location: str, description: str,
     return ticket
 
 
-def add_ticket_image(db: Session, ticket_id: int, content_type: str, image_data: bytes) -> models.TicketImage:
-    image = models.TicketImage(ticket_id=ticket_id, content_type=content_type, image_data=image_data)
+def add_ticket_image(db: Session, ticket_id: int, content_type: str, image_data: bytes,
+                      comment_id: Optional[int] = None) -> models.TicketImage:
+    image = models.TicketImage(
+        ticket_id=ticket_id, content_type=content_type, image_data=image_data, comment_id=comment_id,
+    )
     db.add(image)
     db.commit()
     db.refresh(image)
@@ -83,6 +86,23 @@ def add_comment(db: Session, ticket_id: int, author_name: str, author_email: str
     db.commit()
     db.refresh(comment)
     return comment
+
+
+def reassign_ticket(db: Session, ticket: models.Ticket, from_email: str,
+                     to_name: str, to_email: str) -> models.Ticket:
+    """Swaps the reassigning person out of responsible_to for the new assignee -
+    any other existing responsible_to member (e.g. a co-assignee like DLP's second
+    contact) is left untouched, so only the person who actually reassigned steps out."""
+    from_email_l = from_email.lower()
+    to_email_l = to_email.lower()
+    current = list(ticket.responsible_to or [])
+    updated = [c for c in current if c["email"].lower() != from_email_l]
+    if not any(c["email"].lower() == to_email_l for c in updated):
+        updated.append({"name": to_name, "email": to_email})
+    ticket.responsible_to = updated
+    db.commit()
+    db.refresh(ticket)
+    return ticket
 
 
 def resolve_ticket(db: Session, ticket: models.Ticket, new_status: str, remark: str,
