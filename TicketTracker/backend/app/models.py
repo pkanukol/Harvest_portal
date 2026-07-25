@@ -66,6 +66,7 @@ class TicketComment(Base):
     created_at = Column(DateTime, default=datetime.datetime.utcnow, index=True)
 
     ticket = relationship("Ticket", back_populates="comments")
+    images = relationship("TicketImage", back_populates="comment", cascade="all, delete-orphan")
 
 
 class TicketImage(Base):
@@ -74,13 +75,20 @@ class TicketImage(Base):
     (row deleted) once the parent ticket reaches a terminal state that no longer
     needs the photo (see crud.purge_ticket_images) - the ticket record itself,
     and everything else about it, stays as permanent history.
+
+    comment_id is null for images attached at ticket-creation time, and set for
+    images attached to a chat message - either way the row still carries ticket_id,
+    so purge_ticket_images (which filters by ticket_id alone) covers both origins
+    with no extra logic.
     """
     __tablename__ = "ticket_images"
 
     id = Column(Integer, primary_key=True, index=True)
     ticket_id = Column(Integer, ForeignKey("tickets.id"), nullable=False)
+    comment_id = Column(Integer, ForeignKey("ticket_comments.id"), nullable=True)
     content_type = Column(String, nullable=False)  # "image/jpeg" | "image/png"
     image_data = Column(LargeBinary, nullable=False)
     uploaded_at = Column(DateTime, default=datetime.datetime.utcnow)
 
     ticket = relationship("Ticket", back_populates="images")
+    comment = relationship("TicketComment", back_populates="images")
