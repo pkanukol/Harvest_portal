@@ -294,6 +294,15 @@ textarea.field-input { resize: vertical; }
 .btn-edit-order { padding: 4px 12px; font-size: 11px; }
 .order-details-form .detail-grid { margin-bottom: 0; }
 
+.reassign-box {
+  margin-top: 18px;
+  padding: 16px 18px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.reassign-heading { font-size: 13px; font-weight: 700; color: var(--ink); margin-bottom: 10px; }
+
 @media (max-width: 600px) {
   .filter-bar { grid-template-columns: 1fr 1fr; }
   .card { padding: 20px; }
