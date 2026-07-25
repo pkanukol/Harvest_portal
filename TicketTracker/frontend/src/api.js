@@ -63,8 +63,12 @@ export const api = {
 
   getComments: (token, id) => request(`/tickets/${id}/comments`, { token }),
 
-  addComment: (token, id, message) =>
-    request(`/tickets/${id}/comments`, { method: "POST", token, body: { message } }),
+  addComment: (token, id, message, images) => {
+    const formData = new FormData();
+    formData.append("message", message);
+    (images || []).forEach((file) => formData.append("images", file));
+    return request(`/tickets/${id}/comments`, { method: "POST", token, formData });
+  },
 
   closeTicket: (token, id, remark) =>
     request(`/tickets/${id}/close`, { method: "POST", token, body: { remark } }),
@@ -74,6 +78,11 @@ export const api = {
 
   rejectTicket: (token, id, remark) =>
     request(`/tickets/${id}/reject`, { method: "POST", token, body: { remark } }),
+
+  reassignTicket: (token, id, assigneeEmail, comment) =>
+    request(`/tickets/${id}/reassign`, {
+      method: "POST", token, body: { assignee_email: assigneeEmail, comment },
+    }),
 
   recordOrderDetails: (token, id, { orderDate, vendorName, actualCost, deliveryDate, trackingDetails }) =>
     request(`/tickets/${id}/order-details`, {
