@@ -1,6 +1,10 @@
 import { useEffect, useState, useCallback } from "react";
 import { api, API_ROOT } from "../api";
 import { formatDateTime, formatDate } from "../dateFormat";
+import { compressImage } from "../imageCompress";
+
+const MAX_COMMENT_IMAGES = 3;
+const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png"];
 
 function statusClass(status) {
   if (status === "Closed") return "badge badge-closed";
@@ -118,11 +122,66 @@ function OrderDetailsSection({ token, ticket, onUpdated }) {
   );
 }
 
-function TicketComments({ token, userEmail, ticketId }) {
+function ReassignSection({ token, ticket, onUpdated }) {
+  const [assigneeEmail, setAssigneeEmail] = useState("");
+  const [comment, setComment] = useState("");
+  const [assigning, setAssigning] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleAssign = async (e) => {
+    e.preventDefault();
+    setError("");
+    if (!assigneeEmail.trim()) { setError("Enter the assignee's email."); return; }
+    if (!comment.trim()) { setError("Add a comment explaining the reassignment."); return; }
+    setAssigning(true);
+    try {
+      const updated = await api.reassignTicket(token, ticket.id, assigneeEmail.trim(), comment.trim());
+      onUpdated(updated);
+      setAssigneeEmail("");
+      setComment("");
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setAssigning(false);
+    }
+  };
+
+  return (
+    <form className="reassign-box" onSubmit={handleAssign}>
+      <div className="reassign-heading">Reassign this ticket</div>
+      <label className="field-label">Assign to (email)</label>
+      <input
+        type="email"
+        className="field-input"
+        placeholder="name@harvestinternationalschool.in"
+        value={assigneeEmail}
+        onChange={(e) => setAssigneeEmail(e.target.value)}
+      />
+      <label className="field-label">Comment</label>
+      <textarea
+        className="field-input"
+        rows={2}
+        placeholder="Why is this being reassigned?"
+        value={comment}
+        onChange={(e) => setComment(e.target.value)}
+      />
+      {error && <div className="form-error">{error}</div>}
+      <button className="btn btn-ghost" type="submit" disabled={assigning}>
+        {assigning ? "Assigning…" : "Assign"}
+      </button>
+    </form>
+  );
+}
+
+function TicketComments({ token, userEmail, ticketId, refreshSignal }) {
   const [comments, setComments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const [images, setImages] = useState([]);
+  const [previews, setPreviews] = useState([]);
+  const [imageError, setImageError] = useState("");
+  const [compressing, setCompressing] = useState(false);
   const [sending, setSending] = useState(false);
 
   const load = useCallback(async () => {
@@ -138,16 +197,51 @@ function TicketComments({ token, userEmail, ticketId }) {
   }, [token, ticketId]);
 
   useEffect(() => { load(); }, [load]);
+  // Re-fetch after an action elsewhere (e.g. reassignment) adds a comment behind
+  // this component's back, so the thread reflects it without a full page reload.
+  useEffect(() => { if (refreshSignal) load(); }, [refreshSignal]);
+
+  const handleFiles = async (e) => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = "";
+    setImageError("");
+
+    const room = MAX_COMMENT_IMAGES - images.length;
+    if (room <= 0) return;
+
+    const rejected = files.some((f) => !ALLOWED_IMAGE_TYPES.includes(f.type));
+    if (rejected) {
+      setImageError("Only JPG or PNG images are accepted.");
+    }
+    const accepted = files.filter((f) => ALLOWED_IMAGE_TYPES.includes(f.type)).slice(0, room);
+    if (accepted.length === 0) return;
+
+    setCompressing(true);
+    try {
+      const compressed = await Promise.all(accepted.map(compressImage));
+      setImages((prev) => [...prev, ...compressed]);
+      setPreviews((prev) => [...prev, ...compressed.map((f) => URL.createObjectURL(f))]);
+    } finally {
+      setCompressing(false);
+    }
+  };
+
+  const removeImage = (idx) => {
+    setImages((prev) => prev.filter((_, i) => i !== idx));
+    setPreviews((prev) => prev.filter((_, i) => i !== idx));
+  };
 
   const handleSend = async (e) => {
     e.preventDefault();
-    if (!message.trim()) return;
+    if (!message.trim() && images.length === 0) return;
     setSending(true);
     setError("");
     try {
-      const comment = await api.addComment(token, ticketId, message.trim());
+      const comment = await api.addComment(token, ticketId, message.trim(), images);
       setComments((prev) => [...prev, comment]);
       setMessage("");
+      setImages([]);
+      setPreviews([]);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -173,7 +267,12 @@ function TicketComments({ token, userEmail, ticketId }) {
                 <span className="comment-author">{c.author_name}</span>
                 <span className="comment-date">{formatDateTime(c.created_at)}</span>
               </div>
-              <div className="comment-message">{c.message}</div>
+              {c.message && <div className="comment-message">{c.message}</div>}
+              {c.images.length > 0 && (
+                <div className="image-preview-row">
+                  {c.images.map((img) => <ImageThumb key={img.id} image={img} token={token} />)}
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -186,8 +285,30 @@ function TicketComments({ token, userEmail, ticketId }) {
           value={message}
           onChange={(e) => setMessage(e.target.value)}
         />
+
+        <input
+          type="file"
+          accept="image/jpeg,image/png"
+          multiple
+          disabled={images.length >= MAX_COMMENT_IMAGES || compressing}
+          onChange={handleFiles}
+        />
+        {compressing && <div className="help-text">Compressing…</div>}
+        {imageError && <div className="form-error">{imageError}</div>}
+
+        {previews.length > 0 && (
+          <div className="image-preview-row">
+            {previews.map((src, idx) => (
+              <div className="image-preview" key={src}>
+                <img src={src} alt={`upload ${idx + 1}`} />
+                <button type="button" className="image-remove" onClick={() => removeImage(idx)}>×</button>
+              </div>
+            ))}
+          </div>
+        )}
+
         {error && <div className="form-error">{error}</div>}
-        <button className="btn btn-primary" type="submit" disabled={sending || !message.trim()}>
+        <button className="btn btn-primary" type="submit" disabled={sending || compressing || (!message.trim() && images.length === 0)}>
           {sending ? "Sending…" : "Send"}
         </button>
       </form>
@@ -203,6 +324,7 @@ export default function TicketDetail({ token, user, ticketId, onBack }) {
   const [acting, setActing] = useState(false);
   const [actionError, setActionError] = useState("");
   const [routing, setRouting] = useState({});
+  const [commentsRefreshKey, setCommentsRefreshKey] = useState(0);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -245,6 +367,11 @@ export default function TicketDetail({ token, user, ticketId, onBack }) {
   const handleClose = (e) => { e.preventDefault(); runAction(api.closeTicket); };
   const handleApprove = (e) => { e.preventDefault(); runAction(api.approveTicket); };
   const handleReject = (e) => { e.preventDefault(); runAction(api.rejectTicket); };
+
+  const handleReassigned = (updated) => {
+    setTicket(updated);
+    setCommentsRefreshKey((k) => k + 1);
+  };
 
   if (loading) return <div className="card"><div className="empty-state">Loading…</div></div>;
   if (error) return <div className="card"><div className="form-error">{error}</div></div>;
@@ -307,7 +434,11 @@ export default function TicketDetail({ token, user, ticketId, onBack }) {
         <OrderDetailsSection token={token} ticket={ticket} onUpdated={setTicket} />
       )}
 
-      <TicketComments token={token} userEmail={user.email} ticketId={ticket.id} />
+      <TicketComments token={token} userEmail={user.email} ticketId={ticket.id} refreshSignal={commentsRefreshKey} />
+
+      {canAct && (
+        <ReassignSection token={token} ticket={ticket} onUpdated={handleReassigned} />
+      )}
 
       {canAct && isStores && (
         <form className="close-form">
