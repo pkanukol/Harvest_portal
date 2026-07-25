@@ -201,6 +201,17 @@ def _to_ticket_out(ticket: models.Ticket, current_user: auth.CurrentUser) -> sch
 
 # --- AUTH ---
 
+def _lookup_name(db: Session, email: str) -> Optional[str]:
+    """The shared `users` table (same Supabase Postgres project as AuditApp/Timetable/
+    the portal) holds the school's curated display name for an email - e.g. a
+    role-based address like a department HOD - which is what every other module
+    shows. Returns None if the email isn't in that table yet."""
+    row = db.execute(
+        text("SELECT name FROM users WHERE lower(email) = :email LIMIT 1"), {"email": email.lower()},
+    ).first()
+    return row[0] if row else None
+
+
 @app.post("/api/auth/sso", response_model=schemas.TokenOut)
 async def sso_login(request: Request, db: Session = Depends(get_db)):
     import httpx
@@ -227,16 +238,10 @@ async def sso_login(request: Request, db: Session = Depends(get_db)):
     if not email.endswith("@harvestinternationalschool.in"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Unauthorized domain")
 
-    # Prefer the shared `users` table (same Supabase Postgres project as AuditApp/
-    # Timetable/the portal) for the display name - it's the school's curated identity
-    # for an email (e.g. a role-based address like a department HOD), which is what
-    # every other module shows. Google's own OAuth profile name is just a fallback for
-    # emails not yet in that table, since it can lag behind the real assigned holder.
-    row = db.execute(
-        text("SELECT name FROM users WHERE lower(email) = :email LIMIT 1"), {"email": email},
-    ).first()
+    # Google's own OAuth profile name is just a fallback for emails not yet in the
+    # shared `users` table, since it can lag behind the real assigned holder.
     user_metadata = supabase_user.get("user_metadata") or {}
-    name = (row[0] if row else None) or user_metadata.get("full_name") or user_metadata.get("name") or email.split("@")[0]
+    name = _lookup_name(db, email) or user_metadata.get("full_name") or user_metadata.get("name") or email.split("@")[0]
 
     access_token = auth.create_access_token(data={"sub": email, "name": name})
     return schemas.TokenOut(
@@ -427,6 +432,10 @@ def _to_comment_out(comment: models.TicketComment) -> schemas.TicketCommentOut:
     return schemas.TicketCommentOut(
         id=comment.id, author_name=comment.author_name, author_email=comment.author_email,
         message=comment.message, created_at=comment.created_at.replace(tzinfo=timezone.utc),
+        images=[
+            schemas.TicketImageOut(id=img.id, image_url=f"/api/tickets/{comment.ticket_id}/images/{img.id}")
+            for img in comment.images
+        ],
     )
 
 
@@ -447,8 +456,9 @@ async def list_comments(
 @app.post("/api/tickets/{ticket_id}/comments", response_model=schemas.TicketCommentOut, status_code=status.HTTP_201_CREATED)
 async def add_comment(
     ticket_id: int,
-    body: schemas.TicketCommentIn,
     background_tasks: BackgroundTasks,
+    message: str = Form(""),
+    images: List[UploadFile] = File(default=[]),
     db: Session = Depends(get_db),
     current_user: auth.CurrentUser = Depends(auth.get_current_user),
 ):
@@ -457,10 +467,27 @@ async def add_comment(
         raise HTTPException(status_code=404, detail="Ticket not found")
     if not _can_view_ticket(ticket, current_user.email):
         raise HTTPException(status_code=403, detail="You don't have access to this ticket")
-    if not body.message.strip():
-        raise HTTPException(status_code=400, detail="Message cannot be empty")
 
-    comment = crud.add_comment(db, ticket_id, current_user.name, current_user.email, body.message.strip())
+    # Validate + read every image before creating anything, same as ticket creation -
+    # a rejected image shouldn't leave behind a comment with only some attachments saved.
+    uploads = [u for u in images if u.filename]
+    if not message.strip() and not uploads:
+        raise HTTPException(status_code=400, detail="Message or at least one image is required")
+    if len(uploads) > MAX_IMAGES:
+        raise HTTPException(status_code=400, detail=f"Maximum {MAX_IMAGES} images allowed")
+    image_payloads = []
+    for upload in uploads:
+        if upload.content_type not in ALLOWED_IMAGE_TYPES:
+            raise HTTPException(status_code=400, detail=f"'{upload.filename}' must be a JPG or PNG image")
+        data = await upload.read()
+        if len(data) > MAX_IMAGE_BYTES:
+            raise HTTPException(status_code=400, detail=f"'{upload.filename}' is too large - each image must be under {MAX_IMAGE_BYTES // (1024 * 1024)}MB")
+        image_payloads.append((upload.content_type, data))
+
+    comment = crud.add_comment(db, ticket_id, current_user.name, current_user.email, message.strip())
+    for content_type, data in image_payloads:
+        crud.add_ticket_image(db, ticket_id, content_type, data, comment_id=comment.id)
+    db.refresh(comment)
 
     recipients = _comment_notify_recipients(ticket, current_user.email)
     if recipients:
@@ -505,6 +532,54 @@ async def close_ticket(
         reporter_name=ticket.reporter_name, reporter_email=ticket.reporter_email,
         actor_name=current_user.name, remark=ticket.resolution_remark, ticket_url=ticket_url,
     )
+
+    return _to_ticket_out(ticket, current_user)
+
+
+@app.post("/api/tickets/{ticket_id}/reassign", response_model=schemas.TicketOut)
+async def reassign_ticket(
+    ticket_id: int,
+    body: schemas.TicketReassignIn,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user: auth.CurrentUser = Depends(auth.get_current_user),
+):
+    ticket = crud.get_ticket(db, ticket_id)
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    if not _can_act(ticket, current_user.email):
+        raise HTTPException(status_code=403, detail="Only a current responsible person can reassign this ticket")
+    if ticket.status in crud.TERMINAL_STATUSES:
+        raise HTTPException(status_code=400, detail="This ticket is already resolved")
+
+    assignee_email = body.assignee_email.strip().lower()
+    if not assignee_email.endswith("@harvestinternationalschool.in"):
+        raise HTTPException(status_code=400, detail="Assignee must be a @harvestinternationalschool.in address")
+    if assignee_email == current_user.email.lower():
+        raise HTTPException(status_code=400, detail="You're already assigned - enter a different person's email")
+    if not body.comment.strip():
+        raise HTTPException(status_code=400, detail="A comment explaining the reassignment is required")
+
+    assignee_name = _lookup_name(db, assignee_email) or assignee_email.split("@")[0]
+    # Swaps the reassigner out of responsible_to for the new assignee - this alone is
+    # what moves the ticket out of the old assignee's "Assigned to Me" bucket and into
+    # the new one's, since that view is just a live membership check on responsible_to.
+    ticket = crud.reassign_ticket(db, ticket, current_user.email, assignee_name, assignee_email)
+
+    comment_text = f"Reassigned to {assignee_name} ({assignee_email}). {body.comment.strip()}"
+    comment = crud.add_comment(db, ticket_id, current_user.name, current_user.email, comment_text)
+
+    # Computed from the ALREADY-updated ticket, so the new assignee (now in
+    # responsible_to) is included automatically alongside the reporter/cc.
+    recipients = _comment_notify_recipients(ticket, current_user.email)
+    if recipients:
+        ticket_url = f"{settings.APP_URL}/?ticket={ticket.id}"
+        background_tasks.add_task(
+            email_service.send_ticket_comment_notification,
+            ticket_number=crud.ticket_number(ticket), category=ticket.category,
+            author_name=current_user.name, message=comment.message,
+            recipients=recipients, ticket_url=ticket_url,
+        )
 
     return _to_ticket_out(ticket, current_user)
 
