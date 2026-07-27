@@ -173,7 +173,7 @@ function ReassignSection({ token, ticket, onUpdated }) {
   );
 }
 
-function TicketComments({ token, userEmail, ticketId, refreshSignal }) {
+function TicketComments({ token, userEmail, ticketId, refreshSignal, isTerminal, canResolve, onResolved }) {
   const [comments, setComments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -183,6 +183,7 @@ function TicketComments({ token, userEmail, ticketId, refreshSignal }) {
   const [imageError, setImageError] = useState("");
   const [compressing, setCompressing] = useState(false);
   const [sending, setSending] = useState(false);
+  const [resolving, setResolving] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -249,6 +250,30 @@ function TicketComments({ token, userEmail, ticketId, refreshSignal }) {
     }
   };
 
+  const handleResolve = async () => {
+    if (!message.trim()) { setError("Add a remark before marking this resolved."); return; }
+    setResolving(true);
+    setError("");
+    try {
+      // Any attached images still need a home - post them (with the same text) as a
+      // final comment first, so they're not silently dropped (closeTicket only takes
+      // a remark, not images), then close using that same text as the resolution.
+      if (images.length > 0) {
+        const comment = await api.addComment(token, ticketId, message.trim(), images);
+        setComments((prev) => [...prev, comment]);
+      }
+      const updatedTicket = await api.closeTicket(token, ticketId, message.trim());
+      setMessage("");
+      setImages([]);
+      setPreviews([]);
+      onResolved(updatedTicket);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setResolving(false);
+    }
+  };
+
   return (
     <div className="comments-section">
       <div className="comments-heading">Messages</div>
@@ -277,41 +302,61 @@ function TicketComments({ token, userEmail, ticketId, refreshSignal }) {
           ))}
         </div>
       )}
-      <form className="comment-form" onSubmit={handleSend}>
-        <textarea
-          className="field-input"
-          rows={2}
-          placeholder="Ask for more details, or reply…"
-          value={message}
-          onChange={(e) => setMessage(e.target.value)}
-        />
+      {isTerminal ? (
+        <div className="help-text">This ticket is resolved — no further messages can be added.</div>
+      ) : (
+        <form className="comment-form" onSubmit={handleSend}>
+          <textarea
+            className="field-input"
+            rows={2}
+            placeholder="Ask for more details, or reply…"
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+          />
 
-        <input
-          type="file"
-          accept="image/jpeg,image/png"
-          multiple
-          disabled={images.length >= MAX_COMMENT_IMAGES || compressing}
-          onChange={handleFiles}
-        />
-        {compressing && <div className="help-text">Compressing…</div>}
-        {imageError && <div className="form-error">{imageError}</div>}
+          <input
+            type="file"
+            accept="image/jpeg,image/png"
+            multiple
+            disabled={images.length >= MAX_COMMENT_IMAGES || compressing}
+            onChange={handleFiles}
+          />
+          {compressing && <div className="help-text">Compressing…</div>}
+          {imageError && <div className="form-error">{imageError}</div>}
 
-        {previews.length > 0 && (
-          <div className="image-preview-row">
-            {previews.map((src, idx) => (
-              <div className="image-preview" key={src}>
-                <img src={src} alt={`upload ${idx + 1}`} />
-                <button type="button" className="image-remove" onClick={() => removeImage(idx)}>×</button>
-              </div>
-            ))}
+          {previews.length > 0 && (
+            <div className="image-preview-row">
+              {previews.map((src, idx) => (
+                <div className="image-preview" key={src}>
+                  <img src={src} alt={`upload ${idx + 1}`} />
+                  <button type="button" className="image-remove" onClick={() => removeImage(idx)}>×</button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {error && <div className="form-error">{error}</div>}
+          <div className="comment-form-buttons">
+            <button
+              className="btn btn-primary"
+              type="submit"
+              disabled={sending || resolving || compressing || (!message.trim() && images.length === 0)}
+            >
+              {sending ? "Saving…" : "Save"}
+            </button>
+            {canResolve && (
+              <button
+                className="btn btn-success"
+                type="button"
+                disabled={sending || resolving || compressing}
+                onClick={handleResolve}
+              >
+                {resolving ? "Resolving…" : "Resolved"}
+              </button>
+            )}
           </div>
-        )}
-
-        {error && <div className="form-error">{error}</div>}
-        <button className="btn btn-primary" type="submit" disabled={sending || compressing || (!message.trim() && images.length === 0)}>
-          {sending ? "Sending…" : "Send"}
-        </button>
-      </form>
+        </form>
+      )}
     </div>
   );
 }
@@ -364,11 +409,12 @@ export default function TicketDetail({ token, user, ticketId, onBack }) {
     }
   };
 
-  const handleClose = (e) => { e.preventDefault(); runAction(api.closeTicket); };
   const handleApprove = (e) => { e.preventDefault(); runAction(api.approveTicket); };
   const handleReject = (e) => { e.preventDefault(); runAction(api.rejectTicket); };
 
-  const handleReassigned = (updated) => {
+  // Shared by reassignment and the chat "Resolved" action - both replace the ticket
+  // and add a comment behind TicketComments' back, so it needs to refetch too.
+  const handleTicketAndCommentsUpdated = (updated) => {
     setTicket(updated);
     setCommentsRefreshKey((k) => k + 1);
   };
@@ -424,20 +470,28 @@ export default function TicketDetail({ token, user, ticketId, onBack }) {
         </div>
       )}
 
+      {isStores && (ticket.status === "Ordered" || (ticket.status === "Approved" && ticket.can_record_order)) && (
+        <OrderDetailsSection token={token} ticket={ticket} onUpdated={setTicket} />
+      )}
+
+      <TicketComments
+        token={token}
+        userEmail={user.email}
+        ticketId={ticket.id}
+        refreshSignal={commentsRefreshKey}
+        isTerminal={ticket.status !== "Open"}
+        canResolve={canAct && !isStores}
+        onResolved={handleTicketAndCommentsUpdated}
+      />
+
       {ticket.resolution_remark && (
         <div className="resolution-box">
           <strong>Remark:</strong> {ticket.resolution_remark}
         </div>
       )}
 
-      {isStores && (ticket.status === "Ordered" || (ticket.status === "Approved" && ticket.can_record_order)) && (
-        <OrderDetailsSection token={token} ticket={ticket} onUpdated={setTicket} />
-      )}
-
-      <TicketComments token={token} userEmail={user.email} ticketId={ticket.id} refreshSignal={commentsRefreshKey} />
-
       {canAct && (
-        <ReassignSection token={token} ticket={ticket} onUpdated={handleReassigned} />
+        <ReassignSection token={token} ticket={ticket} onUpdated={handleTicketAndCommentsUpdated} />
       )}
 
       {canAct && isStores && (
@@ -459,23 +513,6 @@ export default function TicketDetail({ token, user, ticketId, onBack }) {
               {acting ? "Submitting…" : "Reject"}
             </button>
           </div>
-        </form>
-      )}
-
-      {canAct && !isStores && (
-        <form className="close-form" onSubmit={handleClose}>
-          <label className="field-label">Closing remark</label>
-          <textarea
-            className="field-input"
-            rows={3}
-            placeholder="What was done to resolve this?"
-            value={remark}
-            onChange={(e) => setRemark(e.target.value)}
-          />
-          {actionError && <div className="form-error">{actionError}</div>}
-          <button className="btn btn-primary" type="submit" disabled={acting}>
-            {acting ? "Closing…" : "Close Ticket"}
-          </button>
         </form>
       )}
     </div>
