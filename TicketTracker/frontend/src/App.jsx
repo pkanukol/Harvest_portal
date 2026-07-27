@@ -150,6 +150,7 @@ export default function App() {
                 categories={categories}
                 routing={routing}
                 onSubmit={handleSubmit}
+                onCancel={goList}
                 submitting={submitting}
                 submitError={submitError}
               />
