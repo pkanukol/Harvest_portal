@@ -63,6 +63,20 @@
       "runtimeArgs": ["run", "dev"],
       "cwd": "C:\\Pavani\\Apps\\CurriculumTracker\\frontend",
       "port": 5176
+    },
+    {
+      "name": "goaltracker-backend",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "uvicorn", "app.main:app", "--reload", "--port", "8040"],
+      "cwd": "C:\\Pavani\\Apps\\GoalTracker\\backend",
+      "port": 8040
+    },
+    {
+      "name": "goaltracker-frontend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "cwd": "C:\\Pavani\\Apps\\GoalTracker\\frontend",
+      "port": 5177
     }
   ]
 }

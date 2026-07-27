@@ -1,0 +1,142 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  /* Brand — Harvest teal/green (distinct from CurriculumTracker's blue) */
+  --brand: #2FA88A;
+  --brand-600: #26967A;
+  --brand-700: #1D7C64;
+  --brand-050: #E9F7F3;
+  --brand-100: #CDEEE4;
+  --brand-200: #A3E0CE;
+  --grad: linear-gradient(135deg, #4FC2A4 0%, #2FA88A 45%, #1D7C64 100%);
+
+  /* Semantic */
+  --green: #5A9E47; --green-bg: #EBF5E8;
+  --red: #B8272C;   --red-bg: #FBEAEA;
+  --warn: #E5A11E;  --warn-bg: #FBF1D5;
+
+  /* Neutrals */
+  --bg: #F5F6FA;
+  --bg-soft: #F8FAFC;
+  --card: #FFFFFF;
+  --border: #ECEEF3;
+  --line-2: #E2E5EC;
+  --ink: #1E293B;
+  --muted: #5B6472;
+  --ink-faint: #93A0B4;
+
+  --radius: 16px;
+  --radius-sm: 11px;
+  --shadow: 0 1px 2px rgba(16,24,40,.04), 0 6px 20px rgba(16,24,40,.06);
+  --shadow-lg: 0 10px 40px rgba(29,124,100,.18);
+}
+
+body {
+  font-family: "Segoe UI", -apple-system, sans-serif;
+  font-size: 14px;
+  background: var(--bg);
+  color: var(--ink);
+  min-height: 100vh;
+}
+
+.app-container { max-width: 1000px; margin: 0 auto; padding: 24px 20px 60px; }
+
+/* Header */
+.hdr { background: var(--card); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 10; }
+.hdr-inner { max-width: 1000px; margin: 0 auto; padding: 14px 20px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.hdr-left { display: flex; align-items: center; gap: 12px; }
+.hdr-title { font-size: 16px; font-weight: 700; color: var(--brand-700); }
+.hdr-right { display: flex; align-items: center; gap: 10px; }
+.user-badge { font-size: 11px; font-weight: 600; color: var(--muted); padding: 6px 12px; background: var(--bg); border-radius: 20px; }
+
+/* Buttons */
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 9px 16px; border-radius: var(--radius-sm); font-size: 12px; font-weight: 600; border: none; cursor: pointer; text-decoration: none; transition: opacity 0.15s, transform 0.1s; }
+.btn:active { transform: scale(0.98); }
+.btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.btn-primary { background: var(--grad); color: #fff; }
+.btn-primary:hover:not(:disabled) { background: var(--brand-700); }
+.btn-ghost { background: var(--card); color: var(--ink); border: 1.5px solid var(--border); }
+.btn-ghost:hover { border-color: var(--brand); }
+.btn-block { display: flex; width: 100%; }
+.btn-sm { padding: 6px 12px; font-size: 11px; }
+
+/* Login */
+.login-container { display: flex; align-items: center; justify-content: center; min-height: 80vh; }
+.login-card { background: var(--card); border-radius: var(--radius); padding: 40px; max-width: 380px; width: 100%; text-align: center; box-shadow: var(--shadow-lg); }
+.brand-title { font-size: 19px; font-weight: 800; color: var(--brand-700); margin-bottom: 6px; }
+.brand-tagline { font-size: 12px; color: var(--muted); margin-bottom: 24px; }
+.login-copy { font-size: 13px; color: var(--muted); margin-bottom: 20px; }
+.form-error { background: var(--red-bg); color: var(--red); border: 1px solid #f3c6c6; border-radius: 8px; padding: 10px; font-size: 12px; margin-bottom: 16px; }
+.sso-loading-screen { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 80vh; gap: 8px; }
+.sso-loading-text { font-size: 14px; font-weight: 600; }
+.sso-loading-sub { font-size: 12px; color: var(--muted); }
+
+/* Cards */
+.card { background: var(--card); border-radius: var(--radius); border: 1px solid var(--border); overflow: hidden; }
+
+/* Flag banner */
+.flag-banner { display: flex; align-items: center; gap: 10px; background: var(--warn-bg); color: #8a5a10; border: 1px solid #f0d99a; border-radius: var(--radius-sm); padding: 12px 16px; margin-bottom: 20px; font-size: 13px; font-weight: 600; }
+.flag-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--red); flex-shrink: 0; display: inline-block; }
+
+/* Section / tabs */
+.section-title { font-size: 15px; font-weight: 700; margin: 24px 0 12px; color: var(--brand-700); }
+.cadence-tabs { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+.cadence-tab { padding: 7px 14px; border-radius: 20px; font-size: 12px; font-weight: 600; border: 1.5px solid var(--border); background: var(--card); color: var(--muted); cursor: pointer; }
+.cadence-tab.active { background: var(--brand-050); border-color: var(--brand); color: var(--brand-700); }
+
+.dashboard-actions { display: flex; justify-content: flex-end; gap: 10px; margin-bottom: 20px; }
+.empty-msg { text-align: center; color: var(--muted); padding: 40px 0; font-size: 13px; }
+
+/* Goal cards */
+.goal-card { background: var(--card); border-radius: var(--radius); border: 1px solid var(--border); margin-bottom: 16px; }
+.goal-card-header { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+.goal-card-title { font-size: 14px; font-weight: 700; }
+.goal-card-period { font-size: 11px; color: var(--muted); }
+.goal-card-body { padding: 14px 16px; }
+.goal-field { margin-bottom: 10px; }
+.goal-field-label { font-size: 10px; font-weight: 700; text-transform: uppercase; color: var(--ink-faint); margin-bottom: 2px; }
+.goal-field-value { font-size: 13px; color: var(--ink); }
+.badge { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 10px; font-weight: 700; }
+.badge-mid_term { background: var(--warn-bg); color: #8a5a10; }
+.badge-annual { background: #EEE7FB; color: #6B4FBB; }
+.badge-category { background: var(--bg-soft); color: var(--muted); }
+
+/* Review workflow */
+.status-banner { border-radius: 8px; padding: 8px 12px; font-size: 12px; font-weight: 600; margin-bottom: 12px; }
+.status-modified_pending_ack { background: var(--warn-bg); color: #8a5a10; }
+.status-struck_off_pending_ack { background: var(--red-bg); color: var(--red); }
+.status-deleted { background: var(--bg-soft); color: var(--muted); }
+.review-history { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 10px; }
+.review-history-item { font-size: 12px; padding: 4px 0; }
+.ack-box { margin-top: 10px; padding: 10px; background: var(--warn-bg); border-radius: 8px; }
+.review-form { margin-top: 12px; padding: 12px; background: var(--bg-soft); border-radius: 8px; }
+
+/* Goal logs */
+.log-list { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 10px; }
+.log-item { display: flex; gap: 10px; font-size: 12px; padding: 6px 0; }
+.log-date { color: var(--muted); flex-shrink: 0; width: 78px; }
+.log-add-row { display: flex; gap: 8px; margin-top: 10px; }
+.log-add-row input { flex: 1; }
+
+/* Forms */
+.form-group { margin-bottom: 16px; }
+.form-label { display: block; font-size: 12px; font-weight: 600; margin-bottom: 6px; }
+.form-control { width: 100%; padding: 9px 12px; border: 1.5px solid var(--border); border-radius: 8px; font-size: 13px; font-family: inherit; color: var(--ink); }
+.form-control:focus { outline: none; border-color: var(--brand); }
+.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.hint-text { font-size: 11px; color: var(--muted); margin-bottom: 12px; }
+.form-actions { display: flex; justify-content: space-between; align-items: center; margin-top: 24px; }
+.back-link { background: none; border: none; color: var(--muted); font-size: 12px; cursor: pointer; margin-bottom: 16px; }
+textarea.form-control { min-height: 70px; resize: vertical; }
+
+/* Modal popup */
+.modal-overlay { position: fixed; inset: 0; background: rgba(30,41,59,0.45); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 20px; }
+.modal-box { background: var(--card); border-radius: var(--radius); padding: 24px; max-width: 520px; width: 100%; max-height: 85vh; overflow-y: auto; box-shadow: var(--shadow-lg); }
+
+/* Team overview table */
+table { width: 100%; border-collapse: collapse; font-size: 12px; }
+th, td { padding: 8px 10px; border-bottom: 1px solid var(--border); text-align: left; }
+th { color: var(--muted); font-weight: 600; font-size: 11px; }
+tr.team-row { cursor: pointer; }
+tr.team-row:hover { background: var(--bg-soft); }
+.loading-spinner { text-align: center; padding: 40px; color: var(--muted); font-size: 13px; }
