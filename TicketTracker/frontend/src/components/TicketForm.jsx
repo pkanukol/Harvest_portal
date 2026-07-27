@@ -12,7 +12,7 @@ function recipientNote(routing, category) {
   return `This ticket will be sent to: ${contacts.join(", ")}`;
 }
 
-export default function TicketForm({ categories, routing = {}, onSubmit, submitting, submitError }) {
+export default function TicketForm({ categories, routing = {}, onSubmit, onCancel, submitting, submitError }) {
   const [category, setCategory] = useState("");
   const [description, setDescription] = useState("");
   const [itemName, setItemName] = useState("");
@@ -156,9 +156,14 @@ export default function TicketForm({ categories, routing = {}, onSubmit, submitt
 
       {submitError && <div className="form-error">{submitError}</div>}
 
-      <button className="btn btn-primary btn-block" type="submit" disabled={submitting}>
-        {submitting ? "Submitting…" : "Submit Ticket"}
-      </button>
+      <div className="form-actions-row">
+        <button className="btn btn-ghost btn-sm" type="button" onClick={onCancel} disabled={submitting}>
+          Cancel
+        </button>
+        <button className="btn btn-primary btn-sm" type="submit" disabled={submitting}>
+          {submitting ? "Submitting…" : "Submit Ticket"}
+        </button>
+      </div>
     </form>
   );
 }
