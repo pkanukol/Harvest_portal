@@ -467,6 +467,8 @@ async def add_comment(
         raise HTTPException(status_code=404, detail="Ticket not found")
     if not _can_view_ticket(ticket, current_user.email):
         raise HTTPException(status_code=403, detail="You don't have access to this ticket")
+    if ticket.status in crud.TERMINAL_STATUSES:
+        raise HTTPException(status_code=400, detail="This ticket is already resolved - no further messages can be added")
 
     # Validate + read every image before creating anything, same as ticket creation -
     # a rejected image shouldn't leave behind a comment with only some attachments saved.
