@@ -268,7 +268,7 @@ function TicketComments({ token, userEmail, ticketId, refreshSignal }) {
                 <span className="comment-date">{formatDateTime(c.created_at)}</span>
               </div>
               {c.message && <div className="comment-message">{c.message}</div>}
-              {c.images.length > 0 && (
+              {(c.images || []).length > 0 && (
                 <div className="image-preview-row">
                   {c.images.map((img) => <ImageThumb key={img.id} image={img} token={token} />)}
                 </div>
