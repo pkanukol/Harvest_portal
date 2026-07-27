@@ -112,8 +112,12 @@ body {
 .btn-whatsapp { background: #25D366; color: #fff; }
 .btn-reject { background: #fef2f2; color: var(--red); border: 1.5px solid #fecaca; }
 .btn-reject:hover:not(:disabled) { background: #fde2e2; }
+.btn-success { background: var(--green); color: #fff; }
+.btn-success:hover:not(:disabled) { opacity: 0.9; }
 .btn-block { display: flex; width: 100%; }
 .btn-back { margin-bottom: 12px; }
+.btn-sm { padding: 7px 14px; font-size: 12px; }
+.form-actions-row { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
 
 /* Cards */
 .card {
@@ -278,7 +282,7 @@ textarea.field-input { resize: vertical; }
 .comment-date { font-size: 11px; color: var(--muted); }
 .comment-message { font-size: 13px; color: var(--ink); line-height: 1.5; white-space: pre-wrap; }
 .comment-form { display: flex; flex-direction: column; gap: 8px; }
-.comment-form .btn { align-self: flex-end; }
+.comment-form-buttons { display: flex; gap: 10px; align-self: flex-end; }
 
 .order-details-box {
   margin-top: 18px;
