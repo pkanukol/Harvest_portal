@@ -4,7 +4,6 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "sqlite:///./tickets.db"
     SECRET_KEY: str = "harvest_secret_key_change_me_in_prod_1234567890"
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440
 
     APP_URL: str = "http://localhost:5175"
 
