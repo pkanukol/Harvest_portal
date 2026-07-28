@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 import jwt
 from passlib.context import CryptContext
@@ -15,18 +15,31 @@ pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 # OAuth2 scheme for token retrieval
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/auth/login")
 
+IST = timezone(timedelta(hours=5, minutes=30))
+
 def verify_password(plain_password, hashed_password):
     return pwd_context.verify(plain_password, hashed_password)
 
 def get_password_hash(password):
     return pwd_context.hash(password)
 
+def _next_monday_morning_utc() -> datetime:
+    """The upcoming Monday 00:00 IST, converted to UTC - a shared weekly reset point
+    for session expiry (this app is now embedded via iframe in a Netlify shell with
+    no logout button, so a hard mid-week expiry leaves users stuck logged out with
+    no way to re-trigger SSO). Everyone's session resets together each Monday rather
+    than N days after their own last login."""
+    now_ist = datetime.now(timezone.utc).astimezone(IST)
+    days_ahead = (7 - now_ist.weekday()) % 7 or 7  # weekday(): Monday=0 - always the NEXT Monday, even if today already is one
+    target_ist = (now_ist + timedelta(days=days_ahead)).replace(hour=0, minute=0, second=0, microsecond=0)
+    return target_ist.astimezone(timezone.utc)
+
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode = data.copy()
     if expires_delta:
-        expire = datetime.utcnow() + expires_delta
+        expire = datetime.now(timezone.utc) + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+        expire = _next_monday_morning_utc()
     to_encode.update({"exp": int(expire.timestamp())})
     encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
     return encoded_jwt
