@@ -128,16 +128,29 @@ async def get_teachers(
                 and_(
                     models.User.role == "sme",
                     models.User.designation != "Subject Matter Expert",
-                )
+                ),
+                and_(
+                    models.User.role == "auditor",
+                    models.User.subject.isnot(None),
+                    models.User.subject != "",
+                ),
             )
         )
     elif current_user.role == "sme":
+        from sqlalchemy import or_, and_
         assigned_ids = db.query(models.TeacherSME.teacher_id).filter(
             models.TeacherSME.sme_id == current_user.id
         ).subquery()
         query = db.query(models.User).filter(
-            models.User.role == "teacher",
             models.User.id.in_(assigned_ids),
+            or_(
+                models.User.role == "teacher",
+                and_(
+                    models.User.role == "auditor",
+                    models.User.subject.isnot(None),
+                    models.User.subject != "",
+                ),
+            ),
         )
     else:
         raise HTTPException(status_code=403, detail="Unauthorized role")
