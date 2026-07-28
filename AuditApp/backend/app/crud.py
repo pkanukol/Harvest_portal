@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import func, or_
+from sqlalchemy import func, or_, and_
 from datetime import datetime, timezone
 import string
 import random
@@ -224,12 +224,22 @@ def get_teacher_full_history(db: Session, teacher_id: int):
         models.Observation.teacher_id == teacher_id
     ).order_by(models.Observation.date_time.desc()).all()
 
+def _teaching_staff_filter():
+    """Users who can be the subject of a classroom observation: dedicated teachers,
+    non-SME-designated SME-role staff (e.g. HODs), and auditor-role coordinators who
+    also teach a subject (their `subject` is set)."""
+    return or_(
+        models.User.role == "teacher",
+        and_(models.User.role == "sme", models.User.designation != "Subject Matter Expert"),
+        and_(models.User.role == "auditor", models.User.subject.isnot(None), models.User.subject != ""),
+    )
+
 def get_dashboard_filter_options(db: Session, location: str):
     """Lightweight lookup data to populate the dashboard's filter dropdowns —
     loaded once up front so the (expensive) observation list itself doesn't have
     to be fetched until the user actually picks a filter or clicks 'All'."""
     teachers = db.query(models.User).filter(
-        models.User.role == "teacher",
+        _teaching_staff_filter(),
         or_(models.User.location == location, models.User.location == "Both"),
     ).order_by(models.User.name).all()
 
@@ -342,7 +352,7 @@ def get_leadership_sme_stats(db: Session, location: str):
     # queried independently of `observations` so an SME with zero observations still shows up
     # with their full assigned-teacher gap in the "not observed" breakdown.
     roster = db.query(models.User).filter(
-        models.User.role == "teacher",
+        _teaching_staff_filter(),
         or_(models.User.location == location, models.User.location == "Both"),
     ).all()
     teacher_names = {t.id: t.name for t in roster}
@@ -416,7 +426,7 @@ def get_teacher_observation_coverage(db: Session, location: str):
     term_bounds = _get_term_bounds()
 
     teachers = db.query(models.User).filter(
-        models.User.role == "teacher",
+        _teaching_staff_filter(),
         or_(models.User.location == location, models.User.location == "Both"),
     ).order_by(models.User.name).all()
 
