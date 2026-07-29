@@ -15,10 +15,11 @@
       // SSO: exchange Supabase token for AuditApp JWT before React starts
       (function () {
         const ssoToken = new URLSearchParams(location.search).get("sso");
-        if (!ssoToken || localStorage.getItem("token")) {
-          if (ssoToken) history.replaceState({}, "", location.pathname);
-          return;
-        }
+        if (!ssoToken) return;
+        // Always re-authenticate on a fresh ?sso= param, even if a token is already
+        // cached — a stale/broken cached token would otherwise never get replaced,
+        // since this app's localStorage lives on its own origin, separate from the
+        // portal's, so signing out at the portal can't clear it.
         // Block React from loading until SSO completes
         document.addEventListener("DOMContentLoaded", function () {}, false);
         // In local dev VITE_API_URL isn't defined, so Vite leaves this placeholder
@@ -42,8 +43,7 @@
             location.replace(location.pathname);
           })
           .catch(function () {
-            #location.href = "http://localhost:3000/portal/login.html";
-              location.href="https://harvest-portal.onrender.com/portal/login.html";
+            location.href = "https://his-academy360.netlify.app";
           });
       })();
     </script>
