@@ -1,5 +1,5 @@
 export default function LoginView({ error }) {
-  const portalUrl = import.meta.env.VITE_PORTAL_URL || "http://localhost:3000/portal/login.html";
+  const portalUrl = import.meta.env.VITE_PORTAL_URL || "https://his-academy360.netlify.app";
 
   return (
     <div className="login-container">
