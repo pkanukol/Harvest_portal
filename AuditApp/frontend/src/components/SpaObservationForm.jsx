@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { SPA_CRITERIA, SPA_MAX_SCORE, EMPTY_SPA_CRITERIA_SCORES } from "../constants/spaRubrics";
 import { formatDateStr } from "../utils/helpers";
 
@@ -7,13 +7,14 @@ const today = () => new Date().toISOString().slice(0, 10);
 export default function SpaObservationForm({
   user,
   coaches,
+  defaultLocation,
   onSaveDraft,
   onFinalise,
   submitting,
   submitError,
   onSchoolChange,
 }) {
-  const [school, setSchool] = useState("Kodathi");
+  const [school, setSchool] = useState(defaultLocation || "Kodathi");
   const [teacherId, setTeacherId] = useState("");
   const [activity, setActivity] = useState("");
   const [timing, setTiming] = useState("");
@@ -33,6 +34,11 @@ export default function SpaObservationForm({
 
   const [savedId, setSavedId] = useState(null);
   const [savedMsg, setSavedMsg] = useState("");
+
+  useEffect(() => {
+    onSchoolChange(school);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const setCriterionScore = (key, score) => {
     setCriteriaScores((prev) => ({ ...prev, [key]: { ...prev[key], score } }));
