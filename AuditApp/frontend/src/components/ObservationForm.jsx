@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { RUBRICS } from "../constants/rubrics";
 import {
   calculateScores,
@@ -49,6 +49,7 @@ function RubricParameter({ param, score, onSelect }) {
 export default function ObservationForm({
   token,
   teachers,
+  defaultLocation,
   formScores,
   setFormScores,
   timestampedNotes,
@@ -60,7 +61,7 @@ export default function ObservationForm({
   submitError,
   onSchoolChange,
 }) {
-  const [school, setSchool] = useState("Kodathi");
+  const [school, setSchool] = useState(defaultLocation || "Kodathi");
   const [teacherId, setTeacherId] = useState("");
   const [subject, setSubject] = useState("");
   const [grade, setGrade] = useState("");
@@ -73,6 +74,11 @@ export default function ObservationForm({
   const [domain3Remarks, setDomain3Remarks] = useState("");
   const [liveNote, setLiveNote] = useState("");
   const [p34Na, setP34Na] = useState(true);
+
+  useEffect(() => {
+    onSchoolChange(school);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const { d1, d2, d3, total, rating } = calculateScores(formScores);
 
