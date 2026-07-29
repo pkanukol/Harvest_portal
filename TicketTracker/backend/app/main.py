@@ -159,7 +159,7 @@ def _approval_level_for(email: str) -> str:
 
 
 def _to_ticket_out(ticket: models.Ticket, current_user: auth.CurrentUser) -> schemas.TicketOut:
-    ticket_url = f"{settings.APP_URL}/?ticket={ticket.id}"
+    ticket_url = settings.STAFF_DASHBOARD_URL
     wa_text = f"Ticket {crud.ticket_number(ticket)} ({ticket.category}): {ticket.description[:120]} — {ticket_url}"
     return schemas.TicketOut(
         id=ticket.id,
@@ -346,7 +346,7 @@ async def create_ticket(
         crud.add_ticket_image(db, ticket.id, content_type, data)
 
     db.refresh(ticket)
-    ticket_url = f"{settings.APP_URL}/?ticket={ticket.id}"
+    ticket_url = settings.STAFF_DASHBOARD_URL
     background_tasks.add_task(
         email_service.send_new_ticket_notifications,
         ticket_number=crud.ticket_number(ticket), category=ticket.category, description=ticket.description,
@@ -493,7 +493,7 @@ async def add_comment(
 
     recipients = _comment_notify_recipients(ticket, current_user.email)
     if recipients:
-        ticket_url = f"{settings.APP_URL}/?ticket={ticket.id}"
+        ticket_url = settings.STAFF_DASHBOARD_URL
         background_tasks.add_task(
             email_service.send_ticket_comment_notification,
             ticket_number=crud.ticket_number(ticket), category=ticket.category,
@@ -527,7 +527,7 @@ async def close_ticket(
     ticket = crud.resolve_ticket(db, ticket, "Closed", body.remark.strip(), current_user.name, current_user.email)
     crud.purge_ticket_images(db, ticket)
 
-    ticket_url = f"{settings.APP_URL}/?ticket={ticket.id}"
+    ticket_url = settings.STAFF_DASHBOARD_URL
     background_tasks.add_task(
         email_service.send_ticket_resolved_notification,
         ticket_number=crud.ticket_number(ticket), category=ticket.category, status_label="closed",
@@ -575,7 +575,7 @@ async def reassign_ticket(
     # responsible_to) is included automatically alongside the reporter/cc.
     recipients = _comment_notify_recipients(ticket, current_user.email)
     if recipients:
-        ticket_url = f"{settings.APP_URL}/?ticket={ticket.id}"
+        ticket_url = settings.STAFF_DASHBOARD_URL
         background_tasks.add_task(
             email_service.send_ticket_comment_notification,
             ticket_number=crud.ticket_number(ticket), category=ticket.category,
@@ -610,7 +610,7 @@ async def _decide_stores_ticket(
     if new_status == "Rejected":
         crud.purge_ticket_images(db, ticket)
 
-    ticket_url = f"{settings.APP_URL}/?ticket={ticket.id}"
+    ticket_url = settings.STAFF_DASHBOARD_URL
     background_tasks.add_task(
         email_service.send_ticket_resolved_notification,
         ticket_number=crud.ticket_number(ticket), category=ticket.category,
@@ -671,7 +671,7 @@ async def record_order_details(
 
     if was_first_time:
         crud.purge_ticket_images(db, ticket)
-        ticket_url = f"{settings.APP_URL}/?ticket={ticket.id}"
+        ticket_url = settings.STAFF_DASHBOARD_URL
         background_tasks.add_task(
             email_service.send_order_placed_notification,
             ticket_number=crud.ticket_number(ticket), category=ticket.category,
