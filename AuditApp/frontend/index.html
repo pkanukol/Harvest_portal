@@ -22,10 +22,14 @@
         // portal's, so signing out at the portal can't clear it.
         // Block React from loading until SSO completes
         document.addEventListener("DOMContentLoaded", function () {}, false);
-        // In local dev VITE_API_URL isn't defined, so Vite leaves this placeholder
+        // In local dev VITE_API_URL isn't defined, so Vite leaves this placeholder text
         // unreplaced — fall back to a relative path (proxied to the backend by vite.config.js).
+        // NOTE: check the first character, not the literal "%VITE_API_URL%" string — once
+        // Vite performs its build-time replacement, that literal string IS the real URL, so
+        // comparing against it directly would always match (a value always "contains itself"),
+        // silently resetting a correctly-injected production URL back to empty.
         var apiBase = "%VITE_API_URL%";
-        if (apiBase.indexOf("%VITE_API_URL%") !== -1) apiBase = "";
+        if (apiBase.charAt(0) === "%") apiBase = "";
         fetch(apiBase + "/api/auth/sso", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
