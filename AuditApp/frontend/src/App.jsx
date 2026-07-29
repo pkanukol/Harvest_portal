@@ -109,28 +109,14 @@ export default function App() {
     }
   }, [token]);
 
-  // Handle SSO token from portal (?sso=<supabase_token>)
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const ssoToken = params.get("sso");
-    if (!ssoToken) return;
-    // Always re-authenticate on a fresh ?sso= param, even if a token is already cached —
-    // AuditApp's localStorage lives on its own origin, separate from the portal's, so a
-    // stale/broken cached token here would never get cleared by signing out at the portal.
-    // Write directly to localStorage then reload — avoids React state timing issues.
-    api.ssoLogin(ssoToken)
-      .then((data) => {
-        localStorage.setItem("token", data.access_token);
-        localStorage.setItem("user", JSON.stringify({
-          id: data.id, name: data.name, email: data.email,
-          role: data.role, designation: data.designation, location: data.location,
-        }));
-        window.location.replace(window.location.pathname);
-      })
-      .catch(() => {
-        setSsoLoading(false);
-      });
-  }, []);
+  // The actual SSO exchange (?sso=<supabase_token> -> our app JWT) happens entirely in
+  // index.html's inline script, before React ever mounts — it writes to localStorage and
+  // reloads the page once done (or navigates back to the portal on failure). A duplicate
+  // handler here used to race with it: both fired the same exchange concurrently and each
+  // triggered their own reload independently, causing the app to flash and reload twice.
+  // `ssoLoading`'s initial state (derived from the URL param above) already covers showing
+  // a spinner instead of the login screen during that brief pre-reload window, so nothing
+  // further is needed here.
 
   useEffect(() => {
     if (!isAuthenticated) {
