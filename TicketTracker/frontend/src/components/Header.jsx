@@ -1,13 +1,12 @@
 const LOCATIONS = ["Kodathi", "Attibele"];
 
-export default function Header({ user, view, location, onLocationChange, onList, onLogout }) {
+export default function Header({ user, view, location, onLocationChange, onList }) {
   if (!user) return null;
 
   return (
     <div className="hdr">
       <div className="hdr-inner">
         <div className="hdr-left">
-          <img src="/logo.png" alt="Harvest International School" className="hdr-logo-img" />
           <div className="hdr-title">🎫 Ticket Tracker</div>
           {user.home_location ? (
             <div className="location-badge-locked" title="Your campus is set based on your account">
@@ -33,7 +32,6 @@ export default function Header({ user, view, location, onLocationChange, onList,
           {view !== "list" && (
             <button className="btn btn-ghost" onClick={onList}>All Tickets</button>
           )}
-          <button className="btn btn-ghost hdr-logout" onClick={onLogout}>Logout</button>
         </div>
       </div>
     </div>
