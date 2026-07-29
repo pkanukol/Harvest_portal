@@ -9,7 +9,7 @@ import TicketList from "./components/TicketList";
 import TicketDetail from "./components/TicketDetail";
 
 export default function App() {
-  const { user, token, login, logout, isAuthenticated } = useAuth();
+  const { user, token, login, isAuthenticated } = useAuth();
   const [ssoLoading, setSsoLoading] = useState(() =>
     !!new URLSearchParams(window.location.search).get("sso")
   );
@@ -80,12 +80,6 @@ export default function App() {
     }
   }, [isAuthenticated]);
 
-  const handleLogout = () => {
-    logout();
-    const portalUrl = import.meta.env.VITE_PORTAL_URL || "http://localhost:3000/portal/index.html";
-    window.location.href = portalUrl;
-  };
-
   const goList = () => {
     window.history.replaceState({}, "", window.location.pathname);
     setView("list");
@@ -125,7 +119,6 @@ export default function App() {
           location={location}
           onLocationChange={setLocation}
           onList={goList}
-          onLogout={handleLogout}
         />
       )}
 
