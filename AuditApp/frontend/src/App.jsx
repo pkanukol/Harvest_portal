@@ -114,11 +114,10 @@ export default function App() {
     const params = new URLSearchParams(window.location.search);
     const ssoToken = params.get("sso");
     if (!ssoToken) return;
-    // Write directly to localStorage then reload — avoids React state timing issues
-    if (localStorage.getItem("token")) {
-      window.history.replaceState({}, "", window.location.pathname);
-      return;
-    }
+    // Always re-authenticate on a fresh ?sso= param, even if a token is already cached —
+    // AuditApp's localStorage lives on its own origin, separate from the portal's, so a
+    // stale/broken cached token here would never get cleared by signing out at the portal.
+    // Write directly to localStorage then reload — avoids React state timing issues.
     api.ssoLogin(ssoToken)
       .then((data) => {
         localStorage.setItem("token", data.access_token);
@@ -169,7 +168,7 @@ export default function App() {
     logout();
     setDrawerOpen(false);
     // Opened as a new window from portal — close it and return to portal
-    const portalUrl = import.meta.env.VITE_PORTAL_URL || "http://localhost:3000/portal/index.html";
+    const portalUrl = import.meta.env.VITE_PORTAL_URL || "https://his-academy360.netlify.app";
     if (window.opener) {
       window.close();
     } else {
@@ -261,7 +260,7 @@ export default function App() {
 
   const headerSub = user?.role === "teacher" ? "My Observation Reports"
     : view === "spa-dashboard" ? "SPA / Performing Arts Observation"
-    : "Academic Quality Audit";
+    : "Academic Implementation Audit";
   const showDashboardNav = isAuthenticated && user?.role !== "teacher" && view !== "dashboard";
   const showSpaNav = isAuthenticated && user?.role !== "teacher" && view !== "spa-dashboard";
 
@@ -313,6 +312,7 @@ export default function App() {
                   <ObservationForm
                     token={token}
                     teachers={teachers}
+                    defaultLocation={location}
                     formScores={formScores}
                     setFormScores={setFormScores}
                     timestampedNotes={timestampedNotes}
@@ -328,6 +328,7 @@ export default function App() {
                   <SpaObservationForm
                     user={user}
                     coaches={coaches}
+                    defaultLocation={location}
                     onSaveDraft={handleSpaSaveDraft}
                     onFinalise={handleSpaFinaliseFromForm}
                     submitting={spaSubmitting}
