@@ -261,14 +261,6 @@ export default function Dashboard({
 
   return (
     <div style={{ paddingTop: "24px" }}>
-      {user?.name && (
-        <div style={{ marginBottom: "20px" }}>
-          <h1 style={{ fontSize: "28px" }}>Hello, {user.name}!</h1>
-          <p style={{ color: "var(--text-gray)", fontSize: "14px", marginTop: "4px" }}>
-            {user.designation} &mdash; {location} Campus
-          </p>
-        </div>
-      )}
       <div className="loc-toggle-row">
         <div className="loc-tabs">
           <button
