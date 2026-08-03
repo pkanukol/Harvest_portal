@@ -113,6 +113,12 @@ async def read_current_user(current_user: models.User = Depends(auth.get_current
     return current_user
 
 
+# "SPA" is the sentinel `subject` value the frontend passes to load coaches for the SPA
+# (Sports/Performing Arts) observation form — it means "any specialist/co-curricular
+# subject", matched against this curated set, not a literal subject called "SPA".
+SPA_SUBJECTS = crud.SPA_ONLY_SUBJECTS | {"STEM"}
+
+
 @app.get("/api/users/teachers", response_model=List[schemas.UserOut])
 async def get_teachers(
     location: Optional[str] = Query(None),
@@ -120,11 +126,20 @@ async def get_teachers(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user),
 ):
+    from sqlalchemy import or_, and_
+
+    is_spa_lookup = subject is not None and subject.upper() == "SPA"
+    if is_spa_lookup:
+        # Looking up SPA coaches: don't exclude SPA-only-subject teachers here.
+        teacher_clause = models.User.role == "teacher"
+    else:
+        not_spa_only = or_(models.User.subject.is_(None), models.User.subject.notin_(crud.SPA_ONLY_SUBJECTS))
+        teacher_clause = and_(models.User.role == "teacher", not_spa_only)
+
     if current_user.role == "auditor":
-        from sqlalchemy import or_, and_
         query = db.query(models.User).filter(
             or_(
-                models.User.role == "teacher",
+                teacher_clause,
                 and_(
                     models.User.role == "sme",
                     models.User.designation != "Subject Matter Expert",
@@ -137,14 +152,13 @@ async def get_teachers(
             )
         )
     elif current_user.role == "sme":
-        from sqlalchemy import or_, and_
         assigned_ids = db.query(models.TeacherSME.teacher_id).filter(
             models.TeacherSME.sme_id == current_user.id
         ).subquery()
         query = db.query(models.User).filter(
             models.User.id.in_(assigned_ids),
             or_(
-                models.User.role == "teacher",
+                teacher_clause,
                 and_(
                     models.User.role == "auditor",
                     models.User.subject.isnot(None),
@@ -156,11 +170,12 @@ async def get_teachers(
         raise HTTPException(status_code=403, detail="Unauthorized role")
 
     if location:
-        from sqlalchemy import or_
         query = query.filter(
             or_(models.User.location == location, models.User.location == "Both")
         )
-    if subject:
+    if is_spa_lookup:
+        query = query.filter(models.User.subject.in_(SPA_SUBJECTS))
+    elif subject:
         query = query.filter(models.User.subject.ilike(subject))
     return query.order_by(models.User.name).all()
 
@@ -251,7 +266,7 @@ async def finalise_observation(
         auditor_email=finalised_obs.auditor.email,
         school=finalised_obs.school,
         grade=f"{finalised_obs.grade} {finalised_obs.section}",
-        app_url=f"{settings.APP_URL}/?page=teacher",
+        app_url=settings.APP_URL,
     )
     finalised_obs.email_sent = True
     db.commit()
@@ -469,7 +484,7 @@ async def finalise_spa_observation_route(
         auditor_email=finalised_obs.auditor.email,
         school=finalised_obs.school,
         activity=finalised_obs.activity,
-        app_url=f"{settings.APP_URL}/?page=teacher",
+        app_url=settings.APP_URL,
     )
     finalised_obs.email_sent = True
     db.commit()
