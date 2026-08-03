@@ -224,12 +224,24 @@ def get_teacher_full_history(db: Session, teacher_id: int):
         models.Observation.teacher_id == teacher_id
     ).order_by(models.Observation.date_time.desc()).all()
 
+# Specialist/co-curricular subjects observed only via the dedicated SPA (Sports/Performing
+# Arts) observation flow, not the regular classroom one — teachers whose only subject is one
+# of these are excluded from the classroom Teacher dropdown by default (see SPA_SUBJECTS in
+# main.py, which includes these plus "STEM" so a teacher who does both shows in both places).
+SPA_ONLY_SUBJECTS = {
+    "Art", "Dance", "LifeSkill", "Music", "PE and basketball",
+    "Football + PE", "Cricket + PE", "Yoga", "Karate", "Skating", "Library",
+    "Theatre", "Keyboard", "Visual Arts", "Vocals", "Guitar", "Drums",
+    "Football, Sports, PE", "Football", "Basketball",
+}
+
 def _teaching_staff_filter():
-    """Users who can be the subject of a classroom observation: dedicated teachers,
-    non-SME-designated SME-role staff (e.g. HODs), and auditor-role coordinators who
-    also teach a subject (their `subject` is set)."""
+    """Users who can be the subject of a classroom observation: dedicated teachers (other
+    than SPA-only specialists), non-SME-designated SME-role staff (e.g. HODs), and
+    auditor-role coordinators who also teach a subject (their `subject` is set)."""
+    not_spa_only = or_(models.User.subject.is_(None), models.User.subject.notin_(SPA_ONLY_SUBJECTS))
     return or_(
-        models.User.role == "teacher",
+        and_(models.User.role == "teacher", not_spa_only),
         and_(models.User.role == "sme", models.User.designation != "Subject Matter Expert"),
         and_(models.User.role == "auditor", models.User.subject.isnot(None), models.User.subject != ""),
     )
