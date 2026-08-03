@@ -342,7 +342,7 @@ function TicketComments({ token, userEmail, ticketId, refreshSignal, isTerminal,
               type="submit"
               disabled={sending || resolving || compressing || (!message.trim() && images.length === 0)}
             >
-              {sending ? "Saving…" : "Save"}
+              {sending ? "Sending…" : "Send"}
             </button>
             {canResolve && (
               <button
