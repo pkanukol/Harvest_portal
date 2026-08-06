@@ -75,9 +75,10 @@ export const SUBJECTS = [
   "Kannada",
   "Mathematics",
   "Physics",
+  "Sanskrit",
   "Science",
   "Social Science",
 ];
 
-export const GRADES = Array.from({ length: 10 }, (_, i) => `Grade ${i + 1}`);
+export const GRADES = Array.from({ length: 12 }, (_, i) => `Grade ${i + 1}`);
 export const SECTIONS = ["Section A", "Section B", "Section C", "Section D", "Section E", "Section F"];
