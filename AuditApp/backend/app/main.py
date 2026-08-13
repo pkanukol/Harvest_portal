@@ -144,11 +144,7 @@ async def get_teachers(
                     models.User.role == "sme",
                     models.User.designation != "Subject Matter Expert",
                 ),
-                and_(
-                    models.User.role == "auditor",
-                    models.User.subject.isnot(None),
-                    models.User.subject != "",
-                ),
+                crud.auditor_teaches_clause(),
             )
         )
     elif current_user.role == "sme":
@@ -159,11 +155,7 @@ async def get_teachers(
             models.User.id.in_(assigned_ids),
             or_(
                 teacher_clause,
-                and_(
-                    models.User.role == "auditor",
-                    models.User.subject.isnot(None),
-                    models.User.subject != "",
-                ),
+                crud.auditor_teaches_clause(),
             ),
         )
     else:
@@ -296,6 +288,23 @@ async def finalise_observation(
     finalised_obs.email_sent = True
     db.commit()
     return finalised_obs
+
+
+@app.delete("/api/observations/{id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_observation_route(
+    id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.require_role(["auditor", "sme"])),
+):
+    obs = crud.get_observation_by_id(db, id)
+    if not obs:
+        raise HTTPException(status_code=404, detail="Observation not found")
+    if obs.auditor_id != current_user.id:
+        raise HTTPException(status_code=403, detail="You can only delete audits done by you")
+    if not obs.is_draft:
+        raise HTTPException(status_code=400, detail="Only draft observations can be deleted")
+    crud.delete_observation(db, id)
+    return None
 
 
 @app.post("/api/observations/{id}/remarks", response_model=schemas.ObservationOut)
