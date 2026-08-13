@@ -78,6 +78,9 @@ export const api = {
       body: { witness_name: witnessName, witness_designation: witnessDesignation },
     }),
 
+  deleteObservation: (token, observationId) =>
+    request(`/observations/${observationId}`, { method: "DELETE", token }),
+
   saveRemarks: (token, observationId, teacher_remarks) =>
     request(`/observations/${observationId}/remarks`, {
       method: "POST",
