@@ -66,6 +66,7 @@ export default function ObservationForm({
   const [subject, setSubject] = useState("");
   const [grade, setGrade] = useState("");
   const [section, setSection] = useState("");
+  const [topic, setTopic] = useState("");
   const [observationType, setObservationType] = useState("Unannounced");
   const [infraIssues, setInfraIssues] = useState("");
   const [otherIssues, setOtherIssues] = useState("");
@@ -123,9 +124,10 @@ export default function ObservationForm({
     onSubmit({
       school,
       teacher_id: parseInt(teacherId, 10),
-      subject: subject || "General",
-      grade: grade || "N/A",
-      section: section || "N/A",
+      subject,
+      grade,
+      section,
+      topic: topic.trim(),
       observation_type: observationType,
       infrastructure_issues: infraIssues.trim(),
       other_issues: otherIssues.trim(),
@@ -194,7 +196,9 @@ export default function ObservationForm({
               </select>
             </div>
             <div className="form-group">
-              <label className="field-label">Subject</label>
+              <label className="field-label">
+                Subject <span style={{ color: "var(--harvest-red)" }}>*</span>
+              </label>
               <select value={subject} onChange={(e) => setSubject(e.target.value)}>
                 <option value="">-- Choose Subject --</option>
                 {SUBJECTS.map((s) => (
@@ -205,7 +209,9 @@ export default function ObservationForm({
               </select>
             </div>
             <div className="form-group">
-              <label className="field-label">Grade & Section</label>
+              <label className="field-label">
+                Grade &amp; Section <span style={{ color: "var(--harvest-red)" }}>*</span>
+              </label>
               <div className="grade-row">
                 <select value={grade} onChange={(e) => setGrade(e.target.value)}>
                   <option value="">-- Grade --</option>
@@ -224,6 +230,16 @@ export default function ObservationForm({
                   ))}
                 </select>
               </div>
+            </div>
+            <div className="form-group">
+              <label className="field-label">Topic</label>
+              <input
+                type="text"
+                className="input-text"
+                placeholder="e.g. Photosynthesis, Fractions..."
+                value={topic}
+                onChange={(e) => setTopic(e.target.value)}
+              />
             </div>
             <div className="form-group">
               <label className="field-label">Observation Type</label>
