@@ -240,15 +240,30 @@ SPA_ONLY_SUBJECTS = {
     "Football, Sports, PE", "Football", "Basketball",
 }
 
+# Auditor-role staff who ALSO teach a class, and so can be the subject of a classroom
+# observation. They are identified by their designation — Coordinators and HODs teach
+# alongside their coordination role. (A set `subject` also qualifies, as a fallback.)
+TEACHING_AUDITOR_DESIGNATIONS = ("Coordinator", "HOD")
+
+def auditor_teaches_clause():
+    """SQL clause: an auditor-role user who also teaches (see TEACHING_AUDITOR_DESIGNATIONS)."""
+    return and_(
+        models.User.role == "auditor",
+        or_(
+            and_(models.User.subject.isnot(None), models.User.subject != ""),
+            models.User.designation.in_(TEACHING_AUDITOR_DESIGNATIONS),
+        ),
+    )
+
 def _teaching_staff_filter():
     """Users who can be the subject of a classroom observation: dedicated teachers (other
     than SPA-only specialists), non-SME-designated SME-role staff (e.g. HODs), and
-    auditor-role coordinators who also teach a subject (their `subject` is set)."""
+    auditor-role coordinators/HODs who also teach (see auditor_teaches_clause)."""
     not_spa_only = or_(models.User.subject.is_(None), models.User.subject.notin_(SPA_ONLY_SUBJECTS))
     return or_(
         and_(models.User.role == "teacher", not_spa_only),
         and_(models.User.role == "sme", models.User.designation != "Subject Matter Expert"),
-        and_(models.User.role == "auditor", models.User.subject.isnot(None), models.User.subject != ""),
+        auditor_teaches_clause(),
     )
 
 def is_classroom_observable(user):
@@ -259,7 +274,8 @@ def is_classroom_observable(user):
     if user.role == "sme":
         return user.designation != "Subject Matter Expert"
     if user.role == "auditor":
-        return bool(user.subject)
+        # Coordinators/HODs teach alongside their role; a set subject also qualifies.
+        return user.designation in TEACHING_AUDITOR_DESIGNATIONS or bool(user.subject)
     return False
 
 def is_spa_coach_eligible(user):
@@ -343,6 +359,16 @@ def finalise_observation(db: Session, obs_id: int, witness_name: str = None, wit
     db.commit()
     db.refresh(db_obs)
     return db_obs
+
+def delete_observation(db: Session, obs_id: int):
+    """Hard-delete an observation and its images (images cascade via the relationship's
+    delete-orphan). Caller is responsible for the creator + draft-only checks."""
+    db_obs = db.query(models.Observation).filter(models.Observation.id == obs_id).first()
+    if not db_obs:
+        return False
+    db.delete(db_obs)
+    db.commit()
+    return True
 
 def save_teacher_remarks(db: Session, obs_id: int, remarks_in: schemas.ObservationTeacherRemarks):
     db_obs = get_observation_by_id(db, obs_id)
