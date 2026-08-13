@@ -182,44 +182,67 @@ async def get_teachers(
 
 # --- OBSERVATION ROUTES ---
 
-async def _save_ai_feedback(obs_id: int, payload: dict):
-    db = next(get_db())
-    try:
-        feedback = await ai_service.generate_ai_feedback(payload)
-        obs = crud.get_observation_by_id(db, obs_id)
-        if obs:
-            obs.ai_feedback = feedback
-            db.commit()
-    finally:
-        db.close()
+# The six rubric parameters that make up the overall score. All must be filled (>= 1) before
+# an observation can be finalised or its AI feedback generated. p34 (Technology) is excluded —
+# it may legitimately be 0 = "Not Applicable" for a class that used no technology.
+DOMAIN_SCORE_FIELDS = ("p11", "p12", "p21", "p31", "p32", "p33")
 
 
-@app.post("/api/observations", response_model=schemas.ObservationOut)
-async def submit_observation(
-    obs_in: schemas.ObservationCreate,
-    background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db),
-    current_user: models.User = Depends(auth.require_role(["auditor", "sme"])),
-):
-    teacher = crud.get_user_by_id(db, obs_in.teacher_id)
-    if not teacher or teacher.role != "teacher":
-        raise HTTPException(status_code=400, detail="Invalid teacher selected")
+def _domain_scores_complete(obs) -> bool:
+    return all((getattr(obs, f) or 0) >= 1 for f in DOMAIN_SCORE_FIELDS)
 
-    obs = crud.create_observation(db, obs_in, current_user.id)
-    if not obs:
-        raise HTTPException(status_code=500, detail="Failed to create observation")
 
-    payload = {
+def _ai_feedback_payload(obs, auditor: models.User) -> dict:
+    return {
         "overall_score": obs.overall_score, "rating": obs.rating,
-        "teacher_name": teacher.name, "subject": obs.subject,
+        "teacher_name": obs.teacher.name, "subject": obs.subject,
         "grade": obs.grade, "school": obs.school,
-        "auditor_name": current_user.name, "auditor_designation": current_user.designation,
+        "auditor_name": auditor.name, "auditor_designation": auditor.designation,
         "p11": obs.p11, "p12": obs.p12, "p21": obs.p21,
         "p31": obs.p31, "p32": obs.p32, "p33": obs.p33, "p34": obs.p34,
         "infrastructure_issues": obs.infrastructure_issues,
         "other_issues": obs.other_issues,
     }
-    background_tasks.add_task(_save_ai_feedback, obs.id, payload)
+
+
+@app.post("/api/observations", response_model=schemas.ObservationOut)
+async def submit_observation(
+    obs_in: schemas.ObservationCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.require_role(["auditor", "sme"])),
+):
+    teacher = crud.get_user_by_id(db, obs_in.teacher_id)
+    if not teacher or not crud.is_classroom_observable(teacher):
+        raise HTTPException(status_code=400, detail="Invalid teacher selected")
+
+    # AI feedback is no longer generated automatically here — the auditor triggers it
+    # explicitly (once scores are final) via POST /api/observations/{id}/generate-feedback.
+    obs = crud.create_observation(db, obs_in, current_user.id)
+    if not obs:
+        raise HTTPException(status_code=500, detail="Failed to create observation")
+    return obs
+
+
+@app.post("/api/observations/{id}/generate-feedback", response_model=schemas.ObservationOut)
+async def generate_observation_feedback(
+    id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.require_role(["auditor", "sme"])),
+):
+    obs = crud.get_observation_by_id(db, id)
+    if not obs:
+        raise HTTPException(status_code=404, detail="Observation not found")
+    if obs.auditor_id != current_user.id:
+        raise HTTPException(status_code=403, detail="You can only generate feedback for audits done by you")
+    if not obs.is_draft:
+        raise HTTPException(status_code=400, detail="Cannot regenerate feedback for a finalised observation")
+    if not _domain_scores_complete(obs):
+        raise HTTPException(status_code=400, detail="Please fill all domain scores before generating feedback")
+
+    feedback = await ai_service.generate_ai_feedback(_ai_feedback_payload(obs, current_user))
+    obs.ai_feedback = feedback
+    db.commit()
+    db.refresh(obs)
     return obs
 
 
@@ -255,6 +278,8 @@ async def finalise_observation(
         raise HTTPException(status_code=403, detail="You can only finalise audits done by you")
     if not obs.is_draft:
         raise HTTPException(status_code=400, detail="Observation is already finalised")
+    if not _domain_scores_complete(obs):
+        raise HTTPException(status_code=400, detail="All domain scores must be filled before finalising this observation")
 
     finalised_obs = crud.finalise_observation(db, id, body.witness_name, body.witness_designation)
 
@@ -431,7 +456,7 @@ async def submit_spa_observation(
     current_user: models.User = Depends(auth.require_role(["auditor", "sme"])),
 ):
     teacher = crud.get_user_by_id(db, obs_in.teacher_id)
-    if not teacher or teacher.role != "teacher":
+    if not teacher or not crud.is_spa_coach_eligible(teacher):
         raise HTTPException(status_code=400, detail="Invalid SPA coach selected")
     obs = crud.create_spa_observation(db, obs_in, current_user.id)
     if not obs:
