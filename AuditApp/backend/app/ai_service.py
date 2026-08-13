@@ -49,7 +49,7 @@ def _rule_based_feedback(payload: dict) -> str:
 
     fb = "CLASSROOM OBSERVATION FEEDBACK\nHarvest International School\n"
     fb += f"Date: {today} | Teacher: {teacher_name} | Subject: {subject} | Grade: {grade}\n"
-    fb += f"Overall Rating: {rating} ({os_score}/28)\n\n"
+    fb += f"Overall Rating: {rating} ({os_score}/24)\n\n"
 
     if strengths:
         fb += "GLOWS (What went well):\n"
@@ -64,11 +64,11 @@ def _rule_based_feedback(payload: dict) -> str:
         fb += "\n"
 
     fb += "KEY RECOMMENDATION:\n"
-    if os_score >= 25:
+    if rating == "DISTINGUISHED":
         fb += "Exemplary practice across all domains. Consider this teacher as a peer mentor."
-    elif os_score >= 19:
+    elif rating == "PROFICIENT":
         fb += f"Strong performance. Targeted focus on {len(improvements)} development areas will sustain growth."
-    elif os_score >= 12:
+    elif rating == "DEVELOPING":
         selected = "; ".join(improvements[:3]) if improvements else "general skills development"
         fb += f"Good potential. Coaching focus: {selected}."
     else:
@@ -119,10 +119,10 @@ def _comparison_prompt(teacher_name: str, history: list) -> str:
     p += "Compare them and write a concise progress analysis (250-300 words).\n\n"
     for i, r in enumerate(history, 1):
         p += f"--- OBSERVATION {i} ({r['date_time'].strftime('%d %b %Y')}, by {r['auditor_name']}) ---\n"
-        p += f"Overall Score: {r['overall_score']}/28  |  Rating: {r['rating']}\n"
+        p += f"Overall Score: {r['overall_score']}/24  |  Rating: {r['rating']}\n"
         p += f"Domain 1 (Planning): {r['domain1_score']}/8\n"
         p += f"Domain 2 (Classroom): {r['domain2_score']}/4\n"
-        p += f"Domain 3 (Instruction): {r['domain3_score']}/16\n"
+        p += f"Domain 3 (Instruction): {r['domain3_score']}/12\n"
         if r.get("ai_feedback"):
             p += f"Feedback summary: {r['ai_feedback'][:600].strip()}\n"
         p += "\n"
