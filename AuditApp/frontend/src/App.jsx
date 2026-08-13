@@ -165,10 +165,9 @@ export default function App() {
   const handleObservationSubmit = async (payload) => {
     setSubmitError("");
     if (!payload.teacher_id) { setSubmitError("Please select a teacher."); return; }
-    for (const key of Object.keys(EMPTY_SCORES)) {
-      if (key === "p34" && payload.p34_na) continue;
-      if (!payload[key]) { setSubmitError("Please evaluate all rubrics before saving draft."); return; }
-    }
+    if (!payload.subject) { setSubmitError("Please select a subject."); return; }
+    if (!payload.grade) { setSubmitError("Please select a grade."); return; }
+    if (!payload.section) { setSubmitError("Please select a section."); return; }
     setSubmitting(true);
     try {
       const data = await api.createObservation(token, payload);
