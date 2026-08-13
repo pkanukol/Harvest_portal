@@ -278,6 +278,8 @@ export default function DetailDrawer({ open, token, user, obsId, onClose, onUpda
   const [actionError, setActionError] = useState("");
   const [actionLoading, setActionLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [savedMsg, setSavedMsg] = useState("");
   const [viewingImage, setViewingImage] = useState(null);
   const [viewingImageError, setViewingImageError] = useState(false);
@@ -294,6 +296,8 @@ export default function DetailDrawer({ open, token, user, obsId, onClose, onUpda
     setLoadError("");
     setObs(null);
     setAcknowledged(false);
+    setConfirmDelete(false);
+    setDeleting(false);
     api
       .getObservation(token, obsId)
       .then((data) => {
@@ -389,6 +393,21 @@ export default function DetailDrawer({ open, token, user, obsId, onClose, onUpda
       setActionError(err.message);
     } finally {
       setGenerating(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!obs) return;
+    setActionError("");
+    setDeleting(true);
+    try {
+      await api.deleteObservation(token, obs.id);
+      onClose();
+      onUpdated();
+    } catch (err) {
+      setActionError(err.message);
+      setDeleting(false);
+      setConfirmDelete(false);
     }
   };
 
@@ -819,6 +838,44 @@ export default function DetailDrawer({ open, token, user, obsId, onClose, onUpda
                           Complete the acknowledgment section above to enable finalisation.
                         </div>
                       )}
+
+                      {/* Delete draft — only the creator, only while it's a draft */}
+                      <div style={{ marginTop: "16px", paddingTop: "14px", borderTop: "1px solid var(--border)" }}>
+                        {!confirmDelete ? (
+                          <button
+                            type="button"
+                            onClick={() => setConfirmDelete(true)}
+                            disabled={actionLoading || deleting}
+                            style={{ width: "100%", padding: "10px", borderRadius: "8px", background: "transparent", color: "var(--harvest-red)", border: "1px solid var(--harvest-red)", fontSize: "13px", fontWeight: 600, cursor: "pointer" }}
+                          >
+                            🗑 Delete Draft
+                          </button>
+                        ) : (
+                          <div style={{ padding: "12px", borderRadius: "8px", background: "rgba(184, 39, 44,0.08)", border: "1px solid rgba(184, 39, 44,0.3)" }}>
+                            <div style={{ fontSize: "13px", color: "var(--text-white)", marginBottom: "10px" }}>
+                              Permanently delete this draft observation? This cannot be undone.
+                            </div>
+                            <div style={{ display: "flex", gap: "10px" }}>
+                              <button
+                                type="button"
+                                onClick={handleDelete}
+                                disabled={deleting}
+                                style={{ flex: 1, padding: "9px", borderRadius: "8px", background: "var(--harvest-red)", color: "#fff", border: "none", fontSize: "13px", fontWeight: 600, cursor: "pointer" }}
+                              >
+                                {deleting ? <><span className="spinner" />Deleting...</> : "Yes, delete permanently"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setConfirmDelete(false)}
+                                disabled={deleting}
+                                style={{ flex: 1, padding: "9px", borderRadius: "8px", background: "transparent", color: "var(--text-white)", border: "1px solid var(--border)", fontSize: "13px", cursor: "pointer" }}
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     </>
                   )}
                   {isTeacherRemarking && (
