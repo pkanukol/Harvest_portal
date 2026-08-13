@@ -19,7 +19,7 @@ export default function SuccessView({ summary, onDashboard, onNewObservation }) 
       </div>
       <h1 style={{ fontSize: "32px", marginBottom: "8px" }}>Observation Draft Saved</h1>
       <p style={{ color: "var(--text-gray)", marginBottom: "30px", fontSize: "15px" }}>
-        The observation details and AI feedback have been successfully saved. You can finalise the draft from the dashboard.
+        The observation details have been saved as a draft. Open it from the dashboard to add scores, generate feedback for the teacher, and finalise.
       </p>
 
       <div className="card" style={{ maxWidth: "480px", margin: "0 auto 30px", textAlign: "left" }}>
