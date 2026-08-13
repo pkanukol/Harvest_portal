@@ -39,10 +39,21 @@ def run_migrations():
     inspector = inspect(engine)
     tables = inspector.get_table_names()
 
+    # `users.subject` distinguishes coordinator/auditor staff who also teach (and so can be
+    # observed) from pure-admin auditors; `app_password` stores the seeded default. Both were
+    # added after the initial schema — without this ALTER, an older DB is missing them and
+    # every query touching User.subject (the teacher dropdown, observability checks) 500s.
+    if "users" in tables:
+        existing_cols = {c["name"] for c in inspector.get_columns("users")}
+        with engine.begin() as conn:
+            for col in ("subject", "app_password"):
+                if col not in existing_cols:
+                    conn.execute(text(f"ALTER TABLE users ADD COLUMN {col} VARCHAR"))
+
     if "observations" in tables:
         existing_cols = {c["name"] for c in inspector.get_columns("observations")}
         missing = [
-            col for col in ("witness_name", "witness_designation", "observation_type")
+            col for col in ("witness_name", "witness_designation", "observation_type", "topic")
             if col not in existing_cols
         ]
         with engine.begin() as conn:
