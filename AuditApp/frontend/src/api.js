@@ -65,6 +65,12 @@ export const api = {
       body: payload,
     }),
 
+  generateFeedback: (token, observationId) =>
+    request(`/observations/${observationId}/generate-feedback`, {
+      method: "POST",
+      token,
+    }),
+
   finaliseObservation: (token, observationId, witnessName = "", witnessDesignation = "") =>
     request(`/observations/${observationId}/finalise`, {
       method: "POST",
