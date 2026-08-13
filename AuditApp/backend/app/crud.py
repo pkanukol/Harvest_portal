@@ -78,13 +78,17 @@ def create_observation(db: Session, obs_in: schemas.ObservationCreate, auditor_i
     
     if not teacher or not auditor:
         return None
-        
-    d1, d2, d3, overall, rating = calculate_scores_and_rating(
-        obs_in.p11, obs_in.p12, obs_in.p21, obs_in.p31, obs_in.p32, obs_in.p33, obs_in.p34
-    )
-    
+
+    # Scores may be omitted (None) when saving an early draft with only basic session data —
+    # treat those as 0 = "not scored yet". The finalise step enforces that they're all filled.
+    p11, p12 = obs_in.p11 or 0, obs_in.p12 or 0
+    p21 = obs_in.p21 or 0
+    p31, p32, p33, p34 = obs_in.p31 or 0, obs_in.p32 or 0, obs_in.p33 or 0, obs_in.p34 or 0
+
+    d1, d2, d3, overall, rating = calculate_scores_and_rating(p11, p12, p21, p31, p32, p33, p34)
+
     unique_id = generate_unique_id(teacher.name, auditor.name)
-    
+
     db_obs = models.Observation(
         unique_id=unique_id,
         auditor_id=auditor_id,
@@ -93,16 +97,17 @@ def create_observation(db: Session, obs_in: schemas.ObservationCreate, auditor_i
         subject=obs_in.subject,
         grade=obs_in.grade,
         section=obs_in.section,
+        topic=obs_in.topic,
         observation_type=obs_in.observation_type,
-        p11=obs_in.p11,
-        p12=obs_in.p12,
+        p11=p11,
+        p12=p12,
         domain1_score=d1,
-        p21=obs_in.p21,
+        p21=p21,
         domain2_score=d2,
-        p31=obs_in.p31,
-        p32=obs_in.p32,
-        p33=obs_in.p33,
-        p34=obs_in.p34,
+        p31=p31,
+        p32=p32,
+        p33=p33,
+        p34=p34,
         domain3_score=d3,
         overall_score=overall,
         rating=rating,
@@ -246,6 +251,28 @@ def _teaching_staff_filter():
         and_(models.User.role == "auditor", models.User.subject.isnot(None), models.User.subject != ""),
     )
 
+def is_classroom_observable(user):
+    """Python-side equivalent of _teaching_staff_filter(), for validating a specific
+    already-loaded user (e.g. a submitted teacher_id) rather than filtering a query."""
+    if user.role == "teacher":
+        return not user.subject or user.subject not in SPA_ONLY_SUBJECTS
+    if user.role == "sme":
+        return user.designation != "Subject Matter Expert"
+    if user.role == "auditor":
+        return bool(user.subject)
+    return False
+
+def is_spa_coach_eligible(user):
+    """Python-side equivalent of the SPA-lookup base condition in /api/users/teachers,
+    for validating a specific already-loaded user submitted as an SPA observation's coach."""
+    if user.role == "teacher":
+        return True
+    if user.role == "sme":
+        return user.designation != "Subject Matter Expert"
+    if user.role == "auditor":
+        return bool(user.subject)
+    return False
+
 def get_dashboard_filter_options(db: Session, location: str):
     """Lightweight lookup data to populate the dashboard's filter dropdowns —
     loaded once up front so the (expensive) observation list itself doesn't have
@@ -281,6 +308,8 @@ def update_observation_draft(db: Session, obs_id: int, update_in: schemas.Observ
     db_obs.domain1_remarks = update_in.domain1_remarks
     db_obs.domain2_remarks = update_in.domain2_remarks
     db_obs.domain3_remarks = update_in.domain3_remarks
+    if update_in.topic is not None:
+        db_obs.topic = update_in.topic
     if update_in.observation_type is not None:
         db_obs.observation_type = update_in.observation_type
     scores = [update_in.p11, update_in.p12, update_in.p21, update_in.p31, update_in.p32, update_in.p33, update_in.p34]
