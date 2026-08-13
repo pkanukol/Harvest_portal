@@ -83,14 +83,18 @@ class ObservationBase(BaseModel):
     subject: str
     grade: str
     section: str
+    topic: Optional[str] = None
     observation_type: Literal["Unannounced", "Invited"] = "Unannounced"
-    p11: int
-    p12: int
-    p21: int
-    p31: int
-    p32: int
-    p33: int
-    p34: int
+    # Scores default to 0 ("not scored yet") so an auditor can save a draft with only the
+    # basic session data. Valid rubric scores are 1-4; all domain params must be filled
+    # (>= 1) before the observation can be finalised. p34 (Technology) may stay 0 = N/A.
+    p11: Optional[int] = 0
+    p12: Optional[int] = 0
+    p21: Optional[int] = 0
+    p31: Optional[int] = 0
+    p32: Optional[int] = 0
+    p33: Optional[int] = 0
+    p34: Optional[int] = 0
     infrastructure_issues: Optional[str] = ""
     other_issues: Optional[str] = ""
     objective_observations: Optional[str] = ""
@@ -107,6 +111,7 @@ class ObservationDraftUpdate(BaseModel):
     domain1_remarks: Optional[str] = ""
     domain2_remarks: Optional[str] = ""
     domain3_remarks: Optional[str] = ""
+    topic: Optional[str] = None
     observation_type: Optional[Literal["Unannounced", "Invited"]] = None
     p11: Optional[int] = None
     p12: Optional[int] = None
