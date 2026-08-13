@@ -48,7 +48,7 @@ function handleSpaPrint(obs) {
   @media print { body { padding: 16px 20px; } }
 </style></head>
 <body>
-<div class="report-header"><div class="school-name">Harvest International School</div><div>SPA / Performing Arts Observation Report · Ref: ${escHtml(obs.unique_id)}</div></div>
+<div class="report-header"><div class="school-name">Harvest International School</div><div>SPA / Performing Arts Observation Report · Ref: ${escHtml(obs.unique_id)}${obs.is_draft ? ' <span style="color:#E5A11E;font-weight:700;">· DRAFT</span>' : ""}</div></div>
 <div class="meta-grid">
   <div class="meta-item"><span class="meta-key">Coach:</span><span class="meta-val">${escHtml(obs.teacher.name)}</span></div>
   <div class="meta-item"><span class="meta-key">Date:</span><span class="meta-val">${dateStr}</span></div>
@@ -220,7 +220,7 @@ export default function SpaDetailDrawer({ open, token, user, obsId, onClose, onU
             <div className="drawer-subtitle">{subtitle}</div>
           </div>
           <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-            {obs && !obs.is_draft && (
+            {obs && (
               <button className="btn-print" onClick={() => handleSpaPrint(obs)} title="Print / Save as PDF">
                 &#128438; Print / PDF
               </button>
