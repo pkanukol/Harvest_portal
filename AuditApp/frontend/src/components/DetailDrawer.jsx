@@ -26,10 +26,11 @@ function ScoreSelect({ paramKey, value, onChange }) {
   return (
     <select
       className="input-text"
-      style={{ padding: "4px 8px", fontSize: "13px", width: "80px" }}
-      value={value}
+      style={{ padding: "4px 8px", fontSize: "13px", width: "110px" }}
+      value={value || 0}
       onChange={(e) => onChange(paramKey, parseInt(e.target.value, 10))}
     >
+      <option value={0}>— Not scored</option>
       {[1, 2, 3, 4].map((v) => (
         <option key={v} value={v}>{v}/4</option>
       ))}
@@ -193,7 +194,7 @@ function handlePrint(obs, isTeacher) {
   <img src="/logo.png" class="logo" alt="Harvest Logo"/>
   <div>
     <div class="school-name">Harvest International School</div>
-    <div class="report-title">Classroom Observation Report · Ref: ${obs.unique_id}</div>
+    <div class="report-title">Classroom Observation Report · Ref: ${obs.unique_id}${obs.is_draft ? ' <span style="color:#E5A11E;font-weight:700;">· DRAFT</span>' : ""}</div>
   </div>
 </div>
 
@@ -205,6 +206,7 @@ function handlePrint(obs, isTeacher) {
   <div class="meta-item"><span class="meta-key">Grade:</span><span class="meta-val">${escHtml(obs.grade)} — ${escHtml(obs.section)}</span></div>
   <div class="meta-item"><span class="meta-key">Auditor:</span><span class="meta-val">${escHtml(obs.auditor.name)}</span></div>
   <div class="meta-item"><span class="meta-key">Type:</span><span class="meta-val">${escHtml(obs.observation_type || "Unannounced")}</span></div>
+  ${obs.topic ? `<div class="meta-item"><span class="meta-key">Topic:</span><span class="meta-val">${escHtml(obs.topic)}</span></div>` : ""}
 </div>
 
 <div class="score-banner">
@@ -228,8 +230,8 @@ ${issuesHTML ? `<section><h3>Challenges &amp; Issues</h3><div class="notes-box">
 ${imagesHTML}
 
 <section>
-  <h3>AI-Generated Feedback for Teacher</h3>
-  <div class="feedback-box">${escHtml(normaliseFeedback(obs.ai_feedback)) || "<em>No AI feedback recorded.</em>"}</div>
+  <h3>Feedback for Teacher</h3>
+  <div class="feedback-box">${escHtml(normaliseFeedback(obs.ai_feedback)) || "<em>No feedback recorded.</em>"}</div>
 </section>
 
 <section>
@@ -275,6 +277,7 @@ export default function DetailDrawer({ open, token, user, obsId, onClose, onUpda
   const [witnessDesignation, setWitnessDesignation] = useState("");
   const [actionError, setActionError] = useState("");
   const [actionLoading, setActionLoading] = useState(false);
+  const [generating, setGenerating] = useState(false);
   const [savedMsg, setSavedMsg] = useState("");
   const [viewingImage, setViewingImage] = useState(null);
   const [viewingImageError, setViewingImageError] = useState(false);
@@ -318,9 +321,15 @@ export default function DetailDrawer({ open, token, user, obsId, onClose, onUpda
 
   const showActionPanel = isDraftEditable || isTeacherRemarking;
 
-  // Finalize disabled until acknowledged with witness name + designation filled
+  // All six domain params (p34/Technology excluded — may be N/A) must be scored 1-4 before
+  // AI feedback can be generated or the observation can be finalised.
+  const DOMAIN_SCORE_KEYS = ["p11", "p12", "p21", "p31", "p32", "p33"];
+  const allScored = DOMAIN_SCORE_KEYS.every((k) => (editedScores[k] || 0) >= 1);
+
+  // Finalize disabled until acknowledged with witness name + designation filled, and every
+  // domain score is filled in.
   const smeAckComplete = acknowledged && witnessName.trim() && witnessDesignation.trim();
-  const finalizeDisabled = actionLoading || (isDraftEditable && !smeAckComplete);
+  const finalizeDisabled = actionLoading || (isDraftEditable && (!smeAckComplete || !allScored));
 
   const handleScoreChange = (key, val) => {
     setEditedScores((prev) => ({ ...prev, [key]: val }));
@@ -359,6 +368,30 @@ export default function DetailDrawer({ open, token, user, obsId, onClose, onUpda
     }
   };
 
+  const handleGenerateFeedback = async () => {
+    if (!obs) return;
+    setActionError("");
+    setSavedMsg("");
+    if (!allScored) {
+      setActionError("Please fill all domain scores before generating feedback.");
+      return;
+    }
+    setGenerating(true);
+    try {
+      // Persist current edits first so the AI generates from the latest scores.
+      await api.updateDraft(token, obs.id, draftPayload());
+      const updated = await api.generateFeedback(token, obs.id);
+      setEditedFeedback(normaliseFeedback(updated.ai_feedback) || "");
+      setSavedMsg("AI feedback generated. You can edit it before finalising.");
+      setTimeout(() => setSavedMsg(""), 5000);
+      onUpdated();
+    } catch (err) {
+      setActionError(err.message);
+    } finally {
+      setGenerating(false);
+    }
+  };
+
   const handleFinalise = async () => {
     if (!obs) return;
     setActionError("");
@@ -394,7 +427,7 @@ export default function DetailDrawer({ open, token, user, obsId, onClose, onUpda
 
   const title = obs ? obs.teacher.name : "Observation Detail";
   const subtitle = obs
-    ? `${obs.school} Campus · ${obs.subject} · ${obs.grade} ${obs.section}`
+    ? `${obs.school} Campus · ${obs.subject} · ${obs.grade} ${obs.section}${obs.topic ? ` · ${obs.topic}` : ""}`
     : loading ? "Loading..." : "";
 
   return (
@@ -407,7 +440,7 @@ export default function DetailDrawer({ open, token, user, obsId, onClose, onUpda
             <div className="drawer-subtitle">{subtitle}</div>
           </div>
           <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-            {obs && !obs.is_draft && (
+            {obs && (
               <button
                 className="btn-print"
                 onClick={() => handlePrint(obs, isTeacher)}
@@ -460,19 +493,38 @@ export default function DetailDrawer({ open, token, user, obsId, onClose, onUpda
               <div className="drawer-section-label">Domain Parameters Rating</div>
               <div className="drawer-params-box">
                 {isDraftEditable ? (
-                  // Editable score selectors
-                  <div className="hc-params-grid">
-                    {DRAWER_PARAM_LABELS.map(([key, label]) => (
-                      <div className="hc-param-item" key={key} style={{ justifyContent: "space-between" }}>
-                        <span>
-                          {label}
-                          {key === "p34" && <span style={{ fontSize: "10px", color: "var(--harvest-amber)", marginLeft: "6px" }}>(separate)</span>}
-                        </span>
-                        {key === "p34"
-                          ? <ScoreSelectP34 value={editedScores.p34 || 0} onChange={handleScoreChange} />
-                          : <ScoreSelect paramKey={key} value={editedScores[key] || 1} onChange={handleScoreChange} />}
-                      </div>
-                    ))}
+                  // Editable score selectors — show the rubric meaning of the currently
+                  // selected level live, so the auditor sees what each score stands for.
+                  <div className="hc-params-grid hc-params-grid-report">
+                    {DRAWER_PARAM_LABELS.map(([key, label]) => {
+                      const selected = editedScores[key] || 0;
+                      const isP34Na = key === "p34" && !selected;
+                      const level = isP34Na ? null : findRubricLevel(key, selected);
+                      return (
+                        <div className="hc-param-item hc-param-item-report" key={key}>
+                          <div className="hc-param-row">
+                            <span>
+                              {label}
+                              {key === "p34" && <span style={{ fontSize: "10px", color: "var(--harvest-amber)", marginLeft: "6px" }}>(separate)</span>}
+                            </span>
+                            {key === "p34"
+                              ? <ScoreSelectP34 value={editedScores.p34 || 0} onChange={handleScoreChange} />
+                              : <ScoreSelect paramKey={key} value={editedScores[key] || 0} onChange={handleScoreChange} />}
+                          </div>
+                          {level ? (
+                            <div className="rubric-desc" style={{ paddingLeft: 0, marginTop: "6px" }}>
+                              <strong>{level.label}:</strong> {level.desc}
+                            </div>
+                          ) : (
+                            <div className="rubric-desc" style={{ paddingLeft: 0, marginTop: "6px", fontStyle: "italic", color: "var(--text-muted)" }}>
+                              {key === "p34"
+                                ? "N/A — technology not applicable for this class."
+                                : "Not scored yet — pick a level to see what it means."}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 ) : (
                   <div className="hc-params-grid hc-params-grid-report">
@@ -627,17 +679,40 @@ export default function DetailDrawer({ open, token, user, obsId, onClose, onUpda
 
               {/* AI feedback */}
               <div className="info-card">
-                <div className="hc-lbl">AI-Generated Feedback for Teacher</div>
+                <div className="hc-lbl">Feedback for Teacher</div>
                 {isDraftEditable ? (
-                  <textarea
-                    className="input-text"
-                    style={{ minHeight: "160px", fontSize: "13px", lineHeight: 1.6 }}
-                    value={editedFeedback}
-                    onChange={(e) => setEditedFeedback(e.target.value)}
-                  />
+                  <>
+                    <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap", marginBottom: "10px" }}>
+                      <button
+                        type="button"
+                        className="btn-save-draft-lg"
+                        disabled={generating || actionLoading || !allScored}
+                        style={{ opacity: generating || !allScored ? 0.6 : 1 }}
+                        onClick={handleGenerateFeedback}
+                      >
+                        {generating
+                          ? <><span className="spinner" />Generating…</>
+                          : editedFeedback.trim()
+                            ? "↻ Regenerate AI Feedback"
+                            : "✨ Generate AI Feedback"}
+                      </button>
+                      {!allScored && (
+                        <span style={{ fontSize: "12px", color: "var(--harvest-amber)" }}>
+                          Fill all domain scores to enable feedback generation.
+                        </span>
+                      )}
+                    </div>
+                    <textarea
+                      className="input-text"
+                      style={{ minHeight: "160px", fontSize: "13px", lineHeight: 1.6 }}
+                      value={editedFeedback}
+                      placeholder="Generate AI feedback with the button above, or write feedback here directly. You can edit it any time before finalising."
+                      onChange={(e) => setEditedFeedback(e.target.value)}
+                    />
+                  </>
                 ) : (
                   <div className="hc-val ai-box">
-                    {normaliseFeedback(obs.ai_feedback) || "No AI feedback generated yet."}
+                    {normaliseFeedback(obs.ai_feedback) || "No feedback recorded yet."}
                   </div>
                 )}
               </div>
@@ -734,7 +809,12 @@ export default function DetailDrawer({ open, token, user, obsId, onClose, onUpda
                       >
                         {actionLoading ? <><span className="spinner" />Processing...</> : "Finalise Audit & Send Notification"}
                       </button>
-                      {!smeAckComplete && (
+                      {!allScored && (
+                        <div style={{ textAlign: "center", fontSize: "12px", color: "var(--harvest-amber)", marginTop: "8px" }}>
+                          All domain scores must be filled before this observation can be finalised.
+                        </div>
+                      )}
+                      {allScored && !smeAckComplete && (
                         <div style={{ textAlign: "center", fontSize: "12px", color: "var(--text-muted)", marginTop: "8px" }}>
                           Complete the acknowledgment section above to enable finalisation.
                         </div>
