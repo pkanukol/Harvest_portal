@@ -8,11 +8,12 @@ import Dashboard from "./components/Dashboard";
 import POWForm from "./components/POWForm";
 import POWView from "./components/POWView";
 import Progress from "./components/Progress";
+import PlannerUpload from "./components/PlannerUpload";
 
 const LOG = "[CurriculumTracker SSO]";
 
 export default function App() {
-  const { user, token, login, logout, isAuthenticated } = useAuth();
+  const { user, token, login, logout, viewAs, resetToMe, refreshUser, realUser, isAuthenticated } = useAuth();
   const [ssoLoading, setSsoLoading] = useState(() => !!new URLSearchParams(window.location.search).get("sso"));
   const [ssoError, setSsoError] = useState("");
 
@@ -54,19 +55,26 @@ export default function App() {
       });
   }, []);
 
+  // Refresh capabilities for whatever session is already stored — cheap, and
+  // it's what lets a change like "SMEs can now upload" reach an open session.
+  useEffect(() => {
+    if (!token) return;
+    api.getMe(token).then(refreshUser).catch(() => {});
+  }, [token]);
+
   const [view, setView] = useState("dashboard");
   const [currentPowId, setCurrentPowId] = useState(null);
   const [implPrefillPow, setImplPrefillPow] = useState(null);
-  const [mappedTeachers, setMappedTeachers] = useState([]);
   const [loadError, setLoadError] = useState("");
 
   const isSME = user?.role === "SME";
   const isLeadership = user?.role === "Leadership";
   const isReadOnlyViewer = isSME || isLeadership;
+  const canUploadCurriculum = Boolean(user?.can_upload_curriculum);
 
   const handleLogout = () => {
     logout();
-    const portalUrl = import.meta.env.VITE_PORTAL_URL || "http://localhost:3000/portal/login.html";
+    const portalUrl = import.meta.env.VITE_PORTAL_URL || "https://his-academy360.netlify.app";
     window.location.href = portalUrl;
   };
 
@@ -75,6 +83,8 @@ export default function App() {
   const goNewPow = () => { setView("new-pow"); };
 
   const goProgress = () => { setView("progress"); };
+
+  const goPlannerUpload = () => { setView("planner-upload"); };
 
   async function openPow(id) {
     setLoadError("");
@@ -100,7 +110,16 @@ export default function App() {
   return (
     <>
       {isAuthenticated && (
-        <Header user={user} view={view} onDashboard={goDashboard} onLogout={handleLogout} />
+        <Header
+          user={user}
+          realUser={realUser}
+          token={token}
+          view={view}
+          onDashboard={goDashboard}
+          onLogout={handleLogout}
+          onViewAs={(res) => { viewAs(res); setView("dashboard"); }}
+          onResetToMe={() => { resetToMe(); setView("dashboard"); }}
+        />
       )}
 
       <div className="app-container">
@@ -120,11 +139,14 @@ export default function App() {
             {view === "dashboard" && (
               <Dashboard
                 token={token}
+                user={user}
                 isReadOnlyViewer={isReadOnlyViewer}
+                isLeadership={isLeadership}
+                canUploadCurriculum={canUploadCurriculum}
                 onNewPow={goNewPow}
                 onProgress={goProgress}
+                onPlannerUpload={goPlannerUpload}
                 onOpenPow={openPow}
-                onTeachersLoaded={setMappedTeachers}
               />
             )}
 
@@ -140,8 +162,12 @@ export default function App() {
               <POWView token={token} user={user} powId={currentPowId} onBack={goDashboard} onDone={goDashboard} />
             )}
 
+            {view === "planner-upload" && canUploadCurriculum && (
+              <PlannerUpload token={token} onBack={goDashboard} />
+            )}
+
             {view === "progress" && (
-              <Progress token={token} user={user} isReadOnlyViewer={isReadOnlyViewer} mappedTeachers={mappedTeachers} onBack={goDashboard} />
+              <Progress token={token} user={user} isReadOnlyViewer={isReadOnlyViewer} onBack={goDashboard} />
             )}
           </>
         )}
