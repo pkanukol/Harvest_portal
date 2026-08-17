@@ -69,6 +69,13 @@ def run_migrations():
             with engine.begin() as conn:
                 conn.execute(text("ALTER TABLE pow_entries ADD COLUMN impl_f TEXT"))
 
+    if "planner_topics" in existing_tables:
+        cols = {c["name"] for c in inspector.get_columns("planner_topics")}
+        for column in ("skill_of_development", "strands_of_language"):
+            if column not in cols:
+                with engine.begin() as conn:
+                    conn.execute(text(f"ALTER TABLE planner_topics ADD COLUMN {column} VARCHAR"))
+
     if "sme_reviews" in existing_tables:
         cols = {c["name"] for c in inspector.get_columns("sme_reviews")}
         if "sme_name" not in cols:
