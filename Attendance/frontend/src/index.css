@@ -1,0 +1,236 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  /* Brand — Harvest blue, same tokens as CurriculumTracker/GoalTracker/Timetable */
+  --brand: #4BA3D3;
+  --brand-600: #3893C4;
+  --brand-700: #2A7BAD;
+  --brand-050: #EBF5FB;
+  --brand-100: #CFE7F6;
+  --brand-200: #A8D4EC;
+  --grad: linear-gradient(135deg, #6BB6DE 0%, #4BA3D3 45%, #2A7BAD 100%);
+
+  --green: #5A9E47; --green-bg: #EBF5E8;
+  --red: #B8272C;   --red-bg: #FBEAEA;
+  --warn: #E5A11E;  --warn-bg: #FBF1D5;
+
+  --bg: #F5F6FA;
+  --card: #FFFFFF;
+  --border: #ECEEF3;
+  --grid-line: #C7CED8;
+  --ink: #1E293B;
+  --muted: #5B6472;
+  --ink-faint: #93A0B4;
+
+  --radius: 16px;
+  --radius-sm: 11px;
+  --shadow: 0 1px 2px rgba(16,24,40,.04), 0 6px 20px rgba(16,24,40,.06);
+  --shadow-lg: 0 10px 40px rgba(42,123,173,.18);
+}
+
+body {
+  font-family: "Segoe UI", -apple-system, sans-serif;
+  font-size: 14px;
+  background: var(--bg);
+  color: var(--ink);
+  min-height: 100vh;
+}
+
+button { font-family: inherit; }
+
+.app-shell { max-width: 1000px; margin: 0 auto; padding: 0 20px 60px; }
+
+.app-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 0; border-bottom: 1px solid var(--border); margin-bottom: 16px;
+}
+.app-header h1 { font-size: 18px; font-weight: 800; color: var(--brand-700); }
+.user-badge { font-size: 12px; color: var(--muted); }
+
+/* Nav sits as a sidebar next to content, not a horizontal bar above it -
+   with 4 labels ("My Attendance"/"Approvals"/"Team Reports"/"Admin") a
+   horizontal row either overflows or wraps awkwardly above the narrow
+   calendar, so this goes straight to a vertical column instead. */
+.app-body { display: flex; gap: 10px; align-items: flex-start; }
+/* Calendar view: center the sidebar+calendar pair as one unit (app-main
+   sized to fit the calendar, not stretched full-width) so the buttons sit
+   snug against the calendar instead of ending up far from it. */
+.app-body-centered { justify-content: center; }
+/* Nav renders first in the DOM (keyboard/reader order) but sits visually on
+   the RIGHT of the content, per the annotated screenshot. */
+.app-sidebar { display: flex; flex-direction: column; gap: 5px; width: 110px; flex-shrink: 0; order: 2; }
+.app-main { flex: 1; min-width: 0; order: 1; }
+.app-main-fit { flex: 0 0 auto; }
+.app-tab {
+  padding: 7px 10px; border-radius: var(--radius-sm); font-size: 11px; font-weight: 600;
+  border: 1.5px solid var(--border); background: var(--card); color: var(--ink); cursor: pointer;
+  text-align: left; width: 100%;
+}
+.app-tab-active { background: var(--grad); color: #fff; border-color: transparent; }
+
+/* Sub-tabs inside a page (e.g. AdminPage's Schedule/Stay-back/Holidays) -
+   a plain horizontal row, distinct from .app-tab which is tuned for the
+   vertical main-nav sidebar (width:100%, left-aligned) and would stack
+   these full-width if reused here. */
+.subtabs { display: flex; gap: 6px; flex-wrap: wrap; }
+.subtab {
+  padding: 7px 14px; border-radius: var(--radius-sm); font-size: 12px; font-weight: 600;
+  border: 1.5px solid var(--border); background: var(--card); color: var(--ink); cursor: pointer;
+}
+.subtab-active { background: var(--grad); color: #fff; border-color: transparent; }
+
+/* Sleek 4-column layout for a request card (My Requests) - dates/days/
+   approver/status side by side, each with a small label above the value. */
+.field-columns { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.field-columns .field-label { margin: 0 0 3px; }
+.field-columns .field-value { font-size: 13px; color: var(--ink); font-weight: 600; }
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 9px 16px; border-radius: var(--radius-sm); font-size: 13px; font-weight: 600;
+  border: none; cursor: pointer; text-decoration: none; transition: opacity .15s, transform .1s;
+}
+.btn:active { transform: scale(.98); }
+.btn:disabled { opacity: .55; cursor: not-allowed; }
+.btn-primary { background: var(--grad); color: #fff; }
+.btn-ghost { background: var(--card); color: var(--ink); border: 1.5px solid var(--border); }
+.btn-ghost:hover { border-color: var(--brand); }
+.btn-danger { background: var(--red); color: #fff; }
+.btn-success { background: var(--green); color: #fff; }
+.btn-sm { padding: 6px 12px; font-size: 12px; }
+.btn-link { background: none; border: none; color: var(--brand-600); font-weight: 600; cursor: pointer; text-decoration: underline; padding: 4px 0; }
+
+.card { background: var(--card); border-radius: var(--radius); border: 1px solid var(--border); padding: 16px; }
+.card + .card { margin-top: 12px; }
+
+input[type=text], input[type=email], input[type=number], input[type=date], input[type=search], textarea, select {
+  border: 1px solid #ccd4e0; border-radius: 8px; padding: 9px 12px; font-size: 14px; width: 100%;
+  font-family: inherit; background: #fff;
+}
+textarea { min-height: 70px; resize: vertical; }
+label.field-label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 6px; }
+
+.hint { color: var(--muted); font-size: 13px; line-height: 1.5; margin-bottom: 14px; }
+.warning-banner { background: var(--warn-bg); color: #8a6416; padding: 10px 14px; border-radius: 8px; margin-bottom: 12px; }
+.error-text { color: var(--red); font-size: 13px; margin-top: 8px; }
+.empty-text { color: var(--ink-faint); text-align: center; padding: 30px 0; }
+
+/* SSO loading / redirect */
+.sso-loading-screen { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 60vh; gap: 8px; }
+
+/* Calendar - deliberately narrow, not stretched to app-shell's full width
+   (which made each cell huge and washed-out looking). app-main-fit (App.jsx)
+   already sizes down to this width and app-body-centered centers the
+   sidebar+calendar pair as a unit, so no auto-margin needed here. */
+.calendar-wrapper { max-width: 340px; }
+.calendar-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.calendar-arrow { background: none; border: none; font-size: 22px; color: var(--brand-600); cursor: pointer; padding: 4px 12px; }
+.calendar-month-label { font-size: 14px; font-weight: 700; }
+.calendar-grid {
+  display: grid; grid-template-columns: repeat(7, minmax(0, 1fr));
+  border: 1px solid var(--grid-line); border-radius: 8px; overflow: hidden;
+}
+.calendar-weekday {
+  text-align: center; font-size: 11px; color: var(--muted); font-weight: 600;
+  padding: 6px 0; background: var(--bg); border-bottom: 1px solid var(--grid-line);
+}
+.calendar-cell {
+  aspect-ratio: 1; display: flex; align-items: center; justify-content: center;
+  min-width: 0; overflow: hidden;
+  border-right: 1px solid var(--grid-line); border-bottom: 1px solid var(--grid-line);
+}
+.calendar-cell:nth-child(7n) { border-right: none; }
+.calendar-cell-sunday, .calendar-cell-holiday { background: #4A6FA1; }
+.calendar-weekday-sunday { background: #4A6FA1; color: #fff; }
+
+/* Plain date number (not a filled circle) with an optional small status dot
+   below it - status is conveyed by the dot, not by coloring the number. */
+.day-number {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  background: none; border: none; color: var(--ink); font-size: 13px; font-weight: 500; cursor: pointer;
+  width: 100%; height: 100%; min-width: 0;
+}
+.status-dot { width: 6px; height: 6px; border-radius: 50%; }
+/* Festival name under the day number on Sunday/holiday cells - deliberately
+   tiny and truncated to one line so it doesn't push the calendar row taller
+   or wider than the rest; hover (title attribute) shows the full name.
+   min-width:0 is required for the ellipsis to actually engage - a flex/grid
+   item won't shrink below its content's natural width otherwise, which is
+   what was pushing Friday/Saturday's columns out of view. */
+.event-label {
+  display: block; font-size: 8px; line-height: 1.1; width: 100%; max-width: 100%; min-width: 0; padding: 0 1px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; box-sizing: border-box;
+}
+/* Sundays and holidays highlight the whole square blue (calendar-cell-sunday
+   /calendar-cell-holiday above) with white numbers, no separate dot needed. */
+.day-number-sunday, .day-number-holiday { color: #fff; cursor: default; }
+.day-number-sunday { pointer-events: none; }
+
+.calendar-legend { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; padding: 10px 0; }
+.legend-item { display: flex; align-items: center; gap: 4px; font-size: 10px; color: var(--muted); }
+.legend-dot { width: 8px; height: 8px; border-radius: 50%; }
+/* Matches the actual sunday/holiday treatment in the grid (a filled square,
+   not a dot) so the legend swatch looks like what's really on the calendar. */
+.legend-square { width: 10px; height: 10px; background: #4A6FA1; border-radius: 2px; }
+
+/* Modal */
+.modal-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,.4); display: flex;
+  align-items: center; justify-content: center; padding: 20px; z-index: 100;
+}
+.modal-card { background: #fff; border-radius: var(--radius); padding: 22px; max-width: 420px; width: 100%; max-height: 90vh; overflow-y: auto; }
+.modal-close-row { text-align: center; margin-top: 16px; }
+
+.times-row { display: flex; gap: 12px; margin: 12px 0; }
+.time-box { flex: 1; background: var(--brand-050); border-radius: 10px; padding: 12px; text-align: center; }
+.time-label { font-size: 11px; color: var(--muted); }
+.time-value { font-size: 16px; font-weight: 700; margin-top: 2px; }
+
+/* Reports */
+.mode-toggle { display: flex; gap: 8px; margin-bottom: 10px; }
+.mode-toggle button { flex: 1; }
+.stat-card { display: flex; align-items: center; gap: 16px; }
+.stat-numbers { display: flex; gap: 18px; flex: 1; justify-content: space-around; }
+.stat-box { text-align: center; }
+.stat-value { font-size: 18px; font-weight: 700; color: var(--brand-600); }
+.stat-label { font-size: 11px; color: var(--muted); }
+.category-chips { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.chip { padding: 7px 14px; border-radius: 18px; background: var(--brand-050); border: none; font-size: 13px; color: var(--ink); cursor: pointer; }
+.chip-active { background: var(--brand-600); color: #fff; }
+
+table { width: 100%; border-collapse: collapse; }
+th, td { border-bottom: 1px solid var(--border); padding: 8px 10px; text-align: left; font-size: 13px; }
+th { color: var(--muted); font-weight: 600; font-size: 12px; }
+
+.list-row { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--border); }
+.suggestion-list { border: 1px solid var(--border); border-radius: 8px; max-height: 220px; overflow-y: auto; margin-top: 4px; }
+.suggestion-row { padding: 10px 12px; border-bottom: 1px solid var(--border); cursor: pointer; }
+.suggestion-row:hover { background: var(--brand-050); }
+
+/* Compact density for the admin-side pages (My Requests / Approvals / Team
+   Reports / Admin), including their staff-search dropdowns - smaller type than
+   the default 14px so these dense forms and tables read tighter. The calendar
+   ("My Attendance") view keeps the default size. */
+.page-compact { font-size: 12px; max-width: 560px; margin-left: auto; margin-right: auto; }
+.page-compact h3 { font-size: 13.5px; }
+.page-compact strong { font-size: 12.5px; }
+.page-compact .hint,
+.page-compact .error-text,
+.page-compact .field-value,
+.page-compact th,
+.page-compact td { font-size: 11.5px; }
+.page-compact label.field-label { font-size: 10.5px; margin: 8px 0 4px; }
+.page-compact input[type=text],
+.page-compact input[type=email],
+.page-compact input[type=number],
+.page-compact input[type=date],
+.page-compact input[type=search],
+.page-compact textarea,
+.page-compact select { font-size: 12px; padding: 7px 10px; }
+.page-compact .btn { font-size: 11.5px; padding: 7px 12px; }
+.page-compact .chip { font-size: 11px; padding: 5px 11px; }
+.page-compact .suggestion-row { padding: 7px 10px; }
+.page-compact .suggestion-row strong { font-size: 12px; }
+.page-compact .stat-value { font-size: 15px; }
+.page-compact .stat-label { font-size: 10px; }
+.page-compact .card { padding: 13px; }
