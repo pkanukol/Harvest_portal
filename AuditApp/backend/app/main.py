@@ -140,10 +140,7 @@ async def get_teachers(
         query = db.query(models.User).filter(
             or_(
                 teacher_clause,
-                and_(
-                    models.User.role == "sme",
-                    models.User.designation != "Subject Matter Expert",
-                ),
+                crud.sme_observable_clause(),
                 crud.auditor_teaches_clause(),
             )
         )
@@ -204,7 +201,7 @@ async def submit_observation(
     current_user: models.User = Depends(auth.require_role(["auditor", "sme"])),
 ):
     teacher = crud.get_user_by_id(db, obs_in.teacher_id)
-    if not teacher or not crud.is_classroom_observable(teacher):
+    if not teacher or not crud.is_classroom_observable(teacher, db):
         raise HTTPException(status_code=400, detail="Invalid teacher selected")
 
     # AI feedback is no longer generated automatically here — the auditor triggers it
