@@ -74,6 +74,7 @@ export const SUBJECTS = [
   "Hindi",
   "Kannada",
   "Mathematics",
+  "PE",
   "Physics",
   "Sanskrit",
   "Science",
