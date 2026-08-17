@@ -1,0 +1,13 @@
+# dependencies / build output
+node_modules
+dist
+dist-ssr
+
+# local env (secrets/config live in render.yaml env vars; keep .env.example only)
+.env
+.env.local
+.env.*.local
+
+# logs / os cruft
+*.log
+.DS_Store

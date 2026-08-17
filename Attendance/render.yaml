@@ -1,0 +1,36 @@
+services:
+  # ── Attendance frontend (React / Vite static site) ────────────
+  # No backend: the app talks straight to Supabase Project A with the portal's
+  # SSO token. All config is baked in at BUILD time (Vite inlines VITE_* into the
+  # bundle), so changing an env var here needs a redeploy to take effect.
+  - type: web
+    name: harvest-attendance-ui   # keep this name - the portal links here in prod
+    runtime: static
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    envVars:
+      # Project A (same project the portal issues SSO tokens for). The anon key is
+      # a publishable key - safe to ship in the frontend bundle.
+      - key: VITE_ATTENDANCE_SUPABASE_URL
+        value: https://aouvxdfamzprykezeovl.supabase.co
+      - key: VITE_ATTENDANCE_SUPABASE_ANON_KEY
+        value: sb_publishable_rIfo8DPrbyOmU006ii3onw_sDRWJwvE
+      # Where to send a user with no/expired SSO token - the portal login. Match
+      # whatever the other apps use.
+      - key: VITE_PORTAL_URL
+        value: https://his-academy360.netlify.app
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    headers:
+      # The app shell carries the baked-in VITE_* values, so it must always be
+      # revalidated - otherwise a CDN-cached old index.html makes new deploys look
+      # like they did nothing until a hard refresh.
+      - path: /
+        name: Cache-Control
+        value: no-cache, no-store, must-revalidate
+      - path: /index.html
+        name: Cache-Control
+        value: no-cache, no-store, must-revalidate
