@@ -26,6 +26,31 @@ async function request(path, { method = "GET", token, body } = {}) {
   return data;
 }
 
+// Multipart sibling of request() — the browser must set its own multipart
+// boundary on Content-Type, so unlike request() this deliberately never sets
+// that header itself.
+async function upload(path, { token, file, fields = {} }) {
+  const form = new FormData();
+  form.append("file", file);
+  Object.entries(fields).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== "") form.append(key, String(value));
+  });
+
+  const response = await fetch(`${API_BASE}${path}`, { method: "POST", headers: authHeaders(token), body: form });
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    // FastAPI returns a list of field errors for validation failures, a plain
+    // string for the ones this app raises deliberately.
+    const detail = Array.isArray(data.detail)
+      ? data.detail.map((d) => d.msg).join("; ")
+      : data.detail;
+    throw new Error(detail || "Upload failed");
+  }
+
+  return data;
+}
+
 export const api = {
   ssoLogin: (supabaseToken) =>
     request("/auth/sso", { method: "POST", body: { supabase_token: supabaseToken } }),
@@ -33,7 +58,31 @@ export const api = {
   getPlannerTopics: (token, subject, grade) =>
     request(`/planner/topics?subject=${encodeURIComponent(subject)}&grade=${encodeURIComponent(grade)}`, { token }),
 
-  getPowCards: (token) => request("/pow/cards", { token }),
+  getMe: (token) => request("/me", { token }),
+
+  getTeachers: (token) => request("/teachers", { token }),
+
+  searchStaff: (token, q) => request(`/staff/search?q=${encodeURIComponent(q)}`, { token }),
+
+  viewAs: (token, email) => request("/auth/view-as", { method: "POST", token, body: { email } }),
+
+  getLagging: (token) => request("/progress/lagging", { token }),
+
+  getPlannerInventory: (token) => request("/planner/inventory", { token }),
+
+  // commit=false previews without writing; commit=true imports every grade
+  // tab in the workbook, each replacing its own subject+grade. Same call,
+  // same file, twice.
+  importPlanner: (token, { file, subject, commit }) =>
+    upload("/planner/import", {
+      token, file,
+      fields: { subject, commit: commit ? "true" : "false" },
+    }),
+
+  getPowCards: (token, subject, grade) =>
+    request(`/pow/cards?subject=${encodeURIComponent(subject)}&grade=${encodeURIComponent(grade)}`, { token }),
+
+  getTbsMomAlerts: (token) => request("/pow/tbs-mom-alerts", { token }),
 
   getPow: (token, id) => request(`/pow/${id}`, { token }),
 
