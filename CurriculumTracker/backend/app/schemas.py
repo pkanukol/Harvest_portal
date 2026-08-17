@@ -15,15 +15,52 @@ class SSOResponse(BaseModel):
     designation: str
     subject: Optional[str] = None
     location: Optional[str] = None
+    can_view_as: bool = False  # allowlisted to preview the app as other staff
+    can_upload_curriculum: bool = False  # SME, or a named curriculum administrator
+    can_see_lagging: bool = False  # SME/HOD and leadership — the curriculum-lag dashboard
+
+
+class MeResponse(BaseModel):
+    """Identity + capabilities recomputed server-side, so a cached session
+    picks up capability changes without a fresh portal login."""
+    role: str
+    name: str
+    email: str
+    designation: str
+    subject: Optional[str] = None
+    subjects: List[str] = []   # every subject they teach; may be more than one
+    location: Optional[str] = None
+    can_view_as: bool = False
+    can_upload_curriculum: bool = False
+    can_see_lagging: bool = False
+
+
+class ViewAsRequest(BaseModel):
+    email: str
+
+
+class StaffOut(BaseModel):
+    email: str
+    name: str
+    designation: str
+    subject: Optional[str] = None
+    role: str
+
+
+class StaffSearchResponse(BaseModel):
+    staff: List[StaffOut]
 
 
 class PlannerTopicOut(BaseModel):
+    subject: str  # the planner subject this row came from — the stream (Biology/Physics/Chemistry) for grouped subjects
     chapter_name: str
     topic: Optional[str] = None
     subtopic: Optional[str] = None
     month: str
     sessions: int
     discipline: Optional[str] = None
+    skill_of_development: Optional[str] = None
+    strands_of_language: Optional[str] = None  # shown in place of Discipline when present (English/Hindi)
     pre_req_chapter: Optional[str] = None
     pre_req_topic: Optional[str] = None
     pre_req_subtopic: Optional[str] = None
@@ -56,7 +93,67 @@ class TeacherOut(BaseModel):
 
 class PowCardsResponse(BaseModel):
     cards: List[PowCardOut]
+
+
+class TeachersResponse(BaseModel):
     teachers: List[TeacherOut]
+
+
+# ─── Curriculum upload ──────────────────────────────────────────────────────
+
+class PlannerInventoryItem(BaseModel):
+    subject: str
+    grade: int
+    rows: int
+    chapters: int
+
+
+class SubjectOptions(BaseModel):
+    curriculum: List[str]  # subjects curriculum workbooks exist for — offered first
+    other: List[str]       # every other subject staff are tagged with
+
+
+class PlannerInventoryResponse(BaseModel):
+    inventory: List[PlannerInventoryItem]
+    subjects: SubjectOptions
+
+
+class PlannerChapterPreview(BaseModel):
+    chapter_name: str
+    month: str
+    sessions: int
+    discipline: Optional[str] = None  # Strands of Language for English/Hindi, Discipline otherwise
+    topics: int
+    subtopics: int
+
+
+class PlannerGradePreview(BaseModel):
+    grade: int
+    tab: str                 # the workbook tab this grade was read from
+    row_count: int
+    chapter_count: int
+    chapters: List[PlannerChapterPreview]
+    has_strands: bool        # sheet carries a "Strands of Language" column
+    has_skill: bool          # sheet carries a "Skill of Development" column
+    existing_rows: int       # rows already stored for this subject+grade, i.e. what Confirm replaces
+    warnings: List[str]
+    replaced: int
+    imported: int
+
+
+class PlannerSkippedTab(BaseModel):
+    name: str
+    why: str
+
+
+class PlannerImportResponse(BaseModel):
+    committed: bool          # False for a preview (nothing written), True after Confirm
+    subject: str
+    grades: List[PlannerGradePreview]
+    missing_grades: List[int]        # of Grades 1-10, the ones this workbook has no tab for
+    skipped_tabs: List[PlannerSkippedTab]
+    warnings: List[str]
+    total_rows: int
 
 
 class PowCreateRequest(BaseModel):
