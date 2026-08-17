@@ -111,6 +111,12 @@ class PlannerTopic(Base):
     chapter_name = Column(String, nullable=False)
     topic = Column(String, nullable=True)
     subtopic = Column(String, nullable=True)
+    # Language sheets (English/Hindi/Kannada) carry a "Skill of Development"
+    # column, and English/Hindi additionally carry "Strands of Language" in
+    # place of Discipline — the POW form shows Strands instead of Discipline
+    # whenever a row has it (see the hierarchy in POWForm).
+    skill_of_development = Column(String, nullable=True)
+    strands_of_language = Column(String, nullable=True)
     pre_req_chapter = Column(String, nullable=True)
     pre_req_topic = Column(String, nullable=True)
     pre_req_subtopic = Column(String, nullable=True)
