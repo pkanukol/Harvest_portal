@@ -41,6 +41,11 @@ FIELD_ALIASES = {
     "chapter_name": ["chapter name"],
     "topic": ["topic"],
     "subtopic": ["sub topics", "sub topic", "subtopics", "subtopic"],
+    # Language sheets only. "Skill of Development" is carried on English,
+    # Hindi and Kannada; "Strands of Language" (column G on English/Hindi)
+    # stands in for Discipline in the POW form hierarchy.
+    "skill_of_development": ["skill of development", "skills of development", "skill of develpoment"],
+    "strands_of_language": ["strands of language", "strand of language", "strands of languages"],
     "pre_req_chapter": ["pre-req chapter", "pre req chapter", "prereq chapter"],
     "pre_req_topic": ["pre-req topic", "pre req topic", "prereq topic"],
     "pre_req_subtopic": ["pre-req sub topic", "pre req sub topic", "prereq sub topic", "pre-req subtopic"],
@@ -50,7 +55,8 @@ FIELD_ALIASES = {
 
 # Fields that get carried down from the previous row when blank — a chapter's
 # "block" of sub-topic rows often only states these once, on the first row.
-CARRY_DOWN_FIELDS = ["month", "sessions", "discipline", "chapter_name", "topic"]
+CARRY_DOWN_FIELDS = ["month", "sessions", "discipline", "chapter_name", "topic",
+                     "skill_of_development", "strands_of_language"]
 
 
 def _normalize_header(s) -> str:
@@ -142,6 +148,8 @@ def parse_grade_tab(ws, subject: str, grade: int, tab_name: str, warnings: list)
         pre_req_subtopic = get(cells, "pre_req_subtopic") or ""
         pre_req_grade = get(cells, "pre_req_grade") or ""
         cct = get(cells, "cct") or ""
+        skill_of_development = get(cells, "skill_of_development") or ""
+        strands_of_language = get(cells, "strands_of_language") or ""
 
         # Carry down blanks from the previous row (continuation rows that
         # only add another Sub Topic under the same chapter).
@@ -155,6 +163,10 @@ def parse_grade_tab(ws, subject: str, grade: int, tab_name: str, warnings: list)
         else: carry["chapter_name"] = chapter_name
         if not topic: topic = carry["topic"]
         else: carry["topic"] = topic
+        if not skill_of_development: skill_of_development = carry["skill_of_development"]
+        else: carry["skill_of_development"] = skill_of_development
+        if not strands_of_language: strands_of_language = carry["strands_of_language"]
+        else: carry["strands_of_language"] = strands_of_language
 
         if not chapter_name:
             warnings.append(f"{tab_label} row {row_idx}: no Chapter Name (even after carrying down), skipped")
@@ -188,11 +200,105 @@ def parse_grade_tab(ws, subject: str, grade: int, tab_name: str, warnings: list)
             "discipline": discipline, "chapter_name": chapter_name, "topic": topic, "subtopic": subtopic,
             "pre_req_chapter": pre_req_chapter, "pre_req_topic": pre_req_topic,
             "pre_req_subtopic": pre_req_subtopic, "pre_req_grade": pre_req_grade, "cct": cct,
+            "skill_of_development": skill_of_development, "strands_of_language": strands_of_language,
             "display_order": display_order,
         })
         display_order += 1
 
     return rows_out
+
+
+VALID_GRADES = list(range(1, 11))  # the school runs Grade 1 to Grade 10
+
+
+def _chapter_summary(rows: list) -> list:
+    """One line per (chapter, month) — the same key the POW form's cascade and
+    the progress chart treat as a distinct planner entry (a chapter can
+    legitimately recur across months, see parse_grade_tab)."""
+    chapters = {}
+    for r in rows:
+        key = (r["chapter_name"], r["month"])
+        entry = chapters.setdefault(key, {
+            "chapter_name": r["chapter_name"], "month": r["month"],
+            "sessions": r["sessions"],
+            "discipline": r["strands_of_language"] or r["discipline"],
+            "_topics": set(), "_subtopics": set(),
+        })
+        if r["topic"]:
+            entry["_topics"].add(r["topic"])
+        if r["subtopic"]:
+            entry["_subtopics"].add(r["subtopic"])
+    return [
+        {k: v for k, v in c.items() if not k.startswith("_")}
+        | {"topics": len(c["_topics"]), "subtopics": len(c["_subtopics"])}
+        for c in chapters.values()
+    ]
+
+
+def parse_workbook_all_grades(xlsx_bytes: bytes, subject: str) -> dict:
+    """Parse EVERY grade tab in one subject workbook — the upload screen sends
+    the whole file and the grades come from the tab names ("Grade 3", "Gr 3",
+    "3" all work), so nobody has to pick a grade or upload the same file ten
+    times.
+
+    Not every subject has every grade, so the result reports which of Grades
+    1-10 the file covered and which are missing, rather than treating a gap as
+    an error. Tabs whose name has no usable grade number (a "Notes" or
+    "Summary" sheet, or a stray year like "2026-27") are listed as skipped.
+
+    Where two tabs claim the same grade — the Social Science file really does
+    have "Grade 5", " Grade 5 " and "Copy of Grade 5" — the first wins and the
+    rest are named in a warning, so a stale copy can never silently overwrite
+    the live sheet.
+    """
+    wb = openpyxl.load_workbook(BytesIO(xlsx_bytes), data_only=True, read_only=True)
+    warnings = []
+    grades = []
+    skipped_tabs = []
+    seen_grades = {}
+
+    for tab_name in wb.sheetnames:
+        label = tab_name.strip()
+        grade = _grade_from_tab_name(tab_name)
+        if grade is None:
+            skipped_tabs.append({"name": label, "why": "no grade number in the tab name"})
+            continue
+        if grade not in VALID_GRADES:
+            skipped_tabs.append({"name": label, "why": f"'{grade}' is not one of Grades 1-10"})
+            continue
+        if grade in seen_grades:
+            skipped_tabs.append({"name": label, "why": f"another tab ('{seen_grades[grade]}') already covers Grade {grade}"})
+            warnings.append(
+                f"Two or more tabs claim Grade {grade} — importing '{seen_grades[grade]}' and ignoring '{label}'."
+            )
+            continue
+
+        tab_warnings = []
+        rows = parse_grade_tab(wb[tab_name], subject, grade, tab_name, tab_warnings)
+        if not rows:
+            skipped_tabs.append({"name": label, "why": "no usable rows (is there a 'Chapter Name' column?)"})
+            warnings.extend(tab_warnings)
+            continue
+
+        seen_grades[grade] = label
+        grades.append({
+            "grade": grade, "tab": label, "rows": rows,
+            "row_count": len(rows), "chapters": _chapter_summary(rows),
+            "has_strands": any(r["strands_of_language"] for r in rows),
+            "has_skill": any(r["skill_of_development"] for r in rows),
+            "warnings": tab_warnings,
+        })
+
+    wb.close()
+    grades.sort(key=lambda g: g["grade"])
+
+    return {
+        "subject": subject,
+        "grades": grades,
+        "missing_grades": [g for g in VALID_GRADES if g not in seen_grades],
+        "skipped_tabs": skipped_tabs,
+        "warnings": warnings,
+    }
 
 
 def parse_workbook(xlsx_bytes: bytes, subject: str, tab_filter=None) -> dict:
