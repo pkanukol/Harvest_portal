@@ -116,7 +116,10 @@ async def read_current_user(current_user: models.User = Depends(auth.get_current
 # "SPA" is the sentinel `subject` value the frontend passes to load coaches for the SPA
 # (Sports/Performing Arts) observation form — it means "any specialist/co-curricular
 # subject", matched against this curated set, not a literal subject called "SPA".
-SPA_SUBJECTS = crud.SPA_ONLY_SUBJECTS | {"STEM"}
+# STEM and PE are "dual-form" subjects: they're in SPA_SUBJECTS (so they show in the SPA
+# form) but NOT in SPA_ONLY_SUBJECTS (so they ALSO show in the classroom form) — this lets a
+# teacher who both coaches (SPA) and teaches the class (PE) appear in both forms via one account.
+SPA_SUBJECTS = crud.SPA_ONLY_SUBJECTS | {"STEM", "PE"}
 
 
 @app.get("/api/users/teachers", response_model=List[schemas.UserOut])
