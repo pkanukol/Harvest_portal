@@ -477,7 +477,7 @@
       desc: 'Conduct and record Critical Classroom Teaching observations using the structured form.',
       icon: '📝',
       color: 'blue',
-      href: 'https://script.google.com/a/macros/harvestinternationalschool.in/s/AKfycbwBuGQviNUWypRfgi4huBLFiu-JqxSEbNNw6-MzrML2-VhS1eXj1rxRUDIplotOy2h3Xw/exec',
+      href: 'https://script.google.com/macros/s/AKfycbwBuGQviNUWypRfgi4huBLFiu-JqxSEbNNw6-MzrML2-VhS1eXj1rxRUDIplotOy2h3Xw/exec',
       roles: ['auditor', 'sme'],
       btnLabel: 'Open Form →'
     },
@@ -495,7 +495,7 @@
     {
       id: 'ticket-tracker',
       title: 'Ticket Tracker',
-      desc: 'Log issues related to admin, curriculum, infrastructure, HR or DLP and track them to resolution.',
+      desc: 'Log admin, curriculum, infrastructure, HR or DLP issues and track them to resolution.',
       icon: '🎫',
       color: 'blue',
       href: IS_LOCAL ? 'http://localhost:5175' : 'https://harvest-tickettracker-ui.onrender.com',
@@ -544,6 +544,28 @@
       href: IS_LOCAL ? 'http://localhost:5174' : 'https://harvest-timetable-ui.onrender.com',
       roles: 'all',
       btnLabel: 'Open Timetable →',
+      sso: true
+    },
+    {
+      id: 'goaltracker',
+      title: 'GoalTracker',
+      desc: 'Set SMART goals, log progress, and route them through review and acknowledgment up the leadership chain.',
+      icon: '🎯',
+      color: 'green',
+      href: IS_LOCAL ? 'http://localhost:5177' : 'https://harvest-goaltracker-ui.onrender.com',
+      roles: 'all',
+      btnLabel: 'Open GoalTracker →',
+      sso: true
+    },
+    {
+      id: 'attendance',
+      title: 'Attendance',
+      desc: 'View your attendance calendar, apply for leave or regularisation, and (for leadership) approve requests and view team reports.',
+      icon: '🕒',
+      color: 'blue',
+      href: IS_LOCAL ? 'http://localhost:5179' : 'https://harvest-attendance-ui.onrender.com',
+      roles: 'all',
+      btnLabel: 'Open Attendance →',
       sso: true
     },
    {
@@ -703,4 +725,3 @@ async function openApp(app) {
 </script>
 </body>
 </html>
-
