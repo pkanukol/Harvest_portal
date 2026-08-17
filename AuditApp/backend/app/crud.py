@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import func, or_, and_
+from sqlalchemy import func, or_, and_, select
 from datetime import datetime, timezone
 import string
 import random
@@ -255,24 +255,47 @@ def auditor_teaches_clause():
         ),
     )
 
+def sme_observable_clause():
+    """SME-role users who can be the subject of a classroom observation:
+      - non-'Subject Matter Expert' designations (e.g. HODs), always; plus
+      - the rare 'Subject Matter Expert' who also teaches, flagged by being assigned as an
+        observed teacher in teacher_sme (i.e. added under an auditor/SME for observation).
+    Regular SMEs only ever appear on the sme_id side of teacher_sme, never teacher_id, so
+    this cleanly picks out only the teaching exception without a hardcoded name."""
+    assigned_as_observed_teacher = select(models.TeacherSME.teacher_id)
+    return and_(
+        models.User.role == "sme",
+        or_(
+            models.User.designation != "Subject Matter Expert",
+            models.User.id.in_(assigned_as_observed_teacher),
+        ),
+    )
+
 def _teaching_staff_filter():
     """Users who can be the subject of a classroom observation: dedicated teachers (other
-    than SPA-only specialists), non-SME-designated SME-role staff (e.g. HODs), and
-    auditor-role coordinators/HODs who also teach (see auditor_teaches_clause)."""
+    than SPA-only specialists), SME-role staff (HODs, plus any teaching SME — see
+    sme_observable_clause), and auditor-role coordinators/HODs who also teach."""
     not_spa_only = or_(models.User.subject.is_(None), models.User.subject.notin_(SPA_ONLY_SUBJECTS))
     return or_(
         and_(models.User.role == "teacher", not_spa_only),
-        and_(models.User.role == "sme", models.User.designation != "Subject Matter Expert"),
+        sme_observable_clause(),
         auditor_teaches_clause(),
     )
 
-def is_classroom_observable(user):
+def is_classroom_observable(user, db: Session = None):
     """Python-side equivalent of _teaching_staff_filter(), for validating a specific
     already-loaded user (e.g. a submitted teacher_id) rather than filtering a query."""
     if user.role == "teacher":
         return not user.subject or user.subject not in SPA_ONLY_SUBJECTS
     if user.role == "sme":
-        return user.designation != "Subject Matter Expert"
+        if user.designation != "Subject Matter Expert":
+            return True
+        # Rare teaching SME: observable only if assigned as an observed teacher (teacher_sme).
+        if db is not None:
+            return db.query(models.TeacherSME).filter(
+                models.TeacherSME.teacher_id == user.id
+            ).first() is not None
+        return False
     if user.role == "auditor":
         # Coordinators/HODs teach alongside their role; a set subject also qualifies.
         return user.designation in TEACHING_AUDITOR_DESIGNATIONS or bool(user.subject)
