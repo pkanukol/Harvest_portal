@@ -8,9 +8,17 @@ export default function POWForm({ token, user, mode, prefillPow, onDone, onBack 
   const isImplOnly = mode === "impl_only";
   const { mon, fri } = nextWeekDates();
 
+  // users.subject holds one subject, but staff_roles knows some teachers take
+  // two (Science and English, Maths and Computer Science) — so the subject is
+  // a picker for them and a locked field for everyone else.
+  const mySubjects = (user.subjects && user.subjects.length ? user.subjects : [user.subject]).filter(Boolean);
+  const [subject, setSubject] = useState(isImplOnly ? (prefillPow?.subject || user.subject) : (user.subject || mySubjects[0] || ""));
+  const hasManySubjects = mySubjects.length > 1;
+
   const [grade, setGrade] = useState(isImplOnly ? (prefillPow?.grade || "") : "");
   const [month, setMonth] = useState(new Date().toLocaleString("en-US", { month: "long" }));
   const [rows, setRows] = useState([]); // full planner hierarchy rows for subject+grade
+  const [stream, setStream] = useState("");
   const [discipline, setDiscipline] = useState("");
   const [chapter, setChapter] = useState(isImplOnly ? (prefillPow?.topic || "") : "");
   const [topicPick, setTopicPick] = useState("");
@@ -41,54 +49,93 @@ export default function POWForm({ token, user, mode, prefillPow, onDone, onBack 
 
   useEffect(() => {
     if (!grade) { setRows([]); return; }
-    api.getPlannerTopics(token, user.subject, grade)
+    api.getPlannerTopics(token, subject, grade)
       .then(setRows)
       .catch((err) => setError(err.message));
-  }, [token, user.subject, grade]);
+  }, [token, subject, grade]);
 
-  // Month -> Discipline -> Chapter Name -> Topic -> Sub Topic, each level
-  // deduped and scoped by every level chosen above it.
+  // Some subjects are taught as separate streams that the portal has no field
+  // for — Biology, Physics and Chemistry all sit under a Science profile — so
+  // the planner comes back carrying more than one subject. When it does, the
+  // teacher picks the stream first and everything below is scoped to it. For
+  // every other subject there's exactly one, and the selector never appears.
+  const streams = useMemo(() => {
+    const seen = [];
+    rows.forEach((r) => { if (r.subject && !seen.includes(r.subject)) seen.push(r.subject); });
+    return seen;
+  }, [rows]);
+
+  const hasStreams = streams.length > 1;
+
+  useEffect(() => {
+    if (!hasStreams) { setStream(""); return; }
+    if (!streams.includes(stream)) { setStream(""); setDiscipline(""); setChapter(""); }
+  }, [streams, hasStreams]);
+
+  const scopedRows = useMemo(
+    () => (hasStreams && stream ? rows.filter((r) => r.subject === stream) : hasStreams ? [] : rows),
+    [rows, hasStreams, stream],
+  );
+
+  // English and Hindi sheets carry "Strands of Language" in place of the
+  // Discipline column every other subject uses. Same position in the
+  // hierarchy, different label — so the level reads whichever the rows carry.
+  const usesStrands = useMemo(() => scopedRows.some((r) => r.strands_of_language), [scopedRows]);
+  const levelLabel = usesStrands ? "Strands of Language" : "Discipline";
+  const levelOf = (r) => (usesStrands ? r.strands_of_language : r.discipline) || "";
+
+  // Month -> Discipline/Strand -> Chapter Name -> Topic -> Sub Topic, each
+  // level deduped and scoped by every level chosen above it. A level that no
+  // row fills in is skipped entirely rather than shown empty (see
+  // needsDiscipline / hasRealTopics).
   const disciplinesThisMonth = useMemo(() => {
     const seen = new Set();
-    rows.forEach((r) => { if (r.month === month && r.discipline) seen.add(r.discipline); });
+    scopedRows.forEach((r) => { if (r.month === month && levelOf(r)) seen.add(levelOf(r)); });
     return [...seen];
-  }, [rows, month]);
+  }, [scopedRows, month, usesStrands]);
+
+  // Sheets without any Discipline/Strands value at all (Social Science's
+  // grade tabs are like this) skip that level and go straight to chapters.
+  const needsDiscipline = disciplinesThisMonth.length > 0;
 
   const chaptersForDiscipline = useMemo(() => {
     const seen = new Set();
     const list = [];
-    rows.forEach((r) => {
-      if (r.month !== month || r.discipline !== discipline) return;
+    scopedRows.forEach((r) => {
+      if (r.month !== month) return;
+      if (needsDiscipline && levelOf(r) !== discipline) return;
       if (!seen.has(r.chapter_name)) { seen.add(r.chapter_name); list.push(r); }
     });
     return list;
-  }, [rows, month, discipline]);
+  }, [scopedRows, month, discipline, needsDiscipline, usesStrands]);
 
   // Topic is skipped entirely when blank, or when it's just a restatement of
   // the Chapter Name — some planner rows carry no real Topic-level detail.
   const topicsForChapter = useMemo(() => {
     const seen = new Set();
     const list = [];
-    rows.forEach((r) => {
-      if (r.month !== month || r.discipline !== discipline || r.chapter_name !== chapter || !r.topic) return;
+    scopedRows.forEach((r) => {
+      if (r.month !== month || r.chapter_name !== chapter || !r.topic) return;
+      if (needsDiscipline && levelOf(r) !== discipline) return;
       if (r.topic.trim().toLowerCase() === chapter.trim().toLowerCase()) return;
       if (!seen.has(r.topic)) { seen.add(r.topic); list.push(r.topic); }
     });
     return list;
-  }, [rows, month, discipline, chapter]);
+  }, [scopedRows, month, discipline, chapter, needsDiscipline, usesStrands]);
 
   const hasRealTopics = topicsForChapter.length > 0;
 
   const subtopicsForTopic = useMemo(() => {
     const seen = new Set();
     const list = [];
-    rows.forEach((r) => {
-      if (r.month !== month || r.discipline !== discipline || r.chapter_name !== chapter || !r.subtopic) return;
+    scopedRows.forEach((r) => {
+      if (r.month !== month || r.chapter_name !== chapter || !r.subtopic) return;
+      if (needsDiscipline && levelOf(r) !== discipline) return;
       if (hasRealTopics && r.topic !== topicPick) return;
       if (!seen.has(r.subtopic)) { seen.add(r.subtopic); list.push(r.subtopic); }
     });
     return list;
-  }, [rows, month, discipline, chapter, topicPick, hasRealTopics]);
+  }, [scopedRows, month, discipline, chapter, topicPick, hasRealTopics, needsDiscipline, usesStrands]);
 
   // Auto-select subtopic when there's only one option for the chosen topic.
   useEffect(() => {
@@ -96,11 +143,28 @@ export default function POWForm({ token, user, mode, prefillPow, onDone, onBack 
     else if (!subtopicsForTopic.includes(subtopicPick)) setSubtopicPick("");
   }, [subtopicsForTopic]);
 
+  // A level is "chosen" either because the teacher picked one, or because
+  // this sheet has no Discipline/Strands column to pick from.
+  const levelChosen = !needsDiscipline || Boolean(discipline);
+  const hasAnyRowsThisGrade = scopedRows.length > 0;
+  const plannerEmpty = !needsDiscipline && chaptersForDiscipline.length === 0;
+
+  // Sessions are stated per chapter, but some sheets leave Chapter Name empty
+  // and carry the plan at Topic level instead — fall back to the selected
+  // topic's row so the session checkboxes still appear.
   const chapterSessions = useMemo(() => {
     const row = chaptersForDiscipline.find((r) => r.chapter_name === chapter);
-    return row ? row.sessions : 0;
-  }, [chaptersForDiscipline, chapter]);
+    if (row && row.sessions) return row.sessions;
+    const topicRow = scopedRows.find(
+      (r) => r.month === month && r.chapter_name === chapter && (!topicPick || r.topic === topicPick) && r.sessions,
+    );
+    return topicRow ? topicRow.sessions : (row ? row.sessions : 0);
+  }, [chaptersForDiscipline, chapter, scopedRows, month, topicPick]);
 
+  function onStreamChange(value) {
+    setStream(value);
+    setDiscipline(""); setChapter(""); setTopicPick(""); setSubtopicPick(""); setSessionChecks({});
+  }
   function onMonthChange(value) {
     setMonth(value);
     setDiscipline(""); setChapter(""); setTopicPick(""); setSubtopicPick(""); setSessionChecks({});
@@ -139,8 +203,14 @@ export default function POWForm({ token, user, mode, prefillPow, onDone, onBack 
       return;
     }
 
-    if (!grade || !discipline || !chapter || (hasRealTopics && !topicPick)) {
-      setError(`Please select a grade, discipline, chapter${hasRealTopics ? " and topic" : ""} before submitting.`);
+    if (hasStreams && !stream) {
+      setError("Please select a stream before submitting.");
+      setSubmitting(false);
+      return;
+    }
+
+    if (!grade || (needsDiscipline && !discipline) || !chapter || (hasRealTopics && !topicPick)) {
+      setError(`Please select a grade, ${needsDiscipline ? `${levelLabel.toLowerCase()}, ` : ""}chapter${hasRealTopics ? " and topic" : ""} before submitting.`);
       setSubmitting(false);
       return;
     }
@@ -149,7 +219,11 @@ export default function POWForm({ token, user, mode, prefillPow, onDone, onBack 
 
     try {
       await api.createPow(token, {
-        subject: user.subject,
+        // The stream when the subject is split into them (Physics rather than
+        // Science), so the POW records what was actually taught. The dashboard
+        // and progress screens still ask by profile subject and match the
+        // whole group — see crud._subject_group_filter.
+        subject: stream || subject,
         grade,
         week_start: toISO(mon),
         week_end: toISO(fri),
@@ -193,7 +267,17 @@ export default function POWForm({ token, user, mode, prefillPow, onDone, onBack 
             <div className="form-row">
               <div className="form-group">
                 <label className="form-label">Subject</label>
-                <input className="form-control readonly-field" value={user.subject} readOnly />
+                {hasManySubjects ? (
+                  <select
+                    className="form-control"
+                    value={subject}
+                    onChange={(e) => { setSubject(e.target.value); onMonthChange(month); }}
+                  >
+                    {mySubjects.map((s) => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                ) : (
+                  <input className="form-control readonly-field" value={subject} readOnly />
+                )}
               </div>
               <div className="form-group">
                 <label className="form-label">Grade</label>
@@ -214,18 +298,36 @@ export default function POWForm({ token, user, mode, prefillPow, onDone, onBack 
               </div>
             </div>
 
-            <div className="form-group">
-              <label className="form-label">Discipline</label>
-              <select className="form-control" value={discipline} onChange={(e) => onDisciplineChange(e.target.value)}>
-                <option value="">— select discipline —</option>
-                {disciplinesThisMonth.map((d) => <option key={d} value={d}>{d}</option>)}
-              </select>
-              {grade && disciplinesThisMonth.length === 0 && (
-                <div className="hint-text">No planner data for {user.subject} · Grade {grade} · {month} yet.</div>
-              )}
-            </div>
+            {hasStreams && (
+              <div className="form-group">
+                <label className="form-label">Stream</label>
+                <select className="form-control" value={stream} onChange={(e) => onStreamChange(e.target.value)}>
+                  <option value="">— select stream —</option>
+                  {streams.map((s) => <option key={s} value={s}>{s}</option>)}
+                </select>
+                <div className="hint-text">{user.subject} · Grade {grade} is planned separately for each stream.</div>
+              </div>
+            )}
 
-            {discipline && (
+            {(!hasStreams || stream) && needsDiscipline && (
+              <div className="form-group">
+                <label className="form-label">{levelLabel}</label>
+                <select className="form-control" value={discipline} onChange={(e) => onDisciplineChange(e.target.value)}>
+                  <option value="">— select {levelLabel.toLowerCase()} —</option>
+                  {disciplinesThisMonth.map((d) => <option key={d} value={d}>{d}</option>)}
+                </select>
+              </div>
+            )}
+
+            {(!hasStreams || stream) && grade && plannerEmpty && (
+              <div className="hint-text">
+                {hasAnyRowsThisGrade
+                  ? `Nothing planned for ${stream || subject} · Grade ${grade} in ${month}.`
+                  : `No curriculum sheet has been uploaded for ${stream || subject} · Grade ${grade} yet — ask your SME or the curriculum team to upload it.`}
+              </div>
+            )}
+
+            {levelChosen && (
               <div className="form-group">
                 <label className="form-label">Chapter Name</label>
                 <select className="form-control" value={chapter} onChange={(e) => onChapterChange(e.target.value)}>
