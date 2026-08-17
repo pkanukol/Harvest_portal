@@ -13,7 +13,7 @@ import PlannerUpload from "./components/PlannerUpload";
 const LOG = "[CurriculumTracker SSO]";
 
 export default function App() {
-  const { user, token, login, logout, viewAs, resetToMe, refreshUser, realUser, isAuthenticated } = useAuth();
+  const { user, token, login, viewAs, resetToMe, refreshUser, realUser, isAuthenticated } = useAuth();
   const [ssoLoading, setSsoLoading] = useState(() => !!new URLSearchParams(window.location.search).get("sso"));
   const [ssoError, setSsoError] = useState("");
 
@@ -72,12 +72,6 @@ export default function App() {
   const isReadOnlyViewer = isSME || isLeadership;
   const canUploadCurriculum = Boolean(user?.can_upload_curriculum);
 
-  const handleLogout = () => {
-    logout();
-    const portalUrl = import.meta.env.VITE_PORTAL_URL || "https://his-academy360.netlify.app";
-    window.location.href = portalUrl;
-  };
-
   const goDashboard = () => { setView("dashboard"); setLoadError(""); };
 
   const goNewPow = () => { setView("new-pow"); };
@@ -116,7 +110,6 @@ export default function App() {
           token={token}
           view={view}
           onDashboard={goDashboard}
-          onLogout={handleLogout}
           onViewAs={(res) => { viewAs(res); setView("dashboard"); }}
           onResetToMe={() => { resetToMe(); setView("dashboard"); }}
         />
