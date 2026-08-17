@@ -1,6 +1,8 @@
 import ViewAsSwitcher from "./ViewAsSwitcher";
 
-export default function Header({ user, realUser, token, view, onDashboard, onLogout, onViewAs, onResetToMe }) {
+// No logout control here by design — this app is embedded in the school
+// portal shell, which owns signing out (same as AuditApp).
+export default function Header({ user, realUser, token, view, onDashboard, onViewAs, onResetToMe }) {
   if (!user) return null;
 
   const isViewingAs = Boolean(realUser);
@@ -21,7 +23,6 @@ export default function Header({ user, realUser, token, view, onDashboard, onLog
             {view !== "dashboard" && (
               <button className="btn btn-ghost" onClick={onDashboard}>Dashboard</button>
             )}
-            <button className="btn btn-ghost" onClick={onLogout}>Logout</button>
           </div>
         </div>
       </div>
