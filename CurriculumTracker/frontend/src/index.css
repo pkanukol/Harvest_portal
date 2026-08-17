@@ -133,3 +133,56 @@ th { color: var(--muted); font-weight: 600; font-size: 11px; }
 .verdict-ontrack { background: var(--warn-bg); color: #8a5a10; }
 .chart-card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; margin-bottom: 20px; }
 .loading-spinner { text-align: center; padding: 40px; color: var(--muted); font-size: 13px; }
+
+/* Curriculum upload (Leadership) */
+.upload-card { padding: 20px; margin-bottom: 8px; }
+.upload-custom-subject { margin-top: 8px; }
+.upload-file-hint { margin: 6px 0 0; }
+.upload-note { background: var(--bg-soft); border-radius: 8px; padding: 10px 12px; font-size: 12px; color: var(--muted); }
+.upload-success { background: var(--green-bg); color: #3d6e30; border-radius: 8px; padding: 12px 14px; font-size: 12px; line-height: 1.5; margin-bottom: 16px; }
+.upload-warnings { background: var(--warn-bg); color: #8a5a10; border-radius: 8px; padding: 12px 14px; font-size: 12px; line-height: 1.5; margin-bottom: 16px; }
+.upload-warnings ul { margin: 6px 0 0; padding-left: 18px; }
+.upload-warnings li { margin-bottom: 4px; }
+.upload-preview-table { padding: 4px 14px; max-height: 380px; overflow-y: auto; }
+.upload-tab-value { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* View as (preview the app as another staff member) */
+.view-as { position: relative; }
+.view-as-input { width: 210px; padding: 6px 10px; font-size: 12px; }
+.view-as-menu { position: absolute; top: calc(100% + 6px); right: 0; width: 300px; max-height: 320px; overflow-y: auto; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-sm); box-shadow: var(--shadow-lg); z-index: 50; }
+.view-as-item { display: block; width: 100%; text-align: left; background: none; border: none; border-bottom: 1px solid var(--border); padding: 8px 12px; cursor: pointer; font-family: inherit; }
+.view-as-item:hover { background: var(--bg-soft); }
+.view-as-item-name { font-size: 12px; font-weight: 600; color: var(--ink); }
+.view-as-item-meta { font-size: 10px; color: var(--muted); margin-top: 2px; }
+.view-as-empty, .view-as-error { padding: 10px 12px; font-size: 11px; color: var(--muted); }
+.view-as-error { color: var(--red); }
+.view-as-banner { background: var(--warn-bg); color: #8a5a10; font-size: 12px; padding: 8px 20px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--border); }
+
+/* Curriculum lag panel */
+.lag-panel { margin-bottom: 24px; }
+.lag-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.lag-title { margin: 0 0 12px; }
+.lag-clear { background: var(--green-bg); color: #3d6e30; border-radius: 8px; padding: 12px 14px; font-size: 12px; }
+.lag-row-behind { cursor: pointer; }
+.lag-row-behind:hover { background: var(--bg-soft); }
+.lag-progress { display: flex; align-items: center; gap: 8px; min-width: 150px; }
+.lag-progress .progress-bar-track { flex: 1; }
+.lag-progress-text { font-size: 10px; color: var(--muted); white-space: nowrap; }
+.lag-last { font-size: 11px; }
+.lag-stale { color: var(--red); font-weight: 600; }
+.lag-topic { color: var(--muted); font-size: 10px; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lag-missing { margin-top: 10px; }
+.lag-missing-list { margin-top: 8px; max-height: 200px; overflow-y: auto; padding-left: 4px; }
+.grade-chip-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; margin-bottom: 12px; }
+.grade-chip { border: 1px solid var(--border); border-radius: 8px; padding: 8px; text-align: center; }
+.grade-chip-found { border-color: var(--green); background: var(--green-bg); }
+.grade-chip-kept { background: var(--bg-soft); }
+.grade-chip-missing { border-style: dashed; color: var(--muted); }
+.grade-chip-label { font-size: 10px; font-weight: 700; }
+.grade-chip-value { font-size: 10px; color: var(--muted); margin-top: 2px; }
+.grade-detail-cell { background: var(--bg-soft); padding: 10px 14px; }
+.grade-detail-warnings { font-size: 11px; color: #8a5a10; margin: 0 0 8px; padding-left: 16px; }
+.upload-col-flags { display: flex; gap: 4px; flex-wrap: wrap; }
+.upload-skipped ul { margin: 6px 0 0; padding-left: 18px; }
+.lag-coverage { margin-bottom: 12px; }
+.badge-nopow { background: var(--red-bg); color: var(--red); }
