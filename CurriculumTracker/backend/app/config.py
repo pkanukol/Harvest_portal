@@ -15,13 +15,49 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "sqlite:///./curriculum_tracker.db"
     SECRET_KEY: str = "harvest_curriculum_tracker_secret_change_me_in_prod_1234567890"
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440
 
     SUPABASE_URL: str = "https://aouvxdfamzprykezeovl.supabase.co"
     SUPABASE_ANON_KEY: str = "sb_publishable_rIfo8DPrbyOmU006ii3onw_sDRWJwvE"
-    PORTAL_URL: str = "http://localhost:3000/portal/login.html"
+
+    # staff_roles lives in a SEPARATE Supabase project owned by another app
+    # (also read by Timetable and GoalTracker). Curriculum Tracker only ever
+    # READS name/designation/subjects/teaching_sections from it, to learn which
+    # classes a teacher is assigned — never writes. Reads need both a GRANT and
+    # an RLS read policy for anon over there; see
+    # Timetable/frontend-v2/staff_roles_rls_policy.sql.
+    STAFF_SUPABASE_URL: str = "https://ukpythuclqvjwygqrsds.supabase.co"
+    STAFF_SUPABASE_ANON_KEY: str = "sb_publishable_D5VRoe631mb0PiJWGGD7fQ_eymhH2nN"
+    # That project's RLS policies (sr_admin_read / sr_self_read / sr_admin_write)
+    # are all scoped to the `authenticated` role, so the publishable key — which
+    # resolves to `anon` — matches no policy and reads back zero rows. Setting a
+    # service-role key here (server-side only, never shipped to the browser)
+    # reads it without changing anything in that project. Left blank, the app
+    # falls back to the anon key and simply reports the directory unavailable.
+    STAFF_SUPABASE_SERVICE_KEY: str = ""
+    STAFF_DIRECTORY_TTL_SECONDS: int = 600
+
+    # Who may use "View as" to preview the app as another staff member.
+    # Comma-separated emails; empty disables the feature outright. This is
+    # deliberately an allowlist and not just the Leadership role — every
+    # coordinator carries role='auditor', and impersonation writes real POWs
+    # attributed to the person being previewed.
+    VIEW_AS_ALLOWED_EMAILS: str = "pavani.k@harvestinternationalschool.in"
+
+    # Curriculum upload is granted by DESIGNATION — see
+    # auth.CURRICULUM_UPLOAD_DESIGNATIONS (Subject Matter Expert, DLP Manager,
+    # APM). This is only an extra override for an account whose designation
+    # doesn't reflect the job; normally empty.
+    CURRICULUM_UPLOAD_EMAILS: str = ""
 
     model_config = {"env_file": _ENV_FILE, "extra": "ignore"}
+
+    @property
+    def view_as_emails(self) -> set:
+        return {e.strip().lower() for e in self.VIEW_AS_ALLOWED_EMAILS.split(",") if e.strip()}
+
+    @property
+    def curriculum_upload_emails(self) -> set:
+        return {e.strip().lower() for e in self.CURRICULUM_UPLOAD_EMAILS.split(",") if e.strip()}
 
 
 settings = Settings()
