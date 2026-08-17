@@ -1,13 +1,13 @@
 import logging
 import time
 import httpx
-from fastapi import FastAPI, Depends, HTTPException, Request, status, Query
+from fastapi import FastAPI, Depends, HTTPException, Request, status, Query, File, Form, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 
 from .config import settings
 from .database import engine, Base, get_db, run_migrations
-from . import models, schemas, crud, auth
+from . import models, schemas, crud, auth, excel_import, staff_directory
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("curriculum_tracker")
@@ -42,6 +42,20 @@ app.add_middleware(
 
 # ─── Auth / SSO ──────────────────────────────────────────────────────────────
 
+def _app_role_for(user: models.User) -> str:
+    """Teacher | SME | Leadership, from the shared users table. Shared by the
+    SSO exchange and "View as" so a previewed session resolves exactly the
+    same role the real person would get by logging in."""
+    is_sme = auth.role_is_sme(user.role, user.designation)
+    # role='auditor' is the shared marker for every real leadership account
+    # (APM, Principal, Vice Principal, Curriculum Head, Managing Director,
+    # Coordinator) in the shared users table — checked first since designation
+    # wording alone was found to miss real accounts (the bug just fixed in the
+    # Apps Script version of this app).
+    is_leadership = not is_sme and (auth.role_is_leadership(user.role) or auth.designation_is_leadership(user.designation))
+    return "SME" if is_sme else ("Leadership" if is_leadership else "Teacher")
+
+
 @app.post("/api/auth/sso", response_model=schemas.SSOResponse)
 async def sso_login(req: schemas.SSORequest, db: Session = Depends(get_db)):
     async with httpx.AsyncClient() as client:
@@ -62,21 +76,13 @@ async def sso_login(req: schemas.SSORequest, db: Session = Depends(get_db)):
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Your account is not registered in the system yet. Please contact your administrator to get access.")
 
-    is_sme = auth.role_is_sme(user.role, user.designation)
-    # role='auditor' is the shared marker for every real leadership account
-    # (APM, Principal, Vice Principal, Curriculum Head, Managing Director,
-    # Coordinator) in the shared users table — checked first since designation
-    # wording alone was found to miss real accounts (the bug just fixed in the
-    # Apps Script version of this app).
-    is_leadership = not is_sme and (auth.role_is_leadership(user.role) or auth.designation_is_leadership(user.designation))
+    app_role = _app_role_for(user)
 
-    if not user.subject and not is_leadership:
+    if not user.subject and app_role != "Leadership":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="This app is for subject teachers and Subject Matter Experts for POW and TBS discussions. If you believe this is a mistake, please contact your administrator.",
         )
-
-    app_role = "SME" if is_sme else ("Leadership" if is_leadership else "Teacher")
 
     token = auth.create_access_token(data={
         "sub": user.email, "role": app_role, "name": user.name,
@@ -86,6 +92,114 @@ async def sso_login(req: schemas.SSORequest, db: Session = Depends(get_db)):
         "access_token": token, "token_type": "bearer", "role": app_role,
         "name": user.name, "email": user.email, "designation": user.designation,
         "subject": user.subject, "location": user.location,
+        "can_view_as": auth.can_view_as(user.email),
+        "can_upload_curriculum": auth.can_upload_curriculum(
+            auth.CurrentUser(user.email, user.name, user.designation, user.subject, app_role)
+        ),
+        "can_see_lagging": crud.can_see_lagging(app_role, user.designation),
+    }
+
+
+@app.get("/api/me", response_model=schemas.MeResponse)
+def get_me(
+    db: Session = Depends(get_db),
+    current_user: auth.CurrentUser = Depends(auth.get_current_user),
+):
+    """Current identity and capabilities, recomputed from the database.
+
+    The frontend caches the user object in localStorage at login, so a session
+    opened before a capability existed would otherwise keep a stale copy until
+    the next portal login — which is exactly how the Curriculum Upload button
+    went missing for accounts that already had a session. The app calls this on
+    mount and refreshes what it stored.
+    """
+    user = db.query(models.User).filter(models.User.email.ilike(current_user.email)).first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Your account is no longer registered.")
+
+    app_role = _app_role_for(user)
+    resolved = auth.CurrentUser(user.email, user.name, user.designation, user.subject, app_role)
+
+    # A teacher's stored subject first, then anything else staff_roles says
+    # they teach — the portal's users.subject holds only one, but plenty of
+    # teachers have two (Science and English, Maths and Computer Science).
+    subjects = [user.subject] if user.subject else []
+    for s in staff_directory.subjects_for(user.email):
+        if s.lower() not in [x.lower() for x in subjects]:
+            subjects.append(s)
+
+    return {
+        "role": app_role, "name": user.name, "email": user.email,
+        "designation": user.designation, "subject": user.subject,
+        "subjects": subjects, "location": user.location,
+        # No chained impersonation: a previewed session can't switch onward.
+        "can_view_as": auth.can_view_as(user.email) and not current_user.view_as_actor,
+        "can_upload_curriculum": auth.can_upload_curriculum(resolved),
+        "can_see_lagging": crud.can_see_lagging(app_role, user.designation),
+    }
+
+
+# ─── View as (preview the app as another staff member) ───────────────────────
+
+@app.get("/api/staff/search", response_model=schemas.StaffSearchResponse)
+def search_staff(
+    q: str = Query("", min_length=0, max_length=100),
+    db: Session = Depends(get_db),
+    _user: auth.CurrentUser = Depends(auth.require_view_as),
+):
+    """Staff picker for the View as switcher — name or email substring."""
+    query = db.query(models.User)
+    term = q.strip()
+    if term:
+        like = f"%{term}%"
+        query = query.filter(models.User.name.ilike(like) | models.User.email.ilike(like))
+    users = query.order_by(models.User.name).limit(20).all()
+    return {"staff": [
+        {"email": u.email, "name": u.name, "designation": u.designation,
+         "subject": u.subject, "role": _app_role_for(u)}
+        for u in users
+    ]}
+
+
+@app.post("/api/auth/view-as", response_model=schemas.SSOResponse)
+def view_as(
+    req: schemas.ViewAsRequest,
+    db: Session = Depends(get_db),
+    current_user: auth.CurrentUser = Depends(auth.require_view_as),
+):
+    """Mints a session for another staff member. The previewed session is a
+    real session — anything saved during it is attributed to that person, not
+    to the previewer (the same trade-off as Attendance's View as switcher),
+    which is exactly what makes it useful for checking a teacher's or SME's
+    view. Every mint is logged with both identities."""
+    target = db.query(models.User).filter(models.User.email.ilike(req.email.strip())).first()
+    if not target:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No staff account with that email.")
+
+    app_role = _app_role_for(target)
+    if not target.subject and app_role != "Leadership":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"{target.name} has no subject set, so they can't use this app — nothing to preview.",
+        )
+
+    logger.warning("VIEW AS: %s is now previewing the app as %s (%s, %s)",
+                   current_user.email, target.email, app_role, target.subject or "no subject")
+
+    token = auth.create_access_token(data={
+        "sub": target.email, "role": app_role, "name": target.name,
+        "designation": target.designation, "subject": target.subject,
+        "view_as_actor": current_user.email,
+    })
+    return {
+        "access_token": token, "token_type": "bearer", "role": app_role,
+        "name": target.name, "email": target.email, "designation": target.designation,
+        "subject": target.subject, "location": target.location,
+        "can_view_as": False,  # no chained impersonation — reset to yourself first
+        "can_upload_curriculum": auth.can_upload_curriculum(
+            auth.CurrentUser(target.email, target.name, target.designation, target.subject, app_role)
+        ),
+        "can_see_lagging": crud.can_see_lagging(app_role, target.designation),
     }
 
 
@@ -101,14 +215,146 @@ def get_planner_topics(
     return crud.get_planner_rows(db, subject, int(grade))
 
 
+# ─── Curriculum upload (SMEs + curriculum admins) ────────────────────────────
+
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+
+
+@app.get("/api/planner/inventory", response_model=schemas.PlannerInventoryResponse)
+def planner_inventory(
+    db: Session = Depends(get_db),
+    _user: auth.CurrentUser = Depends(auth.require_curriculum_uploader),
+):
+    return {"inventory": crud.get_planner_inventory(db), "subjects": crud.get_known_subjects(db)}
+
+
+@app.post("/api/planner/import", response_model=schemas.PlannerImportResponse)
+async def import_planner_workbook(
+    subject: str = Form(...),
+    commit: bool = Form(False),
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: auth.CurrentUser = Depends(auth.require_curriculum_uploader),
+):
+    """Imports EVERY grade tab in one subject workbook. Grades come from the
+    tab names, so the uploader only picks a subject and the file.
+
+    With commit=false nothing is written — the UI calls this twice, once to
+    show the per-grade summary and again on Confirm, so a bad file can never
+    reach the database on the strength of a mis-click. On commit each grade
+    replaces only its own (subject, grade); grades absent from the file are
+    left exactly as they were.
+    """
+    subject = (subject or "").strip()
+    if not subject:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Please choose a subject.")
+    if not (file.filename or "").lower().endswith((".xlsx", ".xlsm")):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Please upload an Excel .xlsx file (a .xls or Google Sheet needs saving as .xlsx first).")
+
+    contents = await file.read()
+    if len(contents) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="That file is larger than 10 MB — please check it's the right workbook.")
+
+    try:
+        parsed = excel_import.parse_workbook_all_grades(contents, subject)
+    except Exception as exc:
+        logger.exception("Curriculum upload parse failed for %s", subject)
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Could not read that workbook: {exc}")
+
+    if not parsed["grades"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No grade tabs could be read from that file. Name each tab for its grade "
+                   "(\"Grade 3\" or \"Gr 3\"), and make sure each has a 'Chapter Name' column.",
+        )
+
+    warnings = list(parsed["warnings"])
+    reached_by = crud.subjects_reaching(db, subject)
+    if not reached_by:
+        warnings.append(
+            f"No staff account currently has the subject '{subject}'. The data will import, but teachers "
+            f"only see the planner for their own subject, so nobody will see it until their profile matches."
+        )
+    elif [r.lower() for r in reached_by] != [subject.lower()]:
+        # e.g. uploading "Physics" — nobody is tagged Physics, but every
+        # Science teacher reaches it through the subject group.
+        warnings.append(
+            f"'{subject}' will be visible to teachers tagged {', '.join(reached_by)} — they pick "
+            f"{subject} as the stream on the POW form."
+        )
+
+    existing_by_grade = {
+        i["grade"]: i["rows"] for i in crud.get_planner_inventory(db)
+        if i["subject"].lower() == subject.lower()
+    }
+
+    grades_out = []
+    for g in parsed["grades"]:
+        grades_out.append({
+            "grade": g["grade"], "tab": g["tab"],
+            "row_count": g["row_count"], "chapter_count": len(g["chapters"]),
+            "chapters": g["chapters"],
+            "has_strands": g["has_strands"], "has_skill": g["has_skill"],
+            "existing_rows": existing_by_grade.get(g["grade"], 0),
+            "warnings": g["warnings"],
+            "replaced": 0, "imported": 0,
+        })
+
+    result = {
+        "committed": False, "subject": subject,
+        "grades": grades_out,
+        "missing_grades": parsed["missing_grades"],
+        "skipped_tabs": parsed["skipped_tabs"],
+        "warnings": warnings,
+        "total_rows": sum(g["row_count"] for g in grades_out),
+    }
+
+    if not commit:
+        return result
+
+    for g, out in zip(parsed["grades"], grades_out):
+        counts = crud.replace_planner_grade(db, subject, g["grade"], g["rows"])
+        out["replaced"] = counts["deleted"]
+        out["imported"] = counts["inserted"]
+
+    logger.info(
+        "Curriculum import by %s: %s — grades %s (%s rows)",
+        current_user.email, subject,
+        ", ".join(str(g["grade"]) for g in grades_out),
+        result["total_rows"],
+    )
+    result["committed"] = True
+    return result
+
+
 # ─── POW cards (dashboard) ───────────────────────────────────────────────────
 
-@app.get("/api/pow/cards", response_model=schemas.PowCardsResponse)
-def get_pow_cards(
+@app.get("/api/teachers", response_model=schemas.TeachersResponse)
+def get_teachers(
     db: Session = Depends(get_db),
     current_user: auth.CurrentUser = Depends(auth.get_current_user),
 ):
-    return crud.get_pow_cards(db, current_user.email, current_user.role)
+    """Cheap, pow_entries-free lookup used to populate the Subject filter
+    dropdown before any POW cards are fetched."""
+    return {"teachers": crud.get_teachers_for_role(db, current_user.email, current_user.role)}
+
+
+@app.get("/api/pow/cards", response_model=schemas.PowCardsResponse)
+def get_pow_cards(
+    subject: str = Query(...),
+    grade: str = Query(...),
+    db: Session = Depends(get_db),
+    current_user: auth.CurrentUser = Depends(auth.get_current_user),
+):
+    return {"cards": crud.get_pow_cards(db, current_user.email, current_user.role, subject, grade)}
+
+
+@app.get("/api/pow/tbs-mom-alerts", response_model=schemas.PowCardsResponse)
+def get_tbs_mom_alerts(
+    db: Session = Depends(get_db),
+    current_user: auth.CurrentUser = Depends(auth.get_current_user),
+):
+    return {"cards": crud.get_tbs_mom_alerts(db, current_user.email, current_user.role)}
 
 
 @app.get("/api/pow/{pow_id}")
@@ -168,7 +414,10 @@ def update_pow_implementation(
     # Shared-by-subject visibility (see crud.get_pow_cards) means any teacher of
     # this POW's subject may fill in their own section (A-F), not just whoever
     # created it — so the check here is subject-scoped, not creator-scoped.
-    if (current_user.subject or "").lower() != (pow_entry.subject or "").lower():
+    # Group-aware: a Science-tagged teacher owns Physics/Biology/Chemistry POWs
+    # too, since that's the subject their POWs are filed under.
+    allowed_subjects = [s.lower() for s in crud.subjects_in_group(current_user.subject or "")]
+    if (pow_entry.subject or "").lower() not in allowed_subjects:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only edit POWs for your own subject")
     crud.update_pow_implementation(db, pow_entry, req)
     return {"success": True, "final_save": req.final_save}
@@ -207,6 +456,19 @@ def get_progress_summary(
     if current_user.role == "Teacher":
         effective_email = current_user.email
     return crud.get_progress_summary(db, subject, int(grade), effective_email)
+
+
+@app.get("/api/progress/lagging")
+def get_lagging(
+    db: Session = Depends(get_db),
+    current_user: auth.CurrentUser = Depends(auth.get_current_user),
+):
+    """Curriculum-lag overview for the leadership/SME dashboard. Scoped to the
+    teachers the viewer already oversees (an SME sees their mapped teachers,
+    leadership sees the school)."""
+    if not crud.can_see_lagging(current_user.role, current_user.designation):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not available for your role")
+    return crud.get_lagging_report(db, current_user.email, current_user.role)
 
 
 @app.get("/api/progress/chart")
