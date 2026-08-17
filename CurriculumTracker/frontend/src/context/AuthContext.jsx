@@ -21,7 +21,11 @@ export function AuthProvider({ children }) {
       role: ssoResponse.role,
       designation: ssoResponse.designation,
       subject: ssoResponse.subject,
+      subjects: ssoResponse.subjects || (ssoResponse.subject ? [ssoResponse.subject] : []),
       location: ssoResponse.location,
+      can_view_as: Boolean(ssoResponse.can_view_as),
+      can_upload_curriculum: Boolean(ssoResponse.can_upload_curriculum),
+      can_see_lagging: Boolean(ssoResponse.can_see_lagging),
     };
     setToken(ssoResponse.access_token);
     setUser(nextUser);
@@ -29,16 +33,66 @@ export function AuthProvider({ children }) {
     localStorage.setItem("user", JSON.stringify(nextUser));
   };
 
+  // Capabilities are recomputed server-side (GET /api/me) and merged into the
+  // cached user, so a session created before a capability existed doesn't keep
+  // a stale copy of it until the next portal login.
+  const refreshUser = (me) => {
+    setUser((prev) => {
+      const next = { ...(prev || {}), ...me };
+      localStorage.setItem("user", JSON.stringify(next));
+      return next;
+    });
+  };
+
+  // "View as": the previewer's own token/user are parked under real_* keys so
+  // resetting never needs another SSO round trip. Stashed only on the first
+  // switch — switching straight from one previewed person to another must not
+  // overwrite the real identity with a previewed one.
+  const [realUser, setRealUser] = useState(() => {
+    const stored = localStorage.getItem("real_user");
+    return stored ? JSON.parse(stored) : null;
+  });
+
+  const viewAs = (ssoResponse) => {
+    if (!localStorage.getItem("real_token")) {
+      localStorage.setItem("real_token", token);
+      localStorage.setItem("real_user", JSON.stringify(user));
+      setRealUser(user);
+    }
+    login(ssoResponse);
+  };
+
+  const resetToMe = () => {
+    const realToken = localStorage.getItem("real_token");
+    const stored = localStorage.getItem("real_user");
+    if (!realToken || !stored) return;
+    const me = JSON.parse(stored);
+    localStorage.setItem("token", realToken);
+    localStorage.setItem("user", stored);
+    localStorage.removeItem("real_token");
+    localStorage.removeItem("real_user");
+    setToken(realToken);
+    setUser(me);
+    setRealUser(null);
+  };
+
   const logout = () => {
     setToken(null);
     setUser(null);
+    setRealUser(null);
     localStorage.removeItem("token");
     localStorage.removeItem("user");
+    localStorage.removeItem("real_token");
+    localStorage.removeItem("real_user");
   };
 
   const value = useMemo(
-    () => ({ token, user, login, logout, isAuthenticated: Boolean(token && user) }),
-    [token, user]
+    () => ({
+      token, user, login, logout, viewAs, resetToMe, refreshUser, realUser,
+      isViewingAs: Boolean(realUser),
+      isAuthenticated: Boolean(token && user),
+    }),
+    [token, user, realUser]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
