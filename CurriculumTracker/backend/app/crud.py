@@ -4,7 +4,7 @@ import calendar
 from typing import Optional, List
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-from . import models
+from . import models, staff_directory
 
 IST_OFFSET = datetime.timedelta(hours=5, minutes=30)
 
@@ -19,6 +19,16 @@ STATUS_LABELS = {
     "reviewed": "Reviewed",
     "approved": "Closed",
 }
+
+
+# Academic year order, not calendar order — the curriculum runs April to
+# March, so January is LATER than December when judging whether a planner
+# month has already passed.
+ACADEMIC_MONTHS = [
+    "April", "May", "June", "July", "August", "September",
+    "October", "November", "December", "January", "February", "March",
+]
+MONTH_INDEX = {m: i for i, m in enumerate(ACADEMIC_MONTHS)}
 
 
 def now_ist() -> datetime.datetime:
@@ -51,11 +61,44 @@ def _max_session_num(raw: Optional[str]) -> int:
 
 # ─── Planner topics ────────────────────────────────────────────────────────
 
+# Subjects whose curriculum is split into streams that the shared users table
+# has no way to express. Every Biology/Physics/Chemistry teacher and SME is
+# tagged simply 'Science' in the portal (confirmed against the live table:
+# Ms Bhuvana R, Mr Deepak Damodaran and Dr Francis Joy are all subject
+# 'Science', as are all 21 teachers mapped to them — and 10 of those teachers
+# are mapped to two of the three SMEs, so the split isn't one-teacher-per-
+# stream either). Uploads stay per stream, so each replaces only itself; a
+# Science teacher's POW form then sees all three, picking the stream first.
+SUBJECT_GROUPS = {
+    "science": ["Science", "Biology", "Physics", "Chemistry"],
+}
+
+
+def subjects_in_group(subject: str) -> List[str]:
+    """The planner subjects a teacher of `subject` should see. Identity for
+    everything outside SUBJECT_GROUPS."""
+    return SUBJECT_GROUPS.get((subject or "").strip().lower(), [subject])
+
+
+def _subject_group_filter(subject: str):
+    """SQL predicate matching a subject or any stream within its group. POWs
+    are stored under the stream the teacher picked ("Physics"), while the
+    dashboard and progress screens ask by profile subject ("Science") — this
+    is what bridges the two. Deliberately NOT used by find_duplicate_pow:
+    the same chapter name in two different streams is two different POWs."""
+    return func.lower(models.PowEntry.subject).in_([s.lower() for s in subjects_in_group(subject)])
+
+
 def get_planner_rows(db: Session, subject: str, grade: Optional[int] = None) -> List[models.PlannerTopic]:
-    q = db.query(models.PlannerTopic).filter(func.lower(models.PlannerTopic.subject) == subject.lower())
+    group = [s.lower() for s in subjects_in_group(subject)]
+    q = db.query(models.PlannerTopic).filter(func.lower(models.PlannerTopic.subject).in_(group))
     if grade is not None:
         q = q.filter(models.PlannerTopic.grade == int(grade))
-    return q.order_by(models.PlannerTopic.display_order).all()
+    # Ordered by subject first so a grouped subject's streams stay contiguous
+    # and each keeps its own sheet order — display_order is only meaningful
+    # within one (subject, grade), and the month-sequencing in
+    # get_progress_chart depends on that per-stream order being intact.
+    return q.order_by(models.PlannerTopic.subject, models.PlannerTopic.display_order).all()
 
 
 def get_planner_chapters(db: Session, subject: str, grade: int) -> List[models.PlannerTopic]:
@@ -80,12 +123,96 @@ def get_planner_chapters(db: Session, subject: str, grade: int) -> List[models.P
     return [seen[key] for key in order]
 
 
+def get_planner_inventory(db: Session) -> list:
+    """What curriculum data is currently loaded, one row per (subject, grade) —
+    powers the "already uploaded" table on the admin upload screen."""
+    rows = (
+        db.query(
+            models.PlannerTopic.subject,
+            models.PlannerTopic.grade,
+            func.count(models.PlannerTopic.id),
+            func.count(func.distinct(models.PlannerTopic.chapter_name)),
+        )
+        .group_by(models.PlannerTopic.subject, models.PlannerTopic.grade)
+        .order_by(models.PlannerTopic.subject, models.PlannerTopic.grade)
+        .all()
+    )
+    return [{"subject": s, "grade": g, "rows": n, "chapters": c} for s, g, n, c in rows]
+
+
+# The subjects curriculum mapping workbooks actually exist for. Listed first
+# on the upload screen, ahead of the long tail of staff subjects (Karate,
+# Skating, Library...) that will never have a planner workbook.
+#
+# "Mathematics" — not "Maths" — deliberately: teachers are tagged Mathematics
+# in the shared users table, and the planner a teacher sees is looked up by
+# that exact value, so an upload filed under "Maths" would be invisible to
+# every maths teacher.
+CURRICULUM_SUBJECTS = [
+    "English", "Hindi", "Kannada", "Mathematics", "Science",
+    "Biology", "Physics", "Chemistry", "Social Science",
+]
+
+
+def get_known_subjects(db: Session) -> dict:
+    """Subject options for the upload screen, split into the curriculum
+    subjects proper and everything else a staff account is tagged with (plus
+    anything already imported, so an existing import is always re-selectable
+    even if it matches neither list)."""
+    from_users = {
+        s.strip() for (s,) in db.query(models.User.subject).filter(models.User.subject.isnot(None)).distinct()
+        if s and s.strip()
+    }
+    from_planner = {
+        s.strip() for (s,) in db.query(models.PlannerTopic.subject).distinct() if s and s.strip()
+    }
+    curriculum_lower = {s.lower() for s in CURRICULUM_SUBJECTS}
+    other = sorted(
+        {s for s in (from_users | from_planner) if s.lower() not in curriculum_lower},
+        key=str.lower,
+    )
+    return {"curriculum": list(CURRICULUM_SUBJECTS), "other": other}
+
+
+def subjects_reaching(db: Session, subject: str) -> List[str]:
+    """Which staff profile subjects will actually see a planner uploaded under
+    `subject`. Usually just the subject itself, but a stream is reached through
+    its group's profile subject — nobody is tagged 'Physics', yet every
+    'Science' teacher sees the Physics planner. Empty means the upload would
+    be invisible to everyone, which the upload screen warns about."""
+    profile_subjects = {
+        s.strip() for (s,) in db.query(models.User.subject).filter(models.User.subject.isnot(None)).distinct()
+        if s and s.strip()
+    }
+    return sorted(
+        p for p in profile_subjects
+        if subject.lower() in [s.lower() for s in subjects_in_group(p)]
+    )
+
+
+def replace_planner_grade(db: Session, subject: str, grade: int, rows: list) -> dict:
+    """Replaces the planner data for ONE (subject, grade) — deliberately not
+    the whole subject, so uploading Grade 6 never disturbs Grade 5. Matched
+    case-insensitively on subject so a re-upload as "MATHEMATICS" replaces the
+    "Mathematics" rows instead of doubling them up."""
+    deleted = (
+        db.query(models.PlannerTopic)
+        .filter(func.lower(models.PlannerTopic.subject) == subject.lower(), models.PlannerTopic.grade == int(grade))
+        .delete(synchronize_session=False)
+    )
+    for r in rows:
+        db.add(models.PlannerTopic(**r))
+    db.commit()
+    return {"deleted": deleted, "inserted": len(rows)}
+
+
 # ─── POW cards (dashboard) ──────────────────────────────────────────────────
 
-def get_pow_cards(db: Session, user_email: str, role: str):
-    """Mirrors Code.gs's getPowCards(userEmail, role): builds an
-    email -> {name, subject, location} teacher map scoped by role, then
-    filters pow_entries to only those teachers' rows."""
+def _build_teacher_map(db: Session, user_email: str, role: str) -> dict:
+    """email -> {name, subject, location} scoped by role — the set of
+    teachers whose POWs this user is allowed to see. Cheap (no pow_entries
+    touched), so it's safe to call on its own to populate a subject filter
+    dropdown before ever fetching any cards."""
     teacher_map = {}
 
     if role == "SME":
@@ -116,30 +243,68 @@ def get_pow_cards(db: Session, user_email: str, role: str):
         else:
             teacher_map[user_email.lower()] = {"name": "", "subject": "", "location": ""}
 
+    return teacher_map
+
+
+def get_teachers_for_role(db: Session, user_email: str, role: str) -> list:
+    teacher_map = _build_teacher_map(db, user_email, role)
+    return [{"email": email, **info} for email, info in teacher_map.items()]
+
+
+def _card_dict(p: models.PowEntry, teacher_map: dict) -> dict:
+    temail = p.teacher_email.lower()
+    return {
+        "id": p.id,
+        "teacher_email": temail,
+        "teacher_name": teacher_map.get(temail, {}).get("name") or temail,
+        "subject": p.subject,
+        "grade": p.grade,
+        "week_start": p.week_start.isoformat(),
+        "week_end": p.week_end.isoformat(),
+        "topic": p.topic,
+        # Flags a POW past the teacher's own final-save that never got a
+        # TBS MOM filled in — surfaced as a highlight on the dashboard card,
+        # recomputed fresh on every load so it keeps nagging until fixed.
+        "tbs_mom_missing": p.status in ("final", "reviewed", "approved") and not (p.tbs_mom or "").strip(),
+        "status": STATUS_LABELS.get(p.status, "Created"),
+    }
+
+
+def get_pow_cards(db: Session, user_email: str, role: str, subject: str, grade: str):
+    """Cards are only ever fetched once a subject+grade is picked (see
+    main.py) — the dashboard no longer loads anything on mount, since the
+    unfiltered query could span every grade of a subject for Leadership/SME
+    and was the main reason the dashboard felt slow even with little data."""
+    teacher_map = _build_teacher_map(db, user_email, role)
+
     cards = []
     if teacher_map:
-        pows = db.query(models.PowEntry).filter(func.lower(models.PowEntry.teacher_email).in_(teacher_map.keys())).all()
-        for p in pows:
-            temail = p.teacher_email.lower()
-            cards.append({
-                "id": p.id,
-                "teacher_email": temail,
-                "teacher_name": teacher_map.get(temail, {}).get("name") or temail,
-                "subject": p.subject,
-                "grade": p.grade,
-                "week_start": p.week_start.isoformat(),
-                "week_end": p.week_end.isoformat(),
-                "topic": p.topic,
-                # Flags a POW past the teacher's own final-save that never got a
-                # TBS MOM filled in — surfaced as a highlight on the dashboard
-                # card, recomputed fresh on every load so it keeps nagging until fixed.
-                "tbs_mom_missing": p.status in ("final", "reviewed", "approved") and not (p.tbs_mom or "").strip(),
-                "status": STATUS_LABELS.get(p.status, "Created"),
-            })
+        pows = db.query(models.PowEntry).filter(
+            func.lower(models.PowEntry.teacher_email).in_(teacher_map.keys()),
+            _subject_group_filter(subject),
+            models.PowEntry.grade == str(grade),
+        ).all()
+        cards = [_card_dict(p, teacher_map) for p in pows]
     cards.sort(key=lambda c: c["week_start"], reverse=True)
+    return cards
 
-    teachers = [{"email": email, **info} for email, info in teacher_map.items()]
-    return {"cards": cards, "teachers": teachers}
+
+def get_tbs_mom_alerts(db: Session, user_email: str, role: str) -> list:
+    """Independent of whatever subject/grade filter is currently selected on
+    the dashboard — a teacher shouldn't miss the "you forgot TBS MOM" nag
+    just because they haven't browsed to that specific grade. Scoped to the
+    same teacher_map as get_pow_cards, but filtered directly at the DB level
+    to just the final/reviewed/approved rows, so it stays cheap."""
+    teacher_map = _build_teacher_map(db, user_email, role)
+    if not teacher_map:
+        return []
+    pows = db.query(models.PowEntry).filter(
+        func.lower(models.PowEntry.teacher_email).in_(teacher_map.keys()),
+        models.PowEntry.status.in_(("final", "reviewed", "approved")),
+    ).all()
+    cards = [_card_dict(p, teacher_map) for p in pows if not (p.tbs_mom or "").strip()]
+    cards.sort(key=lambda c: c["week_start"], reverse=True)
+    return cards
 
 
 # ─── POW create / get / update ──────────────────────────────────────────────
@@ -266,7 +431,7 @@ def get_progress_summary(db: Session, subject: str, grade: int, teacher_email: O
     total_sessions_planned = sum(c.sessions or 0 for c in planned_chapters)
 
     q = db.query(models.PowEntry).filter(
-        func.lower(models.PowEntry.subject) == subject.lower(),
+        _subject_group_filter(subject),
         models.PowEntry.grade == str(grade),
         models.PowEntry.status.in_(("approved", "final")),
     )
@@ -325,6 +490,205 @@ def get_progress_summary(db: Session, subject: str, grade: int, teacher_email: O
     }
 
 
+# ─── Lagging report (leadership/SME dashboard) ──────────────────────────────
+
+# role='auditor' covers a few purely technical accounts too — they're
+# leadership by role but have no business reading a curriculum-lag report.
+LAGGING_EXCLUDED_DESIGNATIONS = {"it manager", "information technology", "sys admin"}
+
+
+def can_see_lagging(role: str, designation: str) -> bool:
+    """SMEs and HODs (both resolve to the SME role here), plus real leadership
+    — MD, Chairman, Curriculum Head, DLP, APM, Principal, Coordinator."""
+    if role == "SME":
+        return True
+    return role == "Leadership" and (designation or "").strip().lower() not in LAGGING_EXCLUDED_DESIGNATIONS
+
+
+def _planner_position(chapters: List[models.PlannerTopic]):
+    """Cumulative session maths shared by the chart and the lagging report:
+    month order as the sheet lists it, sessions accumulated before each
+    (chapter, month), and the running total at the end of each month."""
+    month_order = []
+    for c in chapters:
+        if c.month and c.month not in month_order:
+            month_order.append(c.month)
+
+    cum_before = {}
+    running = 0
+    for c in chapters:
+        cum_before[(c.chapter_name, c.month)] = running
+        running += c.sessions or 0
+
+    month_cum = {}
+    at = 0
+    for m in month_order:
+        at += sum(c.sessions or 0 for c in chapters if c.month == m)
+        month_cum[m] = at
+
+    return month_order, cum_before, month_cum, running
+
+
+def get_lagging_report(db: Session, viewer_email: str, role: str) -> dict:
+    """Where is each teacher against the curriculum mapping, right now.
+
+    Expected position = every session the planner schedules up to and
+    including the current month. Actual = the furthest point any of that
+    teacher's POWs reaches (sessions accumulated before their chapter, plus
+    the session number they marked). The difference is the lag, in sessions.
+
+    Scoped to (teacher, subject, grade) combinations that actually have POWs —
+    the app has no record of which classes a teacher is assigned, so a teacher
+    who has never submitted a POW for a grade can't be distinguished from one
+    who doesn't teach it. `teachers_without_pows` reports that gap separately
+    rather than silently counting it as on-track.
+    """
+    today = now_ist()
+    current_month = today.strftime("%B")
+
+    teacher_map = _build_teacher_map(db, viewer_email, role)
+    if not teacher_map:
+        return {"generated_month": current_month, "rows": [], "teachers_without_pows": []}
+
+    pows = db.query(models.PowEntry).filter(
+        func.lower(models.PowEntry.teacher_email).in_(teacher_map.keys())
+    ).order_by(models.PowEntry.week_start.asc()).all()
+
+    # (teacher, subject, grade) -> their POWs
+    buckets = {}
+    for p in pows:
+        buckets.setdefault((p.teacher_email.lower(), p.subject, p.grade), []).append(p)
+
+    planner_cache = {}
+    rows = []
+
+    for (email, subject, grade), entries in buckets.items():
+        try:
+            grade_int = int(str(grade).strip())
+        except (TypeError, ValueError):
+            continue  # free-text grades like "7A" have no planner to compare against
+
+        if (subject, grade_int) not in planner_cache:
+            planner_cache[(subject, grade_int)] = get_planner_chapters(db, subject, grade_int)
+        chapters = planner_cache[(subject, grade_int)]
+        if not chapters:
+            continue  # nothing uploaded for this subject+grade — not a lag
+
+        month_order, cum_before, month_cum, total_planned = _planner_position(chapters)
+
+        # Everything scheduled up to and including the current month. Outside
+        # the planner's own month range (e.g. April before the year starts)
+        # nothing is due yet, so expected stays 0.
+        expected = 0
+        if current_month in month_order:
+            expected = month_cum[current_month]
+        elif month_order:
+            months_elapsed = [m for m in month_order if MONTH_INDEX.get(m, 99) <= MONTH_INDEX.get(current_month, -1)]
+            expected = month_cum[months_elapsed[-1]] if months_elapsed else 0
+
+        done = 0
+        last = None
+        for p in entries:
+            if not p.week_start:
+                continue
+            key = ((p.topic or "").strip(), p.week_start.strftime("%B"))
+            reached = cum_before.get(key, 0) + _max_session_num(p.lp_session_num) if key in cum_before else 0
+            if reached > done:
+                done = reached
+            if last is None or p.week_start > last.week_start:
+                last = p
+
+        behind = max(0, expected - done)
+        info = teacher_map.get(email, {})
+        weeks_since = ((today.date() - last.week_start).days // 7) if last and last.week_start else None
+
+        rows.append({
+            "teacher_email": email,
+            "teacher_name": info.get("name") or email,
+            "subject": subject,
+            "grade": str(grade),
+            "expected_sessions": expected,
+            "done_sessions": done,
+            "sessions_behind": behind,
+            "total_planned": total_planned,
+            "percent_done": round(done * 100 / expected) if expected else 100,
+            "last_topic": (last.topic if last else "") or "",
+            "last_week": last.week_start.isoformat() if last and last.week_start else None,
+            "weeks_since_last_pow": weeks_since,
+            "status": "behind" if behind > 0 else ("ahead" if done > expected else "on_track"),
+        })
+
+    # Assigned classes with NO POW at all. Only knowable from staff_roles —
+    # without it a never-submitted class is indistinguishable from one the
+    # teacher doesn't teach, which is why these rows appear only when the
+    # directory is reachable.
+    directory_available = staff_directory.is_available()
+    if directory_available:
+        covered = {(r["teacher_email"], r["subject"].lower(), r["grade"]) for r in rows}
+        for email, info in teacher_map.items():
+            for a in staff_directory.assignments_for(email):
+                subject, grade_int = a["subject"], a["grade"]
+                if (email, subject.lower(), str(grade_int)) in covered:
+                    continue
+                if (subject, grade_int) not in planner_cache:
+                    planner_cache[(subject, grade_int)] = get_planner_chapters(db, subject, grade_int)
+                chapters = planner_cache[(subject, grade_int)]
+                if not chapters:
+                    continue  # no curriculum uploaded for it — nothing to be behind on
+
+                _, _, month_cum, total_planned = _planner_position(chapters)
+                month_order = [c.month for c in chapters if c.month]
+                expected = 0
+                if current_month in month_cum:
+                    expected = month_cum[current_month]
+                else:
+                    elapsed = [m for m in month_cum if MONTH_INDEX.get(m, 99) <= MONTH_INDEX.get(current_month, -1)]
+                    expected = max((month_cum[m] for m in elapsed), default=0)
+                if expected <= 0:
+                    continue
+
+                covered.add((email, subject.lower(), str(grade_int)))
+                rows.append({
+                    "teacher_email": email,
+                    "teacher_name": info.get("name") or email,
+                    "subject": subject,
+                    "grade": str(grade_int),
+                    "expected_sessions": expected,
+                    "done_sessions": 0,
+                    "sessions_behind": expected,
+                    "total_planned": total_planned,
+                    "percent_done": 0,
+                    "last_topic": "",
+                    "last_week": None,
+                    "weeks_since_last_pow": None,
+                    "status": "behind",
+                    "no_pow_yet": True,
+                })
+
+    for r in rows:
+        r.setdefault("no_pow_yet", False)
+    rows.sort(key=lambda r: (-r["sessions_behind"], r["teacher_name"]))
+
+    # Teachers the viewer oversees who have submitted nothing at all — a
+    # different problem from being behind, and invisible in the rows above.
+    with_pows = {r["teacher_email"] for r in rows if not r["no_pow_yet"]}
+    without = [
+        {"teacher_email": e, "teacher_name": i.get("name") or e, "subject": i.get("subject") or "",
+         "assigned_classes": len(staff_directory.assignments_for(e)) if directory_available else None}
+        for e, i in teacher_map.items()
+        if e not in with_pows and not any(p.teacher_email.lower() == e for p in pows)
+    ]
+
+    return {
+        "generated_month": current_month,
+        "rows": rows,
+        "teachers_without_pows": sorted(without, key=lambda t: t["teacher_name"]),
+        # False means class assignments couldn't be read, so the report covers
+        # only classes that already have POWs — the UI says so explicitly.
+        "directory_available": directory_available,
+    }
+
+
 # ─── Progress chart (cumulative planned vs. actual) ─────────────────────────
 
 def get_progress_chart(db: Session, subject: str, grade: int):
@@ -364,7 +728,7 @@ def get_progress_chart(db: Session, subject: str, grade: int):
     chapters_by_key = {(c.chapter_name, c.month): c for c in chapters}
 
     pows = db.query(models.PowEntry).filter(
-        func.lower(models.PowEntry.subject) == subject.lower(),
+        _subject_group_filter(subject),
         models.PowEntry.grade == str(grade),
     ).order_by(models.PowEntry.week_start.asc()).all()
 
