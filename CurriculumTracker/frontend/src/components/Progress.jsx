@@ -2,24 +2,48 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Chart from "chart.js/auto";
 import { api } from "../api";
 
-export default function Progress({ token, user, isReadOnlyViewer, mappedTeachers, onBack }) {
+export default function Progress({ token, user, isReadOnlyViewer, onBack }) {
+  const [teachersList, setTeachersList] = useState([]);
+  // Distinguishes "still loading" from "genuinely none" — the dropdown used to
+  // read "No subjects available" during the fetch, which looks like a failure,
+  // and a real failure was swallowed silently by an empty catch.
+  const [subjectsLoading, setSubjectsLoading] = useState(false);
+  const [subjectsError, setSubjectsError] = useState("");
+
+  // Self-sufficient — fetches its own subject options rather than relying on
+  // the Dashboard having been visited first (mirrors Dashboard.jsx's own
+  // /api/teachers call for its Subject filter).
+  useEffect(() => {
+    if (!isReadOnlyViewer) return;
+    setSubjectsLoading(true);
+    setSubjectsError("");
+    api.getTeachers(token)
+      .then((res) => setTeachersList(res.teachers || []))
+      .catch((err) => setSubjectsError(err.message))
+      .finally(() => setSubjectsLoading(false));
+  }, [token, isReadOnlyViewer]);
+
   const subjects = useMemo(() => {
     if (!isReadOnlyViewer) return [user.subject];
     const seen = new Set();
     const list = [];
-    (mappedTeachers || []).forEach((t) => {
+    teachersList.forEach((t) => {
       if (t.subject && !seen.has(t.subject)) { seen.add(t.subject); list.push(t.subject); }
     });
     return list;
-  }, [isReadOnlyViewer, mappedTeachers, user.subject]);
+  }, [isReadOnlyViewer, teachersList, user.subject]);
 
-  const [subject, setSubject] = useState(subjects[0] || "");
+  const [subject, setSubject] = useState(isReadOnlyViewer ? "" : user.subject);
   const [grade, setGrade] = useState("");
   const [summary, setSummary] = useState(null);
   const [chartData, setChartData] = useState(null);
   const [error, setError] = useState("");
   const canvasRef = useRef(null);
   const chartRef = useRef(null);
+
+  useEffect(() => {
+    if (isReadOnlyViewer && !subject && subjects.length > 0) setSubject(subjects[0]);
+  }, [isReadOnlyViewer, subject, subjects]);
 
   useEffect(() => {
     if (!subject || !grade) { setChartData(null); setSummary(null); return; }
@@ -70,7 +94,11 @@ export default function Progress({ token, user, isReadOnlyViewer, mappedTeachers
           <label className="form-label">Subject</label>
           {isReadOnlyViewer ? (
             <select className="form-control" value={subject} onChange={(e) => setSubject(e.target.value)}>
-              {subjects.length === 0 && <option value="">No subjects available</option>}
+              {subjects.length === 0 && (
+                <option value="">
+                  {subjectsLoading ? "Loading subjects…" : subjectsError ? "Couldn't load subjects" : "No subjects available"}
+                </option>
+              )}
               {subjects.map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
           ) : (
