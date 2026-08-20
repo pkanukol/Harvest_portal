@@ -313,8 +313,10 @@ async def save_remarks(
     remarks_in: schemas.ObservationTeacherRemarks,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(auth.require_role(["teacher"])),
+    current_user: models.User = Depends(auth.get_current_user),
 ):
+    # Authorize by "are you the observed teacher on this record" (teacher_id), not by role —
+    # a teaching SME/coordinator is observed as a teacher and must be able to add remarks too.
     obs = crud.get_observation_by_id(db, id)
     if not obs:
         raise HTTPException(status_code=404, detail="Observation not found")
@@ -347,7 +349,11 @@ async def get_single_observation(
     obs = crud.get_observation_by_id(db, obs_id)
     if not obs:
         raise HTTPException(status_code=404, detail="Observation not found")
-    if current_user.role == "teacher" and obs.teacher_id != current_user.id:
+    # The observed teacher can always see their own report — including a teaching SME being
+    # observed (their own id is the teacher_id even though their role is 'sme').
+    if current_user.id == obs.teacher_id:
+        return obs
+    if current_user.role == "teacher":
         raise HTTPException(status_code=403, detail="Access denied")
     if current_user.role == "sme":
         assigned = db.query(models.TeacherSME).filter_by(
@@ -364,6 +370,10 @@ async def get_teacher_observations(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user),
 ):
+    # A user can always fetch their OWN received (finalised) observations — covers a teaching
+    # SME/coordinator viewing reports where they are the observed teacher, not the observer.
+    if current_user.id == teacher_id:
+        return crud.get_observations_for_teacher(db, teacher_id, include_drafts=False)
     if current_user.role == "teacher":
         if current_user.id != teacher_id:
             raise HTTPException(status_code=403, detail="Access denied to other teacher reports")
@@ -534,7 +544,9 @@ async def get_single_spa_observation(
     obs = crud.get_spa_observation_by_id(db, obs_id)
     if not obs:
         raise HTTPException(status_code=404, detail="SPA observation not found")
-    if current_user.role == "teacher" and obs.teacher_id != current_user.id:
+    if current_user.id == obs.teacher_id:
+        return obs
+    if current_user.role == "teacher":
         raise HTTPException(status_code=403, detail="Access denied")
     if current_user.role == "sme":
         assigned = db.query(models.TeacherSME).filter_by(
@@ -551,6 +563,8 @@ async def get_teacher_spa_observations(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user),
 ):
+    if current_user.id == teacher_id:
+        return crud.get_spa_observations_for_teacher(db, teacher_id, include_drafts=False)
     if current_user.role == "teacher":
         if current_user.id != teacher_id:
             raise HTTPException(status_code=403, detail="Access denied to other teacher reports")
