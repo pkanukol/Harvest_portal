@@ -123,6 +123,48 @@ def get_planner_chapters(db: Session, subject: str, grade: int) -> List[models.P
     return [seen[key] for key in order]
 
 
+def save_import_log(db: Session, subject: str, grade: int, tab: str, row_count: int,
+                    chapter_count: int, warnings: list, imported_by: str) -> None:
+    """Records this import's warnings so they outlive the upload screen. One row
+    per (subject, grade), replaced on re-import — fix the sheet, re-upload, and
+    the warnings for that grade disappear on their own."""
+    import json
+    existing = (
+        db.query(models.PlannerImportLog)
+        .filter(func.lower(models.PlannerImportLog.subject) == subject.lower(),
+                models.PlannerImportLog.grade == int(grade))
+        .first()
+    )
+    if not existing:
+        existing = models.PlannerImportLog(subject=subject, grade=int(grade))
+        db.add(existing)
+    existing.subject = subject
+    existing.tab = tab
+    existing.row_count = row_count
+    existing.chapter_count = chapter_count
+    existing.warnings = json.dumps(warnings or [])
+    existing.imported_by = imported_by
+    existing.imported_at = datetime.datetime.utcnow()
+    db.commit()
+
+
+def get_import_logs(db: Session) -> dict:
+    """{(subject_lower, grade): {...}} of the last import per subject+grade."""
+    import json
+    out = {}
+    for log in db.query(models.PlannerImportLog).all():
+        try:
+            warnings = json.loads(log.warnings or "[]")
+        except ValueError:
+            warnings = []
+        out[(log.subject.lower(), log.grade)] = {
+            "tab": log.tab, "warnings": warnings,
+            "imported_by": log.imported_by,
+            "imported_at": log.imported_at.isoformat() if log.imported_at else None,
+        }
+    return out
+
+
 def get_planner_inventory(db: Session) -> list:
     """What curriculum data is currently loaded, one row per (subject, grade) —
     powers the "already uploaded" table on the admin upload screen."""
@@ -137,7 +179,17 @@ def get_planner_inventory(db: Session) -> list:
         .order_by(models.PlannerTopic.subject, models.PlannerTopic.grade)
         .all()
     )
-    return [{"subject": s, "grade": g, "rows": n, "chapters": c} for s, g, n, c in rows]
+    logs = get_import_logs(db)
+    out = []
+    for s_name, g, n, c in rows:
+        log = logs.get((s_name.lower(), g), {})
+        out.append({
+            "subject": s_name, "grade": g, "rows": n, "chapters": c,
+            "warnings": log.get("warnings", []),
+            "imported_at": log.get("imported_at"),
+            "imported_by": log.get("imported_by"),
+        })
+    return out
 
 
 # The subjects curriculum mapping workbooks actually exist for. Listed first
@@ -529,6 +581,48 @@ def _planner_position(chapters: List[models.PlannerTopic]):
     return month_order, cum_before, month_cum, running
 
 
+def _all_planner_chapters(db: Session) -> dict:
+    """Every subject+grade's chapter list, built from ONE query.
+
+    get_planner_chapters() is per (subject, grade), which is fine for a single
+    screen but not for the lag report: with a full curriculum loaded that was
+    ~60 round trips to remote Postgres and took ~30s. The whole planner is only
+    a few thousand rows, so it's read once and grouped in memory instead.
+
+    Returns {(subject_lower, grade): [first-seen (chapter, month) rows]},
+    ordered exactly as get_planner_chapters would (subject, then the sheet's
+    own row order).
+    """
+    rows = (
+        db.query(models.PlannerTopic)
+        .order_by(models.PlannerTopic.subject, models.PlannerTopic.display_order)
+        .all()
+    )
+    by_key = {}
+    for r in rows:
+        by_key.setdefault((r.subject.lower(), r.grade), []).append(r)
+
+    chapters = {}
+    for key, group in by_key.items():
+        seen = {}
+        for r in group:
+            seen.setdefault((r.chapter_name, r.month), r)
+        chapters[key] = list(seen.values())
+    return chapters
+
+
+def _grouped_chapters(all_chapters: dict, subject: str, grade: int) -> List[models.PlannerTopic]:
+    """Chapters for a subject+grade, expanding a grouped subject (Science ->
+    its Biology/Physics/Chemistry streams) the same way get_planner_rows does."""
+    out = []
+    for member in subjects_in_group(subject):
+        out.extend(all_chapters.get((member.lower(), int(grade)), []))
+    seen = {}
+    for r in out:
+        seen.setdefault((r.chapter_name, r.month), r)
+    return list(seen.values())
+
+
 def get_lagging_report(db: Session, viewer_email: str, role: str) -> dict:
     """Where is each teacher against the curriculum mapping, right now.
 
@@ -559,7 +653,7 @@ def get_lagging_report(db: Session, viewer_email: str, role: str) -> dict:
     for p in pows:
         buckets.setdefault((p.teacher_email.lower(), p.subject, p.grade), []).append(p)
 
-    planner_cache = {}
+    all_chapters = _all_planner_chapters(db)   # one query, then all lookups are in memory
     rows = []
 
     for (email, subject, grade), entries in buckets.items():
@@ -568,9 +662,7 @@ def get_lagging_report(db: Session, viewer_email: str, role: str) -> dict:
         except (TypeError, ValueError):
             continue  # free-text grades like "7A" have no planner to compare against
 
-        if (subject, grade_int) not in planner_cache:
-            planner_cache[(subject, grade_int)] = get_planner_chapters(db, subject, grade_int)
-        chapters = planner_cache[(subject, grade_int)]
+        chapters = _grouped_chapters(all_chapters, subject, grade_int)
         if not chapters:
             continue  # nothing uploaded for this subject+grade — not a lag
 
@@ -630,9 +722,7 @@ def get_lagging_report(db: Session, viewer_email: str, role: str) -> dict:
                 subject, grade_int = a["subject"], a["grade"]
                 if (email, subject.lower(), str(grade_int)) in covered:
                     continue
-                if (subject, grade_int) not in planner_cache:
-                    planner_cache[(subject, grade_int)] = get_planner_chapters(db, subject, grade_int)
-                chapters = planner_cache[(subject, grade_int)]
+                chapters = _grouped_chapters(all_chapters, subject, grade_int)
                 if not chapters:
                     continue  # no curriculum uploaded for it — nothing to be behind on
 
