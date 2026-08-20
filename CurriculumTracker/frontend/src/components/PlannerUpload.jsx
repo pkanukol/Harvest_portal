@@ -87,9 +87,16 @@ export default function PlannerUpload({ token, onBack }) {
 
   const shown = preview || result;
 
+  // Everything below the picker is about ONE subject, so it waits for a
+  // subject to be chosen rather than dumping every subject's state on screen.
+  const subjectInventory = useMemo(
+    () => (subject ? inventory.filter((i) => i.subject.toLowerCase() === subject.toLowerCase()) : []),
+    [inventory, subject],
+  );
+
   // Warnings recorded at import time, still outstanding because nobody has
   // re-uploaded a corrected sheet for that grade yet.
-  const unresolved = inventory.filter((i) => (i.warnings || []).length > 0);
+  const unresolved = subjectInventory.filter((i) => (i.warnings || []).length > 0);
   const unresolvedCount = unresolved.reduce((n, i) => n + i.warnings.length, 0);
 
   return (
@@ -300,7 +307,9 @@ export default function PlannerUpload({ token, onBack }) {
         </>
       )}
 
-      <div className="section-title">Curriculum data currently loaded</div>
+      <div className="section-title">
+        {subject ? `${subject} — curriculum data currently loaded` : "Curriculum data currently loaded"}
+      </div>
       {unresolved.length > 0 && (
         <div className="upload-warnings">
           <strong>
@@ -313,8 +322,10 @@ export default function PlannerUpload({ token, onBack }) {
           </div>
         </div>
       )}
-      {inventory.length === 0 ? (
-        <div className="empty-msg">Nothing imported yet.</div>
+      {!subject ? (
+        <div className="empty-msg">Select a subject above to see what's loaded for it.</div>
+      ) : subjectInventory.length === 0 ? (
+        <div className="empty-msg">Nothing imported for {subject} yet.</div>
       ) : (
         <div className="card upload-preview-table">
           <table>
@@ -322,7 +333,7 @@ export default function PlannerUpload({ token, onBack }) {
               <tr><th>Subject</th><th>Grade</th><th>Chapters</th><th>Rows</th><th>Warnings</th><th>Uploaded</th></tr>
             </thead>
             <tbody>
-              {inventory.map((i) => {
+              {subjectInventory.map((i) => {
                 const key = `${i.subject}-${i.grade}`;
                 const count = (i.warnings || []).length;
                 return (
