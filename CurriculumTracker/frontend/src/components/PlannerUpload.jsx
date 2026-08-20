@@ -28,6 +28,7 @@ export default function PlannerUpload({ token, onBack }) {
   const [error, setError] = useState("");
   const [result, setResult] = useState(null);
   const [openGrade, setOpenGrade] = useState(null);
+  const [openStored, setOpenStored] = useState(null);
 
   const subject = subjectChoice === OTHER ? customSubject.trim() : subjectChoice;
 
@@ -85,6 +86,11 @@ export default function PlannerUpload({ token, onBack }) {
   }
 
   const shown = preview || result;
+
+  // Warnings recorded at import time, still outstanding because nobody has
+  // re-uploaded a corrected sheet for that grade yet.
+  const unresolved = inventory.filter((i) => (i.warnings || []).length > 0);
+  const unresolvedCount = unresolved.reduce((n, i) => n + i.warnings.length, 0);
 
   return (
     <div>
@@ -295,23 +301,59 @@ export default function PlannerUpload({ token, onBack }) {
       )}
 
       <div className="section-title">Curriculum data currently loaded</div>
+      {unresolved.length > 0 && (
+        <div className="upload-warnings">
+          <strong>
+            {unresolvedCount} unresolved warning{unresolvedCount === 1 ? "" : "s"} across{" "}
+            {unresolved.length} sheet{unresolved.length === 1 ? "" : "s"}
+          </strong>
+          <div className="hint-text upload-warnings-hint">
+            These describe problems in the uploaded sheets themselves, so they stay listed until a corrected
+            file is uploaded for that grade. Click a row below to read them.
+          </div>
+        </div>
+      )}
       {inventory.length === 0 ? (
         <div className="empty-msg">Nothing imported yet.</div>
       ) : (
         <div className="card upload-preview-table">
           <table>
             <thead>
-              <tr><th>Subject</th><th>Grade</th><th>Chapters</th><th>Rows</th></tr>
+              <tr><th>Subject</th><th>Grade</th><th>Chapters</th><th>Rows</th><th>Warnings</th><th>Uploaded</th></tr>
             </thead>
             <tbody>
-              {inventory.map((i) => (
-                <tr key={`${i.subject}-${i.grade}`}>
-                  <td>{i.subject}</td>
-                  <td>Grade {i.grade}</td>
-                  <td>{i.chapters}</td>
-                  <td>{i.rows}</td>
-                </tr>
-              ))}
+              {inventory.map((i) => {
+                const key = `${i.subject}-${i.grade}`;
+                const count = (i.warnings || []).length;
+                return (
+                  <Fragment key={key}>
+                    <tr
+                      className={count > 0 ? "lag-row-behind" : ""}
+                      onClick={() => count > 0 && setOpenStored(openStored === key ? null : key)}
+                    >
+                      <td>{i.subject}</td>
+                      <td>Grade {i.grade}</td>
+                      <td>{i.chapters}</td>
+                      <td>{i.rows}</td>
+                      <td>
+                        {count > 0
+                          ? <span className="badge badge-pending">{count} warning{count === 1 ? "" : "s"}</span>
+                          : <span className="badge badge-approved">clean</span>}
+                      </td>
+                      <td className="lag-last">{i.imported_at ? i.imported_at.slice(0, 10) : "—"}</td>
+                    </tr>
+                    {openStored === key && count > 0 && (
+                      <tr>
+                        <td colSpan={6} className="grade-detail-cell">
+                          <ul className="grade-detail-warnings">
+                            {i.warnings.map((w, n) => <li key={n}>{w}</li>)}
+                          </ul>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                );
+              })}
             </tbody>
           </table>
         </div>
