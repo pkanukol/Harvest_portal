@@ -7,6 +7,22 @@ function authHeaders(token) {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+// A stored token the backend rejects (expired at the weekly Monday reset, or
+// signed with a SECRET_KEY the server no longer has) used to leave the app
+// stuck: every call 401s, and since sign-out lives in the portal there is no
+// control here to clear it. So a 401 discards the dead session and sends the
+// user back to the portal, which re-enters the app with a fresh ?sso= token.
+let recovering = false;
+
+function recoverFromExpiredSession() {
+  if (recovering) return;                       // one redirect, not one per failed call
+  if (!localStorage.getItem("token")) return;   // never had a session — leave the login view alone
+  recovering = true;
+  ["token", "user", "real_token", "real_user"].forEach((k) => localStorage.removeItem(k));
+  const portalUrl = import.meta.env.VITE_PORTAL_URL || "https://his-academy360.netlify.app";
+  window.location.href = portalUrl;
+}
+
 async function request(path, { method = "GET", token, body } = {}) {
   const headers = { ...authHeaders(token) };
   const options = { method, headers };
@@ -18,6 +34,11 @@ async function request(path, { method = "GET", token, body } = {}) {
 
   const response = await fetch(`${API_BASE}${path}`, options);
   const data = await response.json().catch(() => ({}));
+
+  if (response.status === 401) {
+    recoverFromExpiredSession();
+    throw new Error("Your session has expired — sending you back to the portal to sign in again.");
+  }
 
   if (!response.ok) {
     throw new Error(data.detail || "Request failed");
@@ -38,6 +59,11 @@ async function upload(path, { token, file, fields = {} }) {
 
   const response = await fetch(`${API_BASE}${path}`, { method: "POST", headers: authHeaders(token), body: form });
   const data = await response.json().catch(() => ({}));
+
+  if (response.status === 401) {
+    recoverFromExpiredSession();
+    throw new Error("Your session has expired — sending you back to the portal to sign in again.");
+  }
 
   if (!response.ok) {
     // FastAPI returns a list of field errors for validation failures, a plain
