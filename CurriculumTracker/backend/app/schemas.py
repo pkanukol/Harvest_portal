@@ -97,6 +97,7 @@ class PowCardsResponse(BaseModel):
 
 class TeachersResponse(BaseModel):
     teachers: List[TeacherOut]
+    subjects: "SubjectOptions"    # same curriculum/other split the upload picker uses
 
 
 # ─── Curriculum upload ──────────────────────────────────────────────────────
