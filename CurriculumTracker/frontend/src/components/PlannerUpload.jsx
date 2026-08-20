@@ -336,9 +336,17 @@ export default function PlannerUpload({ token, onBack }) {
                       <td>{i.chapters}</td>
                       <td>{i.rows}</td>
                       <td>
-                        {count > 0
-                          ? <span className="badge badge-pending">{count} warning{count === 1 ? "" : "s"}</span>
-                          : <span className="badge badge-approved">clean</span>}
+                        {/* No import log at all (uploaded before warnings were
+                            recorded) is "not recorded", NOT "clean" — claiming a
+                            sheet is clean when nothing was ever checked is worse
+                            than admitting we don't know. */}
+                        {count > 0 ? (
+                          <span className="badge badge-pending">{count} warning{count === 1 ? "" : "s"}</span>
+                        ) : i.imported_at ? (
+                          <span className="badge badge-approved">clean</span>
+                        ) : (
+                          <span className="badge badge-created">not recorded</span>
+                        )}
                       </td>
                       <td className="lag-last">{i.imported_at ? i.imported_at.slice(0, 10) : "—"}</td>
                     </tr>
