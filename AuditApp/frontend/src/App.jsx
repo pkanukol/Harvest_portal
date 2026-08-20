@@ -137,6 +137,10 @@ export default function App() {
       setLocation(defaultLocation);
       loadTeachers(defaultLocation);
       loadCoaches(defaultLocation);
+      // Also load THIS user's own received observations — a teaching SME/coordinator is
+      // observed as a teacher and needs to see those reports (and add their remarks).
+      loadTeacherReports();
+      loadSpaTeacherReports();
     }
     loadAlerts();
   }, [isAuthenticated, user, loadTeacherReports, loadSpaTeacherReports, loadTeachers, loadCoaches, loadAlerts]);
@@ -244,10 +248,15 @@ export default function App() {
   };
 
   const headerSub = user?.role === "teacher" ? "My Observation Reports"
+    : view === "my-reports" ? "My Observation Reports"
     : view === "spa-dashboard" ? "SPA / Performing Arts Observation"
     : "Academic Implementation Audit";
   const showDashboardNav = isAuthenticated && user?.role !== "teacher" && view !== "dashboard";
   const showSpaNav = isAuthenticated && user?.role !== "teacher" && view !== "spa-dashboard";
+  // A non-teacher who is themselves observed (teaching SME/coordinator) gets a nav to their
+  // own received reports, shown only once they actually have any.
+  const hasReceivedReports = teacherReports.length > 0 || spaTeacherReports.length > 0;
+  const showMyReportsNav = isAuthenticated && user?.role !== "teacher" && hasReceivedReports && view !== "my-reports";
 
   return (
     <>
@@ -260,6 +269,8 @@ export default function App() {
           onDashboard={() => setView("dashboard")}
           showSpaNav={showSpaNav}
           onSpaDashboard={() => setView("spa-dashboard")}
+          showMyReportsNav={showMyReportsNav}
+          onMyReports={() => setView("my-reports")}
           onLogout={handleLogout}
         />
       )}
@@ -344,6 +355,20 @@ export default function App() {
               />
             )}
 
+            {view === "my-reports" && user.role !== "teacher" && (
+              <TeacherView
+                userName={user.name}
+                reports={teacherReports}
+                loading={reportsLoading}
+                error={reportsError}
+                onOpenReport={(obsId) => openDrawer(obsId)}
+                spaReports={spaTeacherReports}
+                spaReportsLoading={spaReportsLoading}
+                spaReportsError={spaReportsError}
+                onOpenSpaReport={(obsId) => openSpaDrawer(obsId)}
+              />
+            )}
+
             {view === "spa-dashboard" && user.role !== "teacher" && (
               <SpaDashboard
                 token={token}
@@ -380,11 +405,8 @@ export default function App() {
         obsId={drawerObsId}
         onClose={() => setDrawerOpen(false)}
         onUpdated={() => {
-          if (user?.role === "teacher") {
-            loadTeacherReports();
-          } else {
-            setDashboardRefreshKey((k) => k + 1);
-          }
+          loadTeacherReports();
+          if (user?.role !== "teacher") setDashboardRefreshKey((k) => k + 1);
         }}
       />
 
@@ -395,11 +417,8 @@ export default function App() {
         obsId={spaDrawerObsId}
         onClose={() => setSpaDrawerOpen(false)}
         onUpdated={() => {
-          if (user?.role === "teacher") {
-            loadSpaTeacherReports();
-          } else {
-            setSpaDashboardRefreshKey((k) => k + 1);
-          }
+          loadSpaTeacherReports();
+          if (user?.role !== "teacher") setSpaDashboardRefreshKey((k) => k + 1);
         }}
       />
     </>
