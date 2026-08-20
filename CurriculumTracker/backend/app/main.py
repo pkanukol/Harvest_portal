@@ -92,7 +92,7 @@ async def sso_login(req: schemas.SSORequest, db: Session = Depends(get_db)):
         "access_token": token, "token_type": "bearer", "role": app_role,
         "name": user.name, "email": user.email, "designation": user.designation,
         "subject": user.subject, "location": user.location,
-        "can_view_as": auth.can_view_as(user.email),
+        "can_view_as": auth.can_view_as(user.email, user.designation),
         "can_upload_curriculum": auth.can_upload_curriculum(
             auth.CurrentUser(user.email, user.name, user.designation, user.subject, app_role)
         ),
@@ -133,7 +133,7 @@ def get_me(
         "designation": user.designation, "subject": user.subject,
         "subjects": subjects, "location": user.location,
         # No chained impersonation: a previewed session can't switch onward.
-        "can_view_as": auth.can_view_as(user.email) and not current_user.view_as_actor,
+        "can_view_as": auth.can_view_as(user.email, user.designation) and not current_user.view_as_actor,
         "can_upload_curriculum": auth.can_upload_curriculum(resolved),
         "can_see_lagging": crud.can_see_lagging(app_role, user.designation),
     }
@@ -316,6 +316,11 @@ async def import_planner_workbook(
         counts = crud.replace_planner_grade(db, subject, g["grade"], g["rows"])
         out["replaced"] = counts["deleted"]
         out["imported"] = counts["inserted"]
+        # Kept so the sheet's own warnings stay visible after this session ends.
+        crud.save_import_log(
+            db, subject, g["grade"], g["tab"], counts["inserted"],
+            len(g["chapters"]), g["warnings"], current_user.email,
+        )
 
     logger.info(
         "Curriculum import by %s: %s — grades %s (%s rows)",
