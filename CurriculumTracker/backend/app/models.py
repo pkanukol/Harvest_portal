@@ -123,3 +123,26 @@ class PlannerTopic(Base):
     pre_req_grade = Column(String, nullable=True)
     cct = Column(String, nullable=True)
     display_order = Column(Integer, nullable=False, default=0)
+
+
+class PlannerImportLog(Base):
+    """One row per (subject, grade) imported, keeping the warnings that upload
+    raised so they stay visible after the uploader logs out — they describe
+    problems in the SOURCE SHEET (conflicting session counts, duplicate grade
+    tabs, rows with no chapter), which stay unresolved until someone fixes the
+    workbook and re-uploads. Replaced wholesale on re-import, so a corrected
+    sheet clears its own warnings."""
+    __tablename__ = "planner_import_logs"
+    __table_args__ = (
+        Index("ix_planner_import_subject_grade", "subject", "grade", unique=True),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    subject = Column(String, nullable=False)
+    grade = Column(Integer, nullable=False)
+    tab = Column(String, nullable=True)          # workbook tab this grade came from
+    row_count = Column(Integer, nullable=False, default=0)
+    chapter_count = Column(Integer, nullable=False, default=0)
+    warnings = Column(Text, nullable=True)        # JSON list of strings
+    imported_by = Column(String, nullable=True)
+    imported_at = Column(DateTime, default=datetime.datetime.utcnow)
