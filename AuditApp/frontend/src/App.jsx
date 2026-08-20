@@ -253,10 +253,18 @@ export default function App() {
     : "Academic Implementation Audit";
   const showDashboardNav = isAuthenticated && user?.role !== "teacher" && view !== "dashboard";
   const showSpaNav = isAuthenticated && user?.role !== "teacher" && view !== "spa-dashboard";
-  // A non-teacher who is themselves observed (teaching SME/coordinator) gets a nav to their
-  // own received reports, shown only once they actually have any.
+  // "My Reports" is for dual-hat staff who are observed as a teacher AND audit others — HODs
+  // and coordinators who take classes. Mirror the backend observability rule by designation
+  // (TEACHING_AUDITOR_DESIGNATIONS = Coordinator/HOD for auditors; any non-"Subject Matter
+  // Expert" designation for SMEs, i.e. HODs), so the nav shows for them even before their first
+  // observation. Fall back to actually having received reports — that covers the teaching-SME
+  // exception whose designation is literally "Subject Matter Expert" (e.g. Madhuri).
+  const takesClasses =
+    (user?.role === "auditor" && ["Coordinator", "HOD"].includes(user?.designation)) ||
+    (user?.role === "sme" && user?.designation !== "Subject Matter Expert");
   const hasReceivedReports = teacherReports.length > 0 || spaTeacherReports.length > 0;
-  const showMyReportsNav = isAuthenticated && user?.role !== "teacher" && hasReceivedReports && view !== "my-reports";
+  const showMyReportsNav =
+    isAuthenticated && user?.role !== "teacher" && (takesClasses || hasReceivedReports) && view !== "my-reports";
 
   return (
     <>
