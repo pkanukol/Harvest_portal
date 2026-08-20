@@ -106,6 +106,9 @@ class PlannerInventoryItem(BaseModel):
     grade: int
     rows: int
     chapters: int
+    warnings: List[str] = []       # from the last import, kept until a clean re-upload
+    imported_at: Optional[str] = None
+    imported_by: Optional[str] = None
 
 
 class SubjectOptions(BaseModel):
