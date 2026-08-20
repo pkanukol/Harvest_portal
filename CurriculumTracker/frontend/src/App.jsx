@@ -27,11 +27,13 @@ export default function App() {
     const params = new URLSearchParams(window.location.search);
     const ssoToken = params.get("sso");
     if (!ssoToken) return;
-    if (localStorage.getItem("token")) {
-      window.history.replaceState({}, "", window.location.pathname);
-      setSsoLoading(false);
-      return;
-    }
+
+    // Always exchange when the portal hands us a token, even if one is already
+    // stored. Skipping the exchange whenever localStorage held a token meant a
+    // DEAD token (expired at the weekly reset, or signed with a SECRET_KEY the
+    // backend no longer has) could never be replaced: arriving from the portal
+    // kept the broken session and every call 401'd, with no way back in. One
+    // extra exchange per portal launch is a cheap price for that.
 
     function attemptExchange(attemptNumber) {
       console.log(LOG, "attempt", attemptNumber);
