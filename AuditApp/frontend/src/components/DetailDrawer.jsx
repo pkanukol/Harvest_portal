@@ -320,7 +320,10 @@ export default function DetailDrawer({ open, token, user, obsId, onClose, onUpda
 
   const isCreator = obs && user && obs.auditor_id === user.id;
   const isDraftEditable = obs?.is_draft && isCreator;
-  const isTeacher = user?.role === "teacher";
+  // "isTeacher" here means "the person this observation is ABOUT" (teacher_id), regardless of
+  // their role — a teaching SME/coordinator is observed as a teacher on their own record, so
+  // they get the teacher-facing view (auditor's raw notes hidden) and can add their remarks.
+  const isTeacher = !!(obs && user && obs.teacher_id === user.id);
   const isTeacherRemarking = obs && isTeacher && !obs.is_draft && !obs.remarks_saved;
 
   const showActionPanel = isDraftEditable || isTeacherRemarking;
