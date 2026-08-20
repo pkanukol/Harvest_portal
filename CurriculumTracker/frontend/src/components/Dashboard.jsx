@@ -12,20 +12,35 @@ export default function Dashboard({ token, user, isReadOnlyViewer, isLeadership,
   const [cards, setCards] = useState(null);
   const [error, setError] = useState("");
   const [missingTbsMomPopup, setMissingTbsMomPopup] = useState(null);
+  const [subjectsLoading, setSubjectsLoading] = useState(false);
+  // Curriculum-vs-other split, straight from the API — the same grouping the
+  // Curriculum Upload picker uses, so the two screens read alike.
+  const [subjectGroups, setSubjectGroups] = useState({ curriculum: [], other: [] });
 
   // Subject filter options for SME/Leadership — cheap (no pow_entries touched),
   // so this is safe to fetch on mount even though the cards fetch itself is deferred.
   useEffect(() => {
     if (!isReadOnlyViewer) return;
-    api.getTeachers(token).then((res) => setTeachersList(res.teachers || [])).catch((err) => setError(err.message));
+    setSubjectsLoading(true);
+    api.getTeachers(token)
+      .then((res) => {
+        setTeachersList(res.teachers || []);
+        if (res.subjects) setSubjectGroups(res.subjects);
+      })
+      .catch((err) => setError(err.message))
+      .finally(() => setSubjectsLoading(false));
   }, [token, isReadOnlyViewer]);
 
+  // Grouped list when the API provides one; the flat list derived from the
+  // teachers is the fallback so an older backend still works.
   const subjectOptions = useMemo(() => {
+    const grouped = [...(subjectGroups.curriculum || []), ...(subjectGroups.other || [])];
+    if (grouped.length) return grouped;
     const seen = new Set();
     const list = [];
     teachersList.forEach((t) => { if (t.subject && !seen.has(t.subject)) { seen.add(t.subject); list.push(t.subject); } });
     return list;
-  }, [teachersList]);
+  }, [teachersList, subjectGroups]);
 
   useEffect(() => {
     if (isReadOnlyViewer && !subject && subjectOptions.length > 0) setSubject(subjectOptions[0]);
@@ -107,8 +122,23 @@ export default function Dashboard({ token, user, isReadOnlyViewer, isLeadership,
           <label className="form-label">Subject</label>
           {isReadOnlyViewer ? (
             <select className="form-control" value={subject} onChange={(e) => { setSubject(e.target.value); setGrade(""); setCards(null); }}>
-              {subjectOptions.length === 0 && <option value="">No subjects available</option>}
-              {subjectOptions.map((s) => <option key={s} value={s}>{s}</option>)}
+              {subjectOptions.length === 0 && (
+                <option value="">{subjectsLoading ? "Loading subjects…" : "No subjects available"}</option>
+              )}
+              {(subjectGroups.curriculum || []).length > 0 ? (
+                <>
+                  <optgroup label="Curriculum subjects">
+                    {subjectGroups.curriculum.map((s) => <option key={s} value={s}>{s}</option>)}
+                  </optgroup>
+                  {(subjectGroups.other || []).length > 0 && (
+                    <optgroup label="Other staff subjects">
+                      {subjectGroups.other.map((s) => <option key={s} value={s}>{s}</option>)}
+                    </optgroup>
+                  )}
+                </>
+              ) : (
+                subjectOptions.map((s) => <option key={s} value={s}>{s}</option>)
+              )}
             </select>
           ) : mySubjects.length > 1 ? (
             <select className="form-control" value={subject} onChange={(e) => { setSubject(e.target.value); setCards(null); }}>
