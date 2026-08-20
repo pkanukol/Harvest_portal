@@ -96,7 +96,16 @@ def get_current_user(token: str = Depends(oauth2_scheme)) -> CurrentUser:
     )
 
 
-def can_view_as(email: str) -> bool:
+# Gated by designation, not by email address. Email addresses in the shared
+# users table move between people (pavani.k@ belonged to the APM account and
+# now belongs to a Teacher), and an allowlisted address that changes hands
+# would silently hand impersonation to whoever holds it next.
+VIEW_AS_DESIGNATIONS = {"apm", "dlp manager"}
+
+
+def can_view_as(email: str, designation: str = "") -> bool:
+    if (designation or "").strip().lower() in VIEW_AS_DESIGNATIONS:
+        return True
     return (email or "").strip().lower() in settings.view_as_emails
 
 
@@ -106,7 +115,7 @@ def require_view_as(current_user: CurrentUser = Depends(get_current_user)) -> Cu
     of who the real actor is."""
     if current_user.view_as_actor:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Already previewing as someone else — reset to yourself first.")
-    if not can_view_as(current_user.email):
+    if not can_view_as(current_user.email, current_user.designation):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Your account is not allowed to preview the app as other staff.")
     return current_user
 
@@ -124,12 +133,14 @@ def require_sme(current_user: CurrentUser = Depends(get_current_user)) -> Curren
 
 
 # Who may upload curriculum workbooks, by designation — SMEs own their
-# subject's mapping, and the DLP Manager and APM administer it across
-# subjects. Deliberately NOT every 'auditor' role: coordinators, principals
-# and IT accounts all carry that role, and an upload replaces a whole
-# subject+grade. HOD is not on this list either (asked for as "Subject Matter
+# subject's mapping, and the Curriculum Heads, DLP Manager and APM administer
+# it across subjects. Deliberately NOT every 'auditor' role: coordinators,
+# principals and IT accounts all carry that role, and an upload replaces a
+# whole subject+grade. HOD is still excluded (the ask named "Subject Matter
 # Expert" specifically) — add "hod" here if that should change.
-CURRICULUM_UPLOAD_DESIGNATIONS = {"subject matter expert", "dlp manager", "apm"}
+CURRICULUM_UPLOAD_DESIGNATIONS = {
+    "subject matter expert", "curriculum head", "dlp manager", "apm",
+}
 
 
 def can_upload_curriculum(user: CurrentUser) -> bool:
