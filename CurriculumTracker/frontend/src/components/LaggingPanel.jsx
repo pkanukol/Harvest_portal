@@ -9,17 +9,47 @@ import { fmtDate } from "../dateUtils";
  * month than the teacher's POWs have reached. Scoped to whoever the viewer
  * already oversees: an SME sees their mapped teachers, leadership the school.
  */
+const OPEN_KEY = "lagPanelOpen";
+
 export default function LaggingPanel({ token, onOpenTeacher }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
   const [showAll, setShowAll] = useState(false);
   const [showMissing, setShowMissing] = useState(false);
+  // Collapsed state persists — this sits above the dashboard on every visit,
+  // so whoever prefers it shut shouldn't have to close it each time.
+  const [open, setOpen] = useState(() => localStorage.getItem(OPEN_KEY) !== "false");
 
+  function toggleOpen() {
+    setOpen((prev) => {
+      localStorage.setItem(OPEN_KEY, String(!prev));
+      return !prev;
+    });
+  }
+
+  // Only fetched when expanded — this report compares every teacher's POWs
+  // against the whole planner, so a collapsed panel shouldn't pay for it.
   useEffect(() => {
+    if (!open || data) return;
     api.getLagging(token).then(setData).catch((err) => setError(err.message));
-  }, [token]);
+  }, [token, open, data]);
 
   if (error) return <div className="form-error">{error}</div>;
+
+  if (!open) {
+    return (
+      <div className="lag-panel">
+        <div className="lag-header">
+          <button className="lag-toggle" onClick={toggleOpen} aria-expanded={false}>
+            <span className="lag-caret">▸</span>
+            <span className="section-title lag-title">📉 Curriculum lag</span>
+            <span className="lag-summary">show</span>
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (!data) return <div className="loading-spinner">Checking curriculum progress…</div>;
 
   const behind = data.rows.filter((r) => r.status === "behind");
@@ -28,17 +58,32 @@ export default function LaggingPanel({ token, onOpenTeacher }) {
   return (
     <div className="lag-panel">
       <div className="lag-header">
-        <div className="section-title lag-title">
-          📉 Curriculum lag — {data.generated_month}
-        </div>
-        <div className="lag-actions">
-          {data.rows.length > behind.length && (
-            <button className="btn btn-ghost btn-sm" onClick={() => setShowAll(!showAll)}>
-              {showAll ? "Only lagging" : `Show all ${data.rows.length}`}
-            </button>
-          )}
-        </div>
+        <button className="lag-toggle" onClick={toggleOpen} aria-expanded={open}>
+          <span className={`lag-caret ${open ? "lag-caret-open" : ""}`}>▸</span>
+          <span className="section-title lag-title">
+            📉 Curriculum lag — {data.generated_month}
+          </span>
+          {/* Collapsed, the headline number still has to be visible — the point
+              of the panel is noticing a lag without opening anything. */}
+          <span className="lag-summary">
+            {behind.length === 0
+              ? "all on track"
+              : `${behind.length} ${behind.length === 1 ? "class" : "classes"} behind`}
+          </span>
+        </button>
+        {open && (
+          <div className="lag-actions">
+            {data.rows.length > behind.length && (
+              <button className="btn btn-ghost btn-sm" onClick={() => setShowAll(!showAll)}>
+                {showAll ? "Only lagging" : `Show all ${data.rows.length}`}
+              </button>
+            )}
+          </div>
+        )}
       </div>
+
+      {open && (
+      <>
 
       {!data.directory_available && (
         <div className="upload-note lag-coverage">
@@ -132,6 +177,8 @@ export default function LaggingPanel({ token, onOpenTeacher }) {
             </div>
           )}
         </div>
+      )}
+      </>
       )}
     </div>
   );
