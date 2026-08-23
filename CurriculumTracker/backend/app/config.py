@@ -36,18 +36,26 @@ class Settings(BaseSettings):
     STAFF_SUPABASE_SERVICE_KEY: str = ""
     STAFF_DIRECTORY_TTL_SECONDS: int = 600
 
-    # Who may use "View as" to preview the app as another staff member.
+    # "View as" is granted by designation (auth.VIEW_AS_DESIGNATIONS: APM,
+    # DLP Manager). This is only an extra override; normally empty.
     # Comma-separated emails; empty disables the feature outright. This is
     # deliberately an allowlist and not just the Leadership role — every
     # coordinator carries role='auditor', and impersonation writes real POWs
     # attributed to the person being previewed.
-    VIEW_AS_ALLOWED_EMAILS: str = "pavani.k@harvestinternationalschool.in"
+    VIEW_AS_ALLOWED_EMAILS: str = ""
 
     # Curriculum upload is granted by DESIGNATION — see
     # auth.CURRICULUM_UPLOAD_DESIGNATIONS (Subject Matter Expert, DLP Manager,
     # APM). This is only an extra override for an account whose designation
     # doesn't reflect the job; normally empty.
     CURRICULUM_UPLOAD_EMAILS: str = ""
+
+    # POW notification email (shared Resend account with AuditApp). Leave
+    # RESEND_API_KEY blank and sends are simulated into the log instead — a
+    # notification failure must never break saving a POW.
+    RESEND_API_KEY: str = ""
+    RESEND_FROM_EMAIL: str = ""
+    APP_URL: str = "https://his-academy360.netlify.app"
 
     model_config = {"env_file": _ENV_FILE, "extra": "ignore"}
 
