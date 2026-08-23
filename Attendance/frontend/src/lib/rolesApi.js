@@ -2,6 +2,12 @@
 // uses to gate tabs, scope Reports/Admin/Approvals to a branch, and route leave
 // approvals. Everyone is keyed by employee_id.
 
+// A small allowlist who can open the "Attendance Check" audit (which staff
+// weren't read for a month). Independent of branch/admin roles.
+//   1285HISSJ = K Padma Pavani · 1251HISSJ = S Guru Prasad (DLP)
+//   1130      = Deepa Naveen (HR) · 285 = Sathish B V (IT Manager)
+export const ATTENDANCE_AUDIT_EMPLOYEE_IDS = ["1285HISSJ", "1251HISSJ", "1130", "285"];
+
 export async function fetchRoleConfig(client) {
   const [br, org, branchesRes] = await Promise.all([
     client.from("branch_role").select("*"),
