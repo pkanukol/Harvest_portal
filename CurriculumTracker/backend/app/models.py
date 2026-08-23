@@ -146,3 +146,31 @@ class PlannerImportLog(Base):
     warnings = Column(Text, nullable=True)        # JSON list of strings
     imported_by = Column(String, nullable=True)
     imported_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
+class CurriculumBackfill(Base):
+    """One-time record of curriculum covered BEFORE the app started collecting
+    POWs. An SME ticks the months/chapters already taught; from then on the app
+    tracks progress from POWs alone (see crud.backfill_credit).
+
+    A row means "this was covered". Whole chapter = topic/subtopic NULL;
+    otherwise the row names the specific topic/sub-topic, for a chapter only
+    partly done. Unticking deletes the row rather than storing done=False, so
+    the table only ever holds positive statements."""
+    __tablename__ = "curriculum_backfill"
+    __table_args__ = (
+        Index("ix_backfill_teacher_subject_grade", "teacher_email", "subject", "grade"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    # Per TEACHER, not just per class: two teachers sharing Grade 3 English can
+    # be at different points, so each is marked separately.
+    teacher_email = Column(String, nullable=False, index=True)
+    subject = Column(String, nullable=False)
+    grade = Column(Integer, nullable=False)
+    month = Column(String, nullable=False)
+    chapter_name = Column(String, nullable=False)
+    topic = Column(String, nullable=True)
+    subtopic = Column(String, nullable=True)
+    marked_by = Column(String, nullable=True)
+    marked_at = Column(DateTime, default=datetime.datetime.utcnow)
