@@ -9,6 +9,8 @@ export default function POWForm({ token, user, mode, prefillPow, onDone, onBack 
   // TBS MOM is filled in after the final save, so it only shows once this POW
   // has been finalised (see POWView for the same rule).
   const isFinalised = ["final", "reviewed", "approved"].includes(prefillPow?.status);
+  // The MOM window: open after the final save, closed once it has been saved.
+  const tbsMomOpen = isFinalised && !(prefillPow?.tbs_mom || "").trim();
   const { mon, fri } = nextWeekDates();
 
   // users.subject holds one subject, but staff_roles knows some teachers take
@@ -194,7 +196,7 @@ export default function POWForm({ token, user, mode, prefillPow, onDone, onBack 
       try {
         await api.updatePowImplementation(token, prefillPow.id, {
           impl_a: implA, impl_b: implB, impl_c: implC, impl_d: implD, impl_e: implE, impl_f: implF,
-          ...(isFinalised ? { tbs_mom: tbsMom } : {}),
+          ...(tbsMomOpen ? { tbs_mom: tbsMom } : {}),
           correction_done: correctionDone, instructions, teacher_remarks: teacherRemarks,
           final_save: finalSave,
         });
@@ -474,10 +476,16 @@ export default function POWForm({ token, user, mode, prefillPow, onDone, onBack 
               <label className="form-label">Teacher Remarks</label>
               <textarea className="form-control" value={teacherRemarks} onChange={(e) => setTeacherRemarks(e.target.value)} />
             </div>
-            {isFinalised && (
+            {tbsMomOpen && (
               <div className="form-group">
                 <label className="form-label">TBS MOM</label>
                 <textarea className="form-control" value={tbsMom} onChange={(e) => setTbsMom(e.target.value)} />
+              </div>
+            )}
+            {isFinalised && !tbsMomOpen && (
+              <div className="form-group">
+                <label className="form-label">TBS MOM</label>
+                <div className="readonly-field tbs-mom-recorded">{prefillPow.tbs_mom}</div>
               </div>
             )}
             <label className="checkbox-item">
