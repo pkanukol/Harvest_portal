@@ -29,6 +29,10 @@ export default function PlannerUpload({ token, onBack }) {
   const [result, setResult] = useState(null);
   const [openGrade, setOpenGrade] = useState(null);
   const [openStored, setOpenStored] = useState(null);
+  // Bumped after an import and on subject change: clearing `file` state does
+  // NOT clear what the file input displays, so the old filename would sit
+  // there next to a disabled Preview button.
+  const [fileInputKey, setFileInputKey] = useState(0);
 
   const subject = subjectChoice === OTHER ? customSubject.trim() : subjectChoice;
 
@@ -55,6 +59,15 @@ export default function PlannerUpload({ token, onBack }) {
 
   function resetPreview() { setPreview(null); setResult(null); setError(""); setOpenGrade(null); }
 
+  // Subject change starts over completely — a file picked for another subject
+  // is never what you want to upload next.
+  function onSubjectChange(value) {
+    setSubjectChoice(value);
+    setFile(null);
+    setFileInputKey((k) => k + 1);
+    resetPreview();
+  }
+
   async function runPreview() {
     if (!subject || !file) {
       setError("Please choose a subject and an Excel file first.");
@@ -77,6 +90,7 @@ export default function PlannerUpload({ token, onBack }) {
       setResult(await api.importPlanner(token, { file, subject, commit: true }));
       setPreview(null);
       setFile(null);
+      setFileInputKey((k) => k + 1);
       loadInventory();
     } catch (err) {
       setError(err.message);
@@ -128,7 +142,7 @@ export default function PlannerUpload({ token, onBack }) {
           <select
             className="form-control"
             value={subjectChoice}
-            onChange={(e) => { setSubjectChoice(e.target.value); resetPreview(); }}
+            onChange={(e) => onSubjectChange(e.target.value)}
           >
             <option value="">— select subject —</option>
             <optgroup label="Curriculum subjects">
@@ -154,6 +168,7 @@ export default function PlannerUpload({ token, onBack }) {
         <div className="form-group">
           <label className="form-label">Curriculum file (.xlsx)</label>
           <input
+            key={fileInputKey}
             className="form-control"
             type="file"
             accept=".xlsx,.xlsm"
@@ -166,7 +181,7 @@ export default function PlannerUpload({ token, onBack }) {
           </div>
         </div>
 
-        {subject && Object.keys(loadedGrades).length > 0 && !shown && (
+        {subject && !file && Object.keys(loadedGrades).length > 0 && !shown && (
           <div className="upload-note">
             {subject} already has {Object.keys(loadedGrades).sort((a, b) => a - b).map((g) => `Grade ${g}`).join(", ")} loaded.
             Only the grades present in the file you upload will be replaced.
