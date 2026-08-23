@@ -466,8 +466,12 @@ def get_pow(
             "impl_d": pow_entry.impl_d, "impl_e": pow_entry.impl_e, "impl_f": pow_entry.impl_f,
             "correction_done": pow_entry.correction_done, "instructions": pow_entry.instructions,
             "teacher_remarks": pow_entry.teacher_remarks, "status": pow_entry.status, "tbs_mom": pow_entry.tbs_mom,
+            # Inside `pow` deliberately: the frontend keeps res.pow in state, so
+            # a flag on the wrapper reads as undefined and silently disables
+            # every field (exactly what happened).
+            "can_edit": crud.can_edit_pow(_user, pow_entry),
+            "can_edit_tbs_mom": crud.can_edit_tbs_mom(_user, pow_entry),
         },
-        "can_edit": crud.can_edit_pow(_user, pow_entry),
         "review": ({
             "sme_email": review.sme_email, "cct_discussed": review.cct_discussed,
             "approved_closed": review.approved_closed, "remarks": review.remarks,
@@ -526,8 +530,18 @@ def update_pow_implementation(
     # this POW's subject may fill in their own section (A-F), not just whoever
     # created it — and the subject's SME may too. Group-aware, so a
     # Science-tagged teacher owns Physics/Biology/Chemistry POWs as well.
+    # After the final save only the TBS MOM may still change, so a request
+    # that touches nothing else is allowed through.
     if not crud.can_edit_pow(current_user, pow_entry):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only edit POWs for your own subject")
+        tbs_mom_only = req.tbs_mom is not None and not req.final_save and not any([
+            req.impl_a, req.impl_b, req.impl_c, req.impl_d, req.impl_e, req.impl_f,
+            req.correction_done, req.instructions, req.teacher_remarks,
+        ])
+        if not (tbs_mom_only and crud.can_edit_tbs_mom(current_user, pow_entry)):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This POW is finalised — only its TBS MOM can still be updated, and only by a teacher of this subject.",
+            )
     crud.update_pow_implementation(db, pow_entry, req)
     _notify_pow(background, db, pow_entry, current_user.name, "updated")
     return {"success": True, "final_save": req.final_save}
