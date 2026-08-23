@@ -180,22 +180,43 @@ export async function importBiometricRecords(client, records) {
 // phase1_schema.sql). That's a separate, real prerequisite: Admin ->
 // Configure Staff Schedule for that person.
 export async function bridgeToAttendancePipeline(client, employeeIds, fromDate, toDate) {
-  const { data: dailyRows, error: dailyError } = await client
-    .from("employee_daily_attendance")
-    .select("employee_id, attendance_date, in_time, out_time")
-    .in("employee_id", employeeIds)
-    .gte("attendance_date", fromDate)
-    .lte("attendance_date", toDate);
-  if (dailyError) throw dailyError;
+  // Page through the reads: Supabase caps a single response at ~1000 rows, and a
+  // month across all staff is many thousands of daily rows. Fetching in one shot
+  // silently dropped everyone past the first ~1000 rows (staff deep in the
+  // report never got bridged). employeeIds is an OPTIONAL filter (used by the
+  // single-person retry); when null, every employee in the date range is bridged.
+  const PAGE = 1000;
+
+  const dailyRows = [];
+  for (let offset = 0; ; offset += PAGE) {
+    let q = client
+      .from("employee_daily_attendance")
+      .select("employee_id, attendance_date, in_time, out_time")
+      .gte("attendance_date", fromDate)
+      .lte("attendance_date", toDate)
+      .order("employee_id", { ascending: true })
+      .order("attendance_date", { ascending: true })
+      .range(offset, offset + PAGE - 1);
+    if (employeeIds && employeeIds.length) q = q.in("employee_id", employeeIds);
+    const { data, error } = await q;
+    if (error) throw error;
+    dailyRows.push(...(data ?? []));
+    if (!data || data.length < PAGE) break;
+  }
 
   // The attendance key IS employee_id now, so "bridging" is just: keep the rows
   // whose employee_id exists in staff_master, and use employee_id as staff_id.
-  const { data: masterRows, error: masterError } = await client
-    .from("staff_master")
-    .select("employee_id")
-    .in("employee_id", employeeIds);
-  if (masterError) throw masterError;
-  const knownEmployeeIds = new Set((masterRows ?? []).map((r) => r.employee_id));
+  const knownEmployeeIds = new Set();
+  for (let offset = 0; ; offset += PAGE) {
+    const { data, error } = await client
+      .from("staff_master")
+      .select("employee_id")
+      .order("employee_id", { ascending: true })
+      .range(offset, offset + PAGE - 1);
+    if (error) throw error;
+    (data ?? []).forEach((r) => r.employee_id && knownEmployeeIds.add(r.employee_id));
+    if (!data || data.length < PAGE) break;
+  }
 
   const byStaffId = new Map(); // staffId(=employee_id) -> { staffId, dates: [], rows: [] }
   const noEmailInMaster = new Set(); // employee_id absent from staff_master entirely
