@@ -1,5 +1,5 @@
 from typing import Optional, List
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class SSORequest(BaseModel):
@@ -95,9 +95,18 @@ class PowCardsResponse(BaseModel):
     cards: List[PowCardOut]
 
 
+class SubjectOptions(BaseModel):
+    curriculum: List[str] = []  # subjects curriculum workbooks exist for — offered first
+    other: List[str] = []       # every other subject staff are tagged with
+
+
 class TeachersResponse(BaseModel):
     teachers: List[TeacherOut]
-    subjects: "SubjectOptions"    # same curriculum/other split the upload picker uses
+    # Optional with a default on purpose: a required field here means any
+    # response that omits it is a 500 rather than a slightly emptier dropdown —
+    # which is what a half-deployed backend produced. The frontend already
+    # falls back to deriving subjects from the teacher list.
+    subjects: SubjectOptions = Field(default_factory=SubjectOptions)
 
 
 # ─── Curriculum upload ──────────────────────────────────────────────────────
@@ -110,11 +119,6 @@ class PlannerInventoryItem(BaseModel):
     warnings: List[str] = []       # from the last import, kept until a clean re-upload
     imported_at: Optional[str] = None
     imported_by: Optional[str] = None
-
-
-class SubjectOptions(BaseModel):
-    curriculum: List[str]  # subjects curriculum workbooks exist for — offered first
-    other: List[str]       # every other subject staff are tagged with
 
 
 class PlannerInventoryResponse(BaseModel):
