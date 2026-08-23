@@ -199,3 +199,4 @@ th { color: var(--muted); font-weight: 600; font-size: 11px; }
 .backfill-month-row td { background: var(--bg-soft); }
 .backfill-month-btn { margin-left: 12px; }
 .backfill-picker { max-width: 380px; }
+.tbs-mom-recorded { padding: 9px 12px; border: 1.5px solid var(--border); border-radius: 8px; font-size: 13px; white-space: pre-wrap; }
