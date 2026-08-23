@@ -46,14 +46,22 @@ export default function POWView({ token, user, powId, onBack, onDone }) {
   if (!pow) return <div className="loading-spinner">Loading…</div>;
 
   const isSME = user.role === "SME";
-  const isTeacher = user.role === "Teacher";
+  // Whether this viewer may edit is decided server-side (crud.can_edit_pow) —
+  // it depends on subject groups and staff_roles assignments the client can't
+  // work out on its own.
+  const canEdit = Boolean(pow.can_edit);
+  // Who may fill in the implementation, from the server (crud.can_edit_pow):
+  // role==Teacher was too narrow — HODs, Coordinators and SMEs who teach their
+  // own classes were locked out of their own POWs. This does NOT let an SME
+  // change what another teacher planned; SMEs review via remarks below.
+  const canFillImplementation = canEdit;
   // "final" | "reviewed" | "approved" all mean the teacher's own implementation
   // pass is done — see crud.STATUS_LABELS for the full lifecycle.
   const isPastFinalSave = ["final", "reviewed", "approved"].includes(pow.status);
-  const isLocked = !isTeacher || isPastFinalSave;
+  const isLocked = !canFillImplementation || isPastFinalSave;
   // TBS MOM stays editable by the teacher regardless of status — only
   // non-teacher viewers are ever locked out of it.
-  const isTbsMomLocked = !isTeacher;
+  const isTbsMomLocked = !canFillImplementation;
   const hasImpl = [implA, implB, implC, implD, implE, implF].some((v) => v && v.trim().length > 0);
   const cctYes = (pow.cct_topic_yn || "").toLowerCase() === "yes";
 
@@ -144,12 +152,17 @@ export default function POWView({ token, user, powId, onBack, onDone }) {
           <tr><th>Teacher</th><td>{pow.teacher_email}</td></tr>
           <tr><th>Chapter</th><td>{pow.topic}</td></tr>
           <tr><th>Topic / Sub Topic</th><td>{pow.subtopic || "—"}</td></tr>
+          <tr><th>CCQ Topic</th><td>{pow.cct_topic_yn || "—"}{pow.cct_topic_text ? ` — ${pow.cct_topic_text}` : ""}</td></tr>
+        </tbody>
+      </table>
+
+      <table>
+        <tbody>
           <tr><th>LP Session #</th><td>{pow.lp_session_num || "—"}</td></tr>
           <tr><th>Class Work</th><td>{pow.cw || "—"}</td></tr>
           <tr><th>Binder</th><td>{pow.binder || "—"}</td></tr>
           <tr><th>Activity</th><td>{pow.activity || "—"}</td></tr>
           <tr><th>Homework</th><td>{pow.homework || "—"}</td></tr>
-          <tr><th>CCT Topic</th><td>{pow.cct_topic_yn || "—"}{pow.cct_topic_text ? ` — ${pow.cct_topic_text}` : ""}</td></tr>
         </tbody>
       </table>
 
@@ -218,7 +231,7 @@ export default function POWView({ token, user, powId, onBack, onDone }) {
                 disabled={approvedClosed}
                 onChange={(e) => setCctDiscussed(e.target.checked)}
               />
-              CCT discussed
+              CCQ discussed
             </label>
           )}
           <div className="form-group" style={{ marginTop: 12 }}>
