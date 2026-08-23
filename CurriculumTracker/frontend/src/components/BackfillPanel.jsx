@@ -34,6 +34,19 @@ export default function BackfillPanel({ token, subject, grade, teachers = [] }) 
       .catch((err) => setError(err.message));
   }, [token, subject, grade, teacher]);
 
+  async function reopen() {
+    setSaving(true);
+    setError("");
+    try {
+      await api.reopenBackfill(token, { subject, grade: Number(grade), teacher_email: teacher });
+      setData(await api.getBackfill(token, subject, grade, teacher));
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
   if (!subject || !grade) return null;
 
   const picker = (
@@ -73,8 +86,12 @@ export default function BackfillPanel({ token, subject, grade, teachers = [] }) 
       <div className="backfill-panel">
         {picker}
         <div className="upload-note backfill-note">
-          {teacherName} has already filed {data.pow_count} POW(s) for {subject} Grade {grade}, so their
-          progress is tracked from POWs and past coverage can no longer be marked.
+          Past coverage for {teacherName} — {subject} Grade {grade} was confirmed complete
+          {data.confirmed_by ? ` by ${data.confirmed_by}` : ""}
+          {data.confirmed_at ? ` on ${data.confirmed_at.slice(0, 10)}` : ""}.
+          <button className="btn btn-ghost btn-sm backfill-month-btn" disabled={saving} onClick={reopen}>
+            Reopen for changes
+          </button>
         </div>
       </div>
     );
@@ -124,8 +141,8 @@ export default function BackfillPanel({ token, subject, grade, teachers = [] }) 
     setSaved(false);
   }
 
-  async function save() {
-    setSaving(true);
+  async function save(opts = {}) {
+    if (!opts.silent) setSaving(true);
     setError("");
     const marks = [];
     data.chapters.forEach((c) => {
@@ -139,7 +156,24 @@ export default function BackfillPanel({ token, subject, grade, teachers = [] }) 
     });
     try {
       await api.saveBackfill(token, { subject, grade: Number(grade), teacher_email: teacher, marks });
-      setSaved(true);
+      if (!opts.silent) {
+        setSaved(true);
+        setData(await api.getBackfill(token, subject, grade, teacher));
+      }
+    } catch (err) {
+      setError(err.message);
+      if (opts.silent) throw err;      // let confirmDone() stop on a failed save
+    } finally {
+      if (!opts.silent) setSaving(false);
+    }
+  }
+
+  async function confirmDone() {
+    setSaving(true);
+    setError("");
+    try {
+      await save({ silent: true });
+      await api.confirmBackfill(token, { subject, grade: Number(grade), teacher_email: teacher });
       setData(await api.getBackfill(token, subject, grade, teacher));
     } catch (err) {
       setError(err.message);
@@ -242,10 +276,18 @@ export default function BackfillPanel({ token, subject, grade, teachers = [] }) 
           </div>
 
           <div className="form-actions">
-            <span />
-            <button className="btn btn-primary" disabled={saving} onClick={save}>
-              {saving ? "Saving…" : "Save coverage"}
-            </button>
+            <span className="hint-text">
+              Save as often as you like — this stays open, even after teachers start filing POWs. Confirm
+              only when {teacherName}&apos;s past coverage is complete.
+            </span>
+            <div className="backfill-actions">
+              <button className="btn btn-ghost" disabled={saving} onClick={() => save()}>
+                {saving ? "Saving…" : "Save coverage"}
+              </button>
+              <button className="btn btn-primary" disabled={saving} onClick={confirmDone}>
+                Save &amp; confirm done
+              </button>
+            </div>
           </div>
         </>
       )}
