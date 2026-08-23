@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Chart from "chart.js/auto";
 import { api } from "../api";
+import BackfillPanel from "./BackfillPanel";
 
 export default function Progress({ token, user, isReadOnlyViewer, onBack }) {
   const [teachersList, setTeachersList] = useState([]);
@@ -9,6 +10,8 @@ export default function Progress({ token, user, isReadOnlyViewer, onBack }) {
   // and a real failure was swallowed silently by an empty catch.
   const [subjectsLoading, setSubjectsLoading] = useState(false);
   const [subjectsError, setSubjectsError] = useState("");
+  // Same curriculum/other split as the dashboard and the upload picker.
+  const [subjectGroups, setSubjectGroups] = useState({ curriculum: [], other: [] });
 
   // Self-sufficient — fetches its own subject options rather than relying on
   // the Dashboard having been visited first (mirrors Dashboard.jsx's own
@@ -18,20 +21,25 @@ export default function Progress({ token, user, isReadOnlyViewer, onBack }) {
     setSubjectsLoading(true);
     setSubjectsError("");
     api.getTeachers(token)
-      .then((res) => setTeachersList(res.teachers || []))
+      .then((res) => {
+        setTeachersList(res.teachers || []);
+        if (res.subjects) setSubjectGroups(res.subjects);
+      })
       .catch((err) => setSubjectsError(err.message))
       .finally(() => setSubjectsLoading(false));
   }, [token, isReadOnlyViewer]);
 
   const subjects = useMemo(() => {
     if (!isReadOnlyViewer) return [user.subject];
+    const grouped = [...(subjectGroups.curriculum || []), ...(subjectGroups.other || [])];
+    if (grouped.length) return grouped;
     const seen = new Set();
     const list = [];
     teachersList.forEach((t) => {
       if (t.subject && !seen.has(t.subject)) { seen.add(t.subject); list.push(t.subject); }
     });
     return list;
-  }, [isReadOnlyViewer, teachersList, user.subject]);
+  }, [isReadOnlyViewer, teachersList, user.subject, subjectGroups]);
 
   const [subject, setSubject] = useState(isReadOnlyViewer ? "" : user.subject);
   const [grade, setGrade] = useState("");
@@ -99,7 +107,20 @@ export default function Progress({ token, user, isReadOnlyViewer, onBack }) {
                   {subjectsLoading ? "Loading subjects…" : subjectsError ? "Couldn't load subjects" : "No subjects available"}
                 </option>
               )}
-              {subjects.map((s) => <option key={s} value={s}>{s}</option>)}
+              {(subjectGroups.curriculum || []).length > 0 ? (
+                <>
+                  <optgroup label="Curriculum subjects">
+                    {subjectGroups.curriculum.map((s) => <option key={s} value={s}>{s}</option>)}
+                  </optgroup>
+                  {(subjectGroups.other || []).length > 0 && (
+                    <optgroup label="Other staff subjects">
+                      {subjectGroups.other.map((s) => <option key={s} value={s}>{s}</option>)}
+                    </optgroup>
+                  )}
+                </>
+              ) : (
+                subjects.map((s) => <option key={s} value={s}>{s}</option>)
+              )}
             </select>
           ) : (
             <input className="form-control readonly-field" value={subject} readOnly />
@@ -110,6 +131,17 @@ export default function Progress({ token, user, isReadOnlyViewer, onBack }) {
           <input className="form-control" value={grade} onChange={(e) => setGrade(e.target.value)} placeholder="e.g. 6" />
         </div>
       </div>
+
+
+      {user.can_upload_curriculum && (
+        <BackfillPanel
+          token={token}
+          subject={subject}
+          grade={grade}
+          teachers={teachersList.filter((t) => (t.subject || "").toLowerCase() === (subject || "").toLowerCase())}
+        />
+      )}
+
 
       {error && <div className="form-error">{error}</div>}
 
