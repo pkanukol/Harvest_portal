@@ -144,6 +144,18 @@ export async function fetchMissingDays(client, branch) {
   return (data ?? []).map((r) => r.missing_date);
 }
 
+// Staff with no attendance data at all for [fromIso, toIso] (not read this
+// month). Server-side via RPC, so no client row cap.
+export async function fetchAttendanceNotRead(client, fromIso, toIso, branch) {
+  const { data, error } = await client.rpc("attendance_not_read", {
+    p_from: fromIso,
+    p_to: toIso,
+    p_branch: branch || null,
+  });
+  if (error) throw error;
+  return data ?? [];
+}
+
 export async function matchAgainstStaffMaster(client, employeeCodes) {
   const uniqueCodes = [...new Set(employeeCodes)];
   const { data, error } = await client.from("staff_master").select("employee_id, employee_name").in("employee_id", uniqueCodes);
