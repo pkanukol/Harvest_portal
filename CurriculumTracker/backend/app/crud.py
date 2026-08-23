@@ -670,10 +670,15 @@ def can_edit_pow(user, pow_entry) -> bool:
 
 
 def can_edit_tbs_mom(user, pow_entry) -> bool:
-    """TBS MOM stays editable after the final save — the discussion it records
-    happens later, which is the whole point of the missing-MOM reminder. So it
-    follows "do you teach this subject", with no status condition."""
-    return teaches_pow_subject(user, pow_entry)
+    """TBS MOM has a window, not a permission: it opens at Confirm Final Save
+    (the discussion it records happens after the POW is finalised, which is
+    what the missing-MOM reminder chases) and closes once it has been filled in
+    and saved. A recorded minute isn't something to rewrite later."""
+    if not teaches_pow_subject(user, pow_entry):
+        return False
+    if pow_entry.status not in FINALISED_STATUSES:
+        return False                                  # not due yet — field is hidden
+    return not (pow_entry.tbs_mom or "").strip()      # only while still empty
 
 
 def get_pow_notification_recipients(db: Session, teacher_email: str, subject: str = "") -> List[dict]:
