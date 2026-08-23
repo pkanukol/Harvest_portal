@@ -2,7 +2,19 @@ import { createContext, useContext, useMemo, useState } from "react";
 
 const AuthContext = createContext(null);
 
+// Arriving with ?sso= means the portal is handing over a fresh identity, so
+// any stored session is stale by definition. Dropping it BEFORE React reads it
+// matters: otherwise the dashboard and /api/me fire with the old token while
+// the exchange is still in flight, and a 401 from those would bounce to the
+// portal mid-exchange — the app and the portal then ping-pong forever.
+function clearStaleSessionOnSsoArrival() {
+  if (!new URLSearchParams(window.location.search).get("sso")) return;
+  ["token", "user", "real_token", "real_user"].forEach((k) => localStorage.removeItem(k));
+}
+
 export function AuthProvider({ children }) {
+  clearStaleSessionOnSsoArrival();
+
   const [token, setToken] = useState(() => localStorage.getItem("token"));
   const [user, setUser] = useState(() => {
     const stored = localStorage.getItem("user");
@@ -26,6 +38,7 @@ export function AuthProvider({ children }) {
       can_view_as: Boolean(ssoResponse.can_view_as),
       can_upload_curriculum: Boolean(ssoResponse.can_upload_curriculum),
       can_see_lagging: Boolean(ssoResponse.can_see_lagging),
+      can_create_pow: Boolean(ssoResponse.can_create_pow),
     };
     setToken(ssoResponse.access_token);
     setUser(nextUser);
