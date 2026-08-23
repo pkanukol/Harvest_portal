@@ -17,7 +17,8 @@ class SSOResponse(BaseModel):
     location: Optional[str] = None
     can_view_as: bool = False  # allowlisted to preview the app as other staff
     can_upload_curriculum: bool = False  # SME, or a named curriculum administrator
-    can_see_lagging: bool = False  # SME/HOD and leadership — the curriculum-lag dashboard
+    can_see_lagging: bool = False   # SME/HOD and leadership — the curriculum-lag dashboard
+    can_create_pow: bool = False    # also teaches, so may file POWs regardless of role
 
 
 class MeResponse(BaseModel):
@@ -33,6 +34,7 @@ class MeResponse(BaseModel):
     can_view_as: bool = False
     can_upload_curriculum: bool = False
     can_see_lagging: bool = False
+    can_create_pow: bool = False
 
 
 class ViewAsRequest(BaseModel):
