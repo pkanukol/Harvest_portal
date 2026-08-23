@@ -242,12 +242,20 @@ class BackfillChapter(BaseModel):
     items_done: int = 0
 
 
+class BackfillConfirmRequest(BaseModel):
+    subject: str
+    grade: int
+    teacher_email: str
+
+
 class BackfillResponse(BaseModel):
     subject: str
     grade: int
     teacher_email: str
+    confirmed_by: Optional[str] = None
+    confirmed_at: Optional[str] = None
     months: List[str]            # months already past — the only ones markable
     chapters: List[BackfillChapter]
-    locked: bool                 # a POW exists, so marking is closed for good
+    locked: bool                 # confirmed complete by an SME — POWs do not lock it
     pow_count: int
     marked_by: Optional[str] = None
