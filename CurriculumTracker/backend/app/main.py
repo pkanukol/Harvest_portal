@@ -1,13 +1,13 @@
 import logging
 import time
 import httpx
-from fastapi import FastAPI, Depends, HTTPException, Request, status, Query, File, Form, UploadFile
+from fastapi import FastAPI, BackgroundTasks, Depends, HTTPException, Request, status, Query, File, Form, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 
 from .config import settings
 from .database import engine, Base, get_db, run_migrations
-from . import models, schemas, crud, auth, excel_import, staff_directory
+from . import models, schemas, crud, auth, excel_import, staff_directory, email_service_resend
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("curriculum_tracker")
@@ -97,6 +97,9 @@ async def sso_login(req: schemas.SSORequest, db: Session = Depends(get_db)):
             auth.CurrentUser(user.email, user.name, user.designation, user.subject, app_role)
         ),
         "can_see_lagging": crud.can_see_lagging(app_role, user.designation),
+        "can_create_pow": auth.can_author_pow(
+            auth.CurrentUser(user.email, user.name, user.designation, user.subject, app_role)
+        ),
     }
 
 
@@ -136,6 +139,7 @@ def get_me(
         "can_view_as": auth.can_view_as(user.email, user.designation) and not current_user.view_as_actor,
         "can_upload_curriculum": auth.can_upload_curriculum(resolved),
         "can_see_lagging": crud.can_see_lagging(app_role, user.designation),
+        "can_create_pow": auth.can_author_pow(resolved),
     }
 
 
@@ -200,6 +204,9 @@ def view_as(
             auth.CurrentUser(target.email, target.name, target.designation, target.subject, app_role)
         ),
         "can_see_lagging": crud.can_see_lagging(app_role, target.designation),
+        "can_create_pow": auth.can_author_pow(
+            auth.CurrentUser(target.email, target.name, target.designation, target.subject, app_role)
+        ),
     }
 
 
@@ -421,16 +428,38 @@ def get_pow(
     }
 
 
+def _notify_pow(background: BackgroundTasks, db: Session, pow_entry: models.PowEntry,
+                teacher_name: str, action: str) -> None:
+    """Queued as a background task so email latency never delays the save, and
+    a Resend outage can't fail the request."""
+    recipients = crud.get_pow_notification_recipients(db, pow_entry.teacher_email, pow_entry.subject)
+    background.add_task(
+        email_service_resend.send_pow_notification,
+        recipients=recipients,
+        teacher_name=teacher_name or pow_entry.teacher_email,
+        action=action,
+        subject=pow_entry.subject,
+        grade=pow_entry.grade,
+        week=f"{pow_entry.week_start} to {pow_entry.week_end}",
+        topic=pow_entry.topic or "",
+        subtopic=pow_entry.subtopic or "",
+        sessions=pow_entry.lp_session_num or "",
+        status_label=crud.STATUS_LABELS.get(pow_entry.status, pow_entry.status),
+    )
+
+
 @app.post("/api/pow")
 def create_pow(
     req: schemas.PowCreateRequest,
+    background: BackgroundTasks,
     db: Session = Depends(get_db),
-    current_user: auth.CurrentUser = Depends(auth.require_teacher),
+    current_user: auth.CurrentUser = Depends(auth.require_pow_author),
 ):
     dup = crud.find_duplicate_pow(db, req.subject, req.grade, req.week_start, req.topic, req.subtopic or "")
     if dup:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="A POW already exists for this week, subject, grade, topic and sub-topic.")
     pow_entry = crud.create_pow(db, current_user.email, req)
+    _notify_pow(background, db, pow_entry, current_user.name, "created")
     return {"success": True, "id": pow_entry.id}
 
 
@@ -438,8 +467,9 @@ def create_pow(
 def update_pow_implementation(
     pow_id: int,
     req: schemas.PowImplementationRequest,
+    background: BackgroundTasks,
     db: Session = Depends(get_db),
-    current_user: auth.CurrentUser = Depends(auth.require_teacher),
+    current_user: auth.CurrentUser = Depends(auth.require_pow_author),
 ):
     pow_entry = crud.get_pow(db, pow_id)
     if not pow_entry:
@@ -449,10 +479,11 @@ def update_pow_implementation(
     # created it — so the check here is subject-scoped, not creator-scoped.
     # Group-aware: a Science-tagged teacher owns Physics/Biology/Chemistry POWs
     # too, since that's the subject their POWs are filed under.
-    allowed_subjects = [s.lower() for s in crud.subjects_in_group(current_user.subject or "")]
+    allowed_subjects = [s.lower() for s in auth.teaching_subjects(current_user)]
     if (pow_entry.subject or "").lower() not in allowed_subjects:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only edit POWs for your own subject")
     crud.update_pow_implementation(db, pow_entry, req)
+    _notify_pow(background, db, pow_entry, current_user.name, "updated")
     return {"success": True, "final_save": req.final_save}
 
 
