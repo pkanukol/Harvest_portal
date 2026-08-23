@@ -192,3 +192,10 @@ th { color: var(--muted); font-weight: 600; font-size: 11px; }
 .lag-caret-open { transform: rotate(90deg); }
 .lag-summary { font-size: 11px; font-weight: 600; color: var(--muted); background: var(--bg-soft); padding: 3px 10px; border-radius: 20px; }
 .upload-warnings-hint { margin: 6px 0 0; color: #8a5a10; }
+
+/* Backfill marking */
+.backfill-panel { margin: 16px 0 24px; }
+.backfill-note { margin: 12px 0; }
+.backfill-month-row td { background: var(--bg-soft); }
+.backfill-month-btn { margin-left: 12px; }
+.backfill-picker { max-width: 380px; }
