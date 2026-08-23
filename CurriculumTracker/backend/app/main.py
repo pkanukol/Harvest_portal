@@ -394,11 +394,41 @@ def save_backfill(
     if view["locked"]:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"This teacher already has {view['pow_count']} POW(s) for {req.subject} Grade {req.grade} — progress is tracked from POWs now, so past coverage can no longer be marked.",
+            detail=f"Past coverage for {req.subject} Grade {req.grade} was confirmed complete by "
+                   f"{view['confirmed_by'] or 'an SME'} — reopen it first if it needs changing.",
         )
     result = crud.save_backfill(db, req.subject, req.grade, req.teacher_email, req.marks, current_user.email)
     logger.info("Backfill saved by %s for %s: %s Grade %s — %s marks",
                 current_user.email, req.teacher_email, req.subject, req.grade, result["saved"])
+    return {"success": True, **result}
+
+
+@app.post("/api/backfill/confirm")
+def confirm_backfill(
+    req: schemas.BackfillConfirmRequest,
+    db: Session = Depends(get_db),
+    current_user: auth.CurrentUser = Depends(auth.require_curriculum_uploader),
+):
+    """The SME saying "past coverage for this teacher is complete". This — not
+    the arrival of POWs — is what closes the marking."""
+    _check_backfill_scope(db, current_user, req.subject)
+    result = crud.confirm_backfill(db, req.subject, req.grade, req.teacher_email, current_user.email)
+    logger.info("Backfill confirmed by %s for %s: %s Grade %s",
+                current_user.email, req.teacher_email, req.subject, req.grade)
+    return {"success": True, **result}
+
+
+@app.post("/api/backfill/reopen")
+def reopen_backfill(
+    req: schemas.BackfillConfirmRequest,
+    db: Session = Depends(get_db),
+    current_user: auth.CurrentUser = Depends(auth.require_curriculum_uploader),
+):
+    """Undo a confirmation — the marks are kept, the window just opens again."""
+    _check_backfill_scope(db, current_user, req.subject)
+    result = crud.reopen_backfill(db, req.subject, req.grade, req.teacher_email)
+    logger.info("Backfill reopened by %s for %s: %s Grade %s",
+                current_user.email, req.teacher_email, req.subject, req.grade)
     return {"success": True, **result}
 
 
