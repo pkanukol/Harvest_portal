@@ -400,7 +400,7 @@ export default function POWForm({ token, user, mode, prefillPow, onDone, onBack 
             </div>
 
             <div className="form-group">
-              <label className="form-label">CCT Topic this week?</label>
+              <label className="form-label">CCQ Topic this week?</label>
               <div className="checkbox-list" style={{ flexDirection: "row", gap: 20 }}>
                 <label className="checkbox-item">
                   <input type="radio" name="cctYn" checked={cctYes} onChange={() => setCctYes(true)} />
@@ -414,11 +414,11 @@ export default function POWForm({ token, user, mode, prefillPow, onDone, onBack 
               {cctYes && (
                 <div className="form-row" style={{ marginTop: 8 }}>
                   <div className="form-group">
-                    <label className="form-label">CCT Topic</label>
-                    <input className="form-control" placeholder="CCT topic" value={cctText} onChange={(e) => setCctText(e.target.value)} />
+                    <label className="form-label">CCQ Topic</label>
+                    <input className="form-control" placeholder="CCQ topic" value={cctText} onChange={(e) => setCctText(e.target.value)} />
                   </div>
                   <div className="form-group">
-                    <label className="form-label">CCT dashboard updated</label>
+                    <label className="form-label">CCQ scheduled</label>
                     <div className="checkbox-list" style={{ flexDirection: "row", gap: 20 }}>
                       <label className="checkbox-item">
                         <input type="radio" name="cctDash" checked={cctDashboardUpdated} onChange={() => setCctDashboardUpdated(true)} />
