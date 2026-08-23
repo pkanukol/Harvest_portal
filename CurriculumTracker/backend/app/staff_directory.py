@@ -78,6 +78,9 @@ def canonical_subject(name: str) -> str:
     cleaned = _LANG_TIER.sub("", cleaned).strip()
     return SUBJECT_ALIASES.get(cleaned.lower(), cleaned)
 
+# Above this, staff_roles.subjects is an oversight list, not a teaching list.
+MAX_DECLARED_SUBJECTS = 3
+
 _cache = {"at": 0.0, "by_email": {}, "ok": False}
 
 
@@ -202,8 +205,20 @@ def subjects_for(email: str) -> list:
     entry = get_directory().get(_normalize(email))
     if not entry:
         return []
+
+    # Assigned classes are the reliable signal — those are real timetabled
+    # periods. The `subjects` column is only trusted when it's SHORT: for a
+    # teacher it lists the one or two subjects they teach, but for a
+    # Coordinator or Curriculum Head it lists everything they oversee (Ms Aruna
+    # came back with 27 subjects, Ms Chitra with 18), which is meaningless as a
+    # POW subject picker.
+    names = [a["subject"] for a in entry["assignments"]]
+    declared = list(entry["subjects"])
+    if len(declared) <= MAX_DECLARED_SUBJECTS:
+        names += declared
+
     out = []
-    for name in list(entry["subjects"]) + [a["subject"] for a in entry["assignments"]]:
+    for name in names:
         canonical = canonical_subject(name)
         if canonical and canonical not in out:
             out.append(canonical)
