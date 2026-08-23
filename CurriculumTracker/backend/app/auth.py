@@ -4,6 +4,7 @@ import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from .config import settings
+from . import staff_directory
 
 IST = timezone(timedelta(hours=5, minutes=30))
 
@@ -123,6 +124,63 @@ def require_view_as(current_user: CurrentUser = Depends(get_current_user)) -> Cu
 def require_teacher(current_user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
     if current_user.role != "Teacher":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Teacher access required")
+    return current_user
+
+
+def teaching_subjects(user: CurrentUser) -> list:
+    """Every subject this person may file a POW under: their profile subject
+    and its streams, plus anything staff_roles says they teach."""
+    from .crud import subjects_in_group
+    out = []
+    for name in (subjects_in_group(user.subject) if user.subject else []):
+        if name and name not in out:
+            out.append(name)
+    for name in staff_directory.subjects_for(user.email):
+        for member in subjects_in_group(name):
+            if member and member not in out:
+                out.append(member)
+    return out
+
+
+# View-only for POWs, by explicit instruction: Curriculum Heads oversee the
+# curriculum rather than teach it, so they never author. Stated as a rule
+# rather than relying on their profile having no subject — otherwise setting a
+# subject on a head's account would quietly hand them authoring rights.
+POW_VIEW_ONLY_DESIGNATIONS = {
+    "curriculum head",
+    # The leadership team oversees POWs, it doesn't write them. Listed
+    # explicitly so the rule survives someone setting a subject on one of
+    # these accounts. Coordinators are NOT here — Ms Nimisha coordinates AND
+    # teaches Biology G6, and she must still be able to file.
+    "principal", "vice principal", "managing director", "apm",
+    "dlp manager", "chairman", "it manager", "information technology", "sys admin",
+}
+
+
+def can_author_pow(user: CurrentUser) -> bool:
+    """Plenty of staff both review AND teach — Coordinators and HODs with a
+    subject, and SMEs like Ms Madhuri Jha. The app resolves each person to ONE
+    role, so gating POW authoring on role == Teacher locked those people out of
+    filing POWs for their own classes, while the lag report still expects them.
+    Anyone with a subject or an assigned class may author, except the
+    designations above.
+
+    A Coordinator with no subject and no assigned class is excluded by the same
+    rule that admits Ms Nimisha (Science, teaches Biology G6): there is nothing
+    on record saying they teach."""
+    if (user.designation or "").strip().lower() in POW_VIEW_ONLY_DESIGNATIONS:
+        return False
+    if user.role == "Teacher":
+        return True
+    return bool(user.subject) or bool(staff_directory.assignments_for(user.email))
+
+
+def require_pow_author(current_user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
+    if not can_author_pow(current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only staff who teach a subject can create or edit a POW.",
+        )
     return current_user
 
 
