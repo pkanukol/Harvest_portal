@@ -199,9 +199,15 @@ export default function POWView({ token, user, powId, onBack, onDone }) {
         <div className="form-group">
           <label className="form-label">
             TBS MOM
-            {!tbsMom.trim() && <span style={{ color: "var(--red)" }}> — not filled in yet</span>}
+            {!pow.tbs_mom && <span style={{ color: "var(--red)" }}> — not filled in yet</span>}
           </label>
-          <textarea className="form-control" value={tbsMom} disabled={isTbsMomLocked} onChange={(e) => setTbsMom(e.target.value)} />
+          {canEditTbsMom ? (
+            <textarea className="form-control" value={tbsMom} onChange={(e) => setTbsMom(e.target.value)} />
+          ) : (
+            /* Recorded once and then fixed — shown as text, not a disabled box,
+               so it doesn't look like something that failed to load. */
+            <div className="readonly-field tbs-mom-recorded">{pow.tbs_mom || "—"}</div>
+          )}
         </div>
       )}
 
@@ -217,7 +223,7 @@ export default function POWView({ token, user, powId, onBack, onDone }) {
         </div>
       )}
 
-      {isLocked && !isTbsMomLocked && (
+      {isLocked && canEditTbsMom && (
         <div style={{ display: "flex", gap: 10, marginTop: 24 }}>
           <button className="btn btn-primary" disabled={saving} onClick={saveTbsMomOnly}>Save TBS MOM</button>
           <button className="btn btn-ghost" onClick={onBack}>Back to Dashboard</button>
