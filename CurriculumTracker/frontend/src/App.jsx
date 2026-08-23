@@ -73,6 +73,10 @@ export default function App() {
   const isLeadership = user?.role === "Leadership";
   const isReadOnlyViewer = isSME || isLeadership;
   const canUploadCurriculum = Boolean(user?.can_upload_curriculum);
+  // Reviewing and teaching are not exclusive: Coordinators, HODs and some SMEs
+  // teach their own classes, so POW authoring follows this flag rather than the
+  // single resolved role.
+  const canCreatePow = Boolean(user?.can_create_pow) || user?.role === "Teacher";
 
   const goDashboard = () => { setView("dashboard"); setLoadError(""); };
 
@@ -84,7 +88,9 @@ export default function App() {
 
   async function openPow(id) {
     setLoadError("");
-    if (isReadOnlyViewer) {
+    // Someone who teaches gets the past-week implementation form for their own
+    // POWs, even if they also review.
+    if (!canCreatePow) {
       setCurrentPowId(id);
       setView("pow-view");
       return;
@@ -133,11 +139,13 @@ export default function App() {
 
             {view === "dashboard" && (
               <Dashboard
+                key={user.email}
                 token={token}
                 user={user}
                 isReadOnlyViewer={isReadOnlyViewer}
                 isLeadership={isLeadership}
                 canUploadCurriculum={canUploadCurriculum}
+                canCreatePow={canCreatePow}
                 onNewPow={goNewPow}
                 onProgress={goProgress}
                 onPlannerUpload={goPlannerUpload}
@@ -146,7 +154,7 @@ export default function App() {
             )}
 
             {view === "new-pow" && (
-              <POWForm token={token} user={user} mode="new" onDone={goDashboard} onBack={goDashboard} />
+              <POWForm key={user.email} token={token} user={user} mode="new" onDone={goDashboard} onBack={goDashboard} />
             )}
 
             {view === "impl-form" && implPrefillPow && (
@@ -158,11 +166,11 @@ export default function App() {
             )}
 
             {view === "planner-upload" && canUploadCurriculum && (
-              <PlannerUpload token={token} onBack={goDashboard} />
+              <PlannerUpload key={user.email} token={token} onBack={goDashboard} />
             )}
 
             {view === "progress" && (
-              <Progress token={token} user={user} isReadOnlyViewer={isReadOnlyViewer} onBack={goDashboard} />
+              <Progress key={user.email} token={token} user={user} isReadOnlyViewer={isReadOnlyViewer} onBack={goDashboard} />
             )}
           </>
         )}
