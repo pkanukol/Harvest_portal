@@ -14,7 +14,16 @@ function authHeaders(token) {
 // user back to the portal, which re-enters the app with a fresh ?sso= token.
 let recovering = false;
 
-function recoverFromExpiredSession() {
+// The SSO exchange is the way BACK IN, so a 401 from it is a failed login, not
+// a dead session. Bouncing to the portal for those loops forever: portal ->
+// app -> exchange fails -> portal. Auth endpoints opt out of recovery and
+// surface their error instead.
+function isAuthPath(path) {
+  return path.startsWith("/auth/");
+}
+
+function recoverFromExpiredSession(path) {
+  if (isAuthPath(path)) return;
   if (recovering) return;                       // one redirect, not one per failed call
   if (!localStorage.getItem("token")) return;   // never had a session — leave the login view alone
   recovering = true;
@@ -36,8 +45,10 @@ async function request(path, { method = "GET", token, body } = {}) {
   const data = await response.json().catch(() => ({}));
 
   if (response.status === 401) {
-    recoverFromExpiredSession();
-    throw new Error("Your session has expired — sending you back to the portal to sign in again.");
+    recoverFromExpiredSession(path);
+    if (!isAuthPath(path)) {
+      throw new Error("Your session has expired — sending you back to the portal to sign in again.");
+    }
   }
 
   if (!response.ok) {
@@ -61,7 +72,7 @@ async function upload(path, { token, file, fields = {} }) {
   const data = await response.json().catch(() => ({}));
 
   if (response.status === 401) {
-    recoverFromExpiredSession();
+    recoverFromExpiredSession(path);
     throw new Error("Your session has expired — sending you back to the portal to sign in again.");
   }
 
@@ -113,6 +124,8 @@ export const api = {
   getPow: (token, id) => request(`/pow/${id}`, { token }),
 
   createPow: (token, payload) => request("/pow", { method: "POST", token, body: payload }),
+
+  updatePow: (token, id, payload) => request(`/pow/${id}`, { method: "PATCH", token, body: payload }),
 
   updatePowImplementation: (token, id, payload) =>
     request(`/pow/${id}/implementation`, { method: "PATCH", token, body: payload }),
