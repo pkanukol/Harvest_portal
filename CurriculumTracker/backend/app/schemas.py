@@ -207,3 +207,44 @@ class SmeReviewRequest(BaseModel):
     cct_discussed: Optional[bool] = None    # None = section not shown (cct_topic_yn != 'yes')
     sme_name: Optional[str] = None          # required by crud.save_sme_review when approved_closed is being set true
     confirmed_date: Optional[str] = None    # ISO date string, required alongside sme_name
+
+
+# ─── Backfill (curriculum covered before POWs began) ────────────────────────
+
+class BackfillMark(BaseModel):
+    month: str
+    chapter_name: str
+    subtopic: Optional[str] = None   # None = the whole chapter
+    done: bool = True
+
+
+class BackfillSaveRequest(BaseModel):
+    subject: str
+    grade: int
+    teacher_email: str
+    marks: List[BackfillMark] = []
+
+
+class BackfillItem(BaseModel):
+    label: str
+    done: bool
+
+
+class BackfillChapter(BaseModel):
+    month: str
+    chapter_name: str
+    sessions: int
+    done: bool
+    items: List[BackfillItem] = []
+    items_done: int = 0
+
+
+class BackfillResponse(BaseModel):
+    subject: str
+    grade: int
+    teacher_email: str
+    months: List[str]            # months already past — the only ones markable
+    chapters: List[BackfillChapter]
+    locked: bool                 # a POW exists, so marking is closed for good
+    pow_count: int
+    marked_by: Optional[str] = None
