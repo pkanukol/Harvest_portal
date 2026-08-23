@@ -168,8 +168,14 @@ def parse_grade_tab(ws, subject: str, grade: int, tab_name: str, warnings: list)
         if not strands_of_language: strands_of_language = carry["strands_of_language"]
         else: carry["strands_of_language"] = strands_of_language
 
+        # Sessions are planned against a chapter; where a sheet states no
+        # Chapter Name at all, the Topic IS the unit of work, so it stands in
+        # rather than the row being dropped.
+        if not chapter_name and topic:
+            chapter_name = topic
+            warnings.append(f"{tab_label} row {row_idx}: no Chapter Name — using the Topic ('{topic}') as the chapter.")
         if not chapter_name:
-            warnings.append(f"{tab_label} row {row_idx}: no Chapter Name (even after carrying down), skipped")
+            warnings.append(f"{tab_label} row {row_idx}: no Chapter Name or Topic (even after carrying down), skipped")
             continue
 
         sessions, sess_warning = _unwrap_sessions(sessions_raw)
