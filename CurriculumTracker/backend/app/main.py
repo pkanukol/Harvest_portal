@@ -355,6 +355,53 @@ async def import_planner_workbook(
     return result
 
 
+# ─── Backfill: what was covered before POWs began ────────────────────────────
+
+def _check_backfill_scope(db: Session, user: auth.CurrentUser, subject: str) -> None:
+    """Same scoping as curriculum upload: an SME only for their own subject and
+    its streams, the curriculum administrators for anything."""
+    limit = crud.allowed_upload_subjects(db, user.email, user.designation, user.subject)
+    if limit is not None and subject.lower() not in {s.lower() for s in limit}:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"You can only mark coverage for {', '.join(limit) or 'your own subject'}.",
+        )
+
+
+@app.get("/api/backfill", response_model=schemas.BackfillResponse)
+def get_backfill(
+    subject: str = Query(...),
+    grade: int = Query(...),
+    teacher_email: str = Query(...),
+    db: Session = Depends(get_db),
+    current_user: auth.CurrentUser = Depends(auth.require_curriculum_uploader),
+):
+    _check_backfill_scope(db, current_user, subject)
+    return crud.get_backfill_view(db, subject, grade, teacher_email)
+
+
+@app.post("/api/backfill")
+def save_backfill(
+    req: schemas.BackfillSaveRequest,
+    db: Session = Depends(get_db),
+    current_user: auth.CurrentUser = Depends(auth.require_curriculum_uploader),
+):
+    """One-time marking. Refused once a POW exists for this subject+grade —
+    from that point progress is whatever the POWs say, and re-opening the
+    marking would let someone silently rewrite history."""
+    _check_backfill_scope(db, current_user, req.subject)
+    view = crud.get_backfill_view(db, req.subject, req.grade, req.teacher_email)
+    if view["locked"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"This teacher already has {view['pow_count']} POW(s) for {req.subject} Grade {req.grade} — progress is tracked from POWs now, so past coverage can no longer be marked.",
+        )
+    result = crud.save_backfill(db, req.subject, req.grade, req.teacher_email, req.marks, current_user.email)
+    logger.info("Backfill saved by %s for %s: %s Grade %s — %s marks",
+                current_user.email, req.teacher_email, req.subject, req.grade, result["saved"])
+    return {"success": True, **result}
+
+
 # ─── POW cards (dashboard) ───────────────────────────────────────────────────
 
 @app.get("/api/teachers", response_model=schemas.TeachersResponse)
