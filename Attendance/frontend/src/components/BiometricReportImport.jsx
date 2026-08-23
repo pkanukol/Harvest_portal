@@ -84,8 +84,7 @@ export default function BiometricReportImport({ client, branch }) {
       const fromDate = `${parsed.year}-${pad2(parsed.month + 1)}-01`;
       const toDate = new Date(parsed.year, parsed.month + 1, 0);
       const toDateIso = `${parsed.year}-${pad2(parsed.month + 1)}-${pad2(toDate.getDate())}`;
-      const employeeIds = parsed.employees.map((e) => e.employeeCode);
-      const bridge = await bridgeToAttendancePipeline(client, employeeIds, fromDate, toDateIso);
+      const bridge = await bridgeToAttendancePipeline(client, null, fromDate, toDateIso);
       setDone({ recordCount: parsed.records.length, employeeCount: parsed.employees.length, bridge });
       setParsed(null);
       setMatchInfo(null);
@@ -107,15 +106,7 @@ export default function BiometricReportImport({ client, branch }) {
       const toDate = new Date(year, month, 0);
       const toDateIso = `${year}-${pad2(month)}-${pad2(toDate.getDate())}`;
 
-      const { data: rows, error: fetchError } = await client
-        .from("employee_daily_attendance")
-        .select("employee_id")
-        .gte("attendance_date", fromDate)
-        .lte("attendance_date", toDateIso);
-      if (fetchError) throw fetchError;
-      const employeeIds = [...new Set((rows ?? []).map((r) => r.employee_id))];
-
-      const bridge = await bridgeToAttendancePipeline(client, employeeIds, fromDate, toDateIso);
+      const bridge = await bridgeToAttendancePipeline(client, null, fromDate, toDateIso);
       setBackfillResult(bridge);
     } catch (err) {
       setBackfillError(err.message);
