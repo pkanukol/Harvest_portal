@@ -105,6 +105,15 @@ export const api = {
 
   getLagging: (token) => request("/progress/lagging", { token }),
 
+  getBackfill: (token, subject, grade, teacherEmail) =>
+    request(
+      `/backfill?subject=${encodeURIComponent(subject)}&grade=${encodeURIComponent(grade)}` +
+        `&teacher_email=${encodeURIComponent(teacherEmail)}`,
+      { token },
+    ),
+
+  saveBackfill: (token, payload) => request("/backfill", { method: "POST", token, body: payload }),
+
   getPlannerInventory: (token) => request("/planner/inventory", { token }),
 
   // commit=false previews without writing; commit=true imports every grade
@@ -124,8 +133,6 @@ export const api = {
   getPow: (token, id) => request(`/pow/${id}`, { token }),
 
   createPow: (token, payload) => request("/pow", { method: "POST", token, body: payload }),
-
-  updatePow: (token, id, payload) => request(`/pow/${id}`, { method: "PATCH", token, body: payload }),
 
   updatePowImplementation: (token, id, payload) =>
     request(`/pow/${id}/implementation`, { method: "PATCH", token, body: payload }),
