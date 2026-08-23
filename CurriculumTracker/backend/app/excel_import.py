@@ -63,10 +63,16 @@ def _normalize_header(s) -> str:
     return re.sub(r"\s+", " ", (s or "").strip()).lower()
 
 
+# The unit of work, in order of preference. A sheet may plan against chapters,
+# against topics, or only against sub-topics — any of the three may be blank,
+# but a row with all three blank says nothing and is skipped.
+WORK_UNIT_FIELDS = ["chapter_name", "topic", "subtopic"]
+
+
 def _resolve_columns(header_row, warnings: list, tab_label: str) -> dict:
-    """Returns {canonical_field: column_index}. Warns (doesn't fail) if
-    chapter_name — the one field every row absolutely needs — can't be
-    found; every other field is optional per-tab."""
+    """Returns {canonical_field: column_index}. Warns (doesn't fail) when the
+    tab carries none of Chapter Name / Topic / Sub Topics — with none of those
+    there is nothing to plan against. Every other field is optional per-tab."""
     normalized = [_normalize_header(c) for c in header_row]
     columns = {}
     for field, aliases in FIELD_ALIASES.items():
@@ -74,8 +80,10 @@ def _resolve_columns(header_row, warnings: list, tab_label: str) -> dict:
             if header in aliases:
                 columns[field] = idx
                 break
-    if "chapter_name" not in columns:
-        warnings.append(f"{tab_label}: could not find a 'Chapter Name' column in the header row — tab skipped")
+    if not any(f in columns for f in WORK_UNIT_FIELDS):
+        warnings.append(
+            f"{tab_label}: no 'Chapter Name', 'Topic' or 'Sub Topics' column in the header row — tab skipped"
+        )
     return columns
 
 
@@ -114,6 +122,10 @@ def parse_grade_tab(ws, subject: str, grade: int, tab_name: str, warnings: list)
     display_order = 0
     columns = None
     chapter_canonical = {}  # chapter_name -> (sessions, first_row_idx)
+    # Counted per tab rather than warned per row: a sheet planned entirely
+    # against topics would otherwise emit one warning for every line.
+    promoted = {"topic": 0, "subtopic": 0}
+    skipped_blank = 0
     carry = {f: "" for f in CARRY_DOWN_FIELDS}  # carry["sessions"] stored as the raw cell value
 
     def get(cells, field):
@@ -130,11 +142,18 @@ def parse_grade_tab(ws, subject: str, grade: int, tab_name: str, warnings: list)
 
         if columns is None:
             columns = _resolve_columns(cells, warnings, tab_label)
-            if "chapter_name" not in columns:
-                return []  # can't parse this tab at all without a Chapter Name column
+            if not any(f in columns for f in WORK_UNIT_FIELDS):
+                return []  # nothing to plan against in this tab
             continue  # this row IS the header, don't treat it as data
 
         if _is_filler_row(cells):
+            continue
+
+        # Checked on the row's OWN values, before any carry-down: a row with no
+        # chapter, topic or sub topic adds nothing, and letting carry-down fill
+        # in the chapter would invent a duplicate entry in a later month.
+        if not any((get(cells, f) or "").strip() for f in WORK_UNIT_FIELDS):
+            skipped_blank += 1
             continue
 
         month = get(cells, "month") or ""
@@ -168,14 +187,21 @@ def parse_grade_tab(ws, subject: str, grade: int, tab_name: str, warnings: list)
         if not strands_of_language: strands_of_language = carry["strands_of_language"]
         else: carry["strands_of_language"] = strands_of_language
 
-        # Sessions are planned against a chapter; where a sheet states no
-        # Chapter Name at all, the Topic IS the unit of work, so it stands in
-        # rather than the row being dropped.
+        # Sessions are planned against the finest thing the sheet names. With
+        # no Chapter Name the Topic is the unit of work; with neither, the Sub
+        # Topic is. Whichever gets promoted is cleared from its own field so
+        # the POW form doesn't offer the same text twice, once as the chapter
+        # and again as a topic underneath it.
         if not chapter_name and topic:
-            chapter_name = topic
-            warnings.append(f"{tab_label} row {row_idx}: no Chapter Name — using the Topic ('{topic}') as the chapter.")
+            chapter_name, topic = topic, ""
+            carry["topic"] = ""          # don't leak it onto the next row
+            promoted["topic"] += 1
+        elif not chapter_name and subtopic:
+            chapter_name, subtopic = subtopic, ""
+            promoted["subtopic"] += 1
+
         if not chapter_name:
-            warnings.append(f"{tab_label} row {row_idx}: no Chapter Name or Topic (even after carrying down), skipped")
+            skipped_blank += 1
             continue
 
         sessions, sess_warning = _unwrap_sessions(sessions_raw)
@@ -210,6 +236,19 @@ def parse_grade_tab(ws, subject: str, grade: int, tab_name: str, warnings: list)
             "display_order": display_order,
         })
         display_order += 1
+
+    if promoted["topic"]:
+        warnings.append(
+            f"{tab_label}: {promoted['topic']} row(s) had no Chapter Name — the Topic was used as the unit of work."
+        )
+    if promoted["subtopic"]:
+        warnings.append(
+            f"{tab_label}: {promoted['subtopic']} row(s) had no Chapter Name or Topic — the Sub Topic was used as the unit of work."
+        )
+    if skipped_blank:
+        warnings.append(
+            f"{tab_label}: {skipped_blank} row(s) skipped — no Chapter Name, Topic or Sub Topic on the row."
+        )
 
     return rows_out
 
@@ -282,7 +321,7 @@ def parse_workbook_all_grades(xlsx_bytes: bytes, subject: str) -> dict:
         tab_warnings = []
         rows = parse_grade_tab(wb[tab_name], subject, grade, tab_name, tab_warnings)
         if not rows:
-            skipped_tabs.append({"name": label, "why": "no usable rows (is there a 'Chapter Name' column?)"})
+            skipped_tabs.append({"name": label, "why": "no usable rows (needs a Chapter Name, Topic or Sub Topics column)"})
             warnings.extend(tab_warnings)
             continue
 
