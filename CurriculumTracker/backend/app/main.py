@@ -420,6 +420,7 @@ def get_pow(
             "correction_done": pow_entry.correction_done, "instructions": pow_entry.instructions,
             "teacher_remarks": pow_entry.teacher_remarks, "status": pow_entry.status, "tbs_mom": pow_entry.tbs_mom,
         },
+        "can_edit": crud.can_edit_pow(_user, pow_entry),
         "review": ({
             "sme_email": review.sme_email, "cct_discussed": review.cct_discussed,
             "approved_closed": review.approved_closed, "remarks": review.remarks,
@@ -469,18 +470,16 @@ def update_pow_implementation(
     req: schemas.PowImplementationRequest,
     background: BackgroundTasks,
     db: Session = Depends(get_db),
-    current_user: auth.CurrentUser = Depends(auth.require_pow_author),
+    current_user: auth.CurrentUser = Depends(auth.get_current_user),
 ):
     pow_entry = crud.get_pow(db, pow_id)
     if not pow_entry:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="POW not found")
     # Shared-by-subject visibility (see crud.get_pow_cards) means any teacher of
     # this POW's subject may fill in their own section (A-F), not just whoever
-    # created it — so the check here is subject-scoped, not creator-scoped.
-    # Group-aware: a Science-tagged teacher owns Physics/Biology/Chemistry POWs
-    # too, since that's the subject their POWs are filed under.
-    allowed_subjects = [s.lower() for s in auth.teaching_subjects(current_user)]
-    if (pow_entry.subject or "").lower() not in allowed_subjects:
+    # created it — and the subject's SME may too. Group-aware, so a
+    # Science-tagged teacher owns Physics/Biology/Chemistry POWs as well.
+    if not crud.can_edit_pow(current_user, pow_entry):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only edit POWs for your own subject")
     crud.update_pow_implementation(db, pow_entry, req)
     _notify_pow(background, db, pow_entry, current_user.name, "updated")
