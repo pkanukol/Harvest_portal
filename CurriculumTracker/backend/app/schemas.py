@@ -188,16 +188,19 @@ class PowCreateRequest(BaseModel):
 
 
 class PowImplementationRequest(BaseModel):
-    impl_a: Optional[str] = ""
-    impl_b: Optional[str] = ""
-    impl_c: Optional[str] = ""
-    impl_d: Optional[str] = ""
-    impl_e: Optional[str] = ""
-    impl_f: Optional[str] = ""
-    tbs_mom: Optional[str] = ""
-    correction_done: Optional[str] = ""
-    instructions: Optional[str] = ""
-    teacher_remarks: Optional[str] = ""
+    """Every field defaults to None = "not sent", so a caller can save just one
+    section (or just the TBS MOM) without wiping the rest. An explicit "" is
+    still honoured as the user clearing that field."""
+    impl_a: Optional[str] = None
+    impl_b: Optional[str] = None
+    impl_c: Optional[str] = None
+    impl_d: Optional[str] = None
+    impl_e: Optional[str] = None
+    impl_f: Optional[str] = None
+    tbs_mom: Optional[str] = None
+    correction_done: Optional[str] = None
+    instructions: Optional[str] = None
+    teacher_remarks: Optional[str] = None
     final_save: bool = False
 
 
