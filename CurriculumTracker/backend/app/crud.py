@@ -102,25 +102,61 @@ def get_planner_rows(db: Session, subject: str, grade: Optional[int] = None) -> 
 
 
 def get_planner_chapters(db: Session, subject: str, grade: int) -> List[models.PlannerTopic]:
-    """Distinct (chapter_name, month) occurrences, first-seen order, each
-    carrying that occurrence's sessions count. This is the progress-tracking
-    unit — the equivalent of Code.gs's flat pre-hierarchy 'topic' concept.
+    """One entry per unique CHAPTER NAME — the progress-tracking unit.
 
-    Deliberately keyed by (chapter_name, month), NOT chapter_name alone —
-    real planner data confirmed some chapters recur across multiple months
-    with a different session count each time (e.g. English Grade 5's
-    "Reading Comprehension" appears in June/August/September/November/
-    February with 2/1/1/2/2 sessions respectively). Deduping by name alone
-    would silently collapse all but the first occurrence."""
-    rows = get_planner_rows(db, subject, grade)
-    seen = {}
+    "No of sessions" is a chapter-level total, and the importer carries it down
+    into a chapter's continuation rows, so a chapter taught across two months
+    shows the same figure twice: English Grade 5's "Tell Me a Story" reads 21
+    sessions in May and 21 in June for one 21-session chapter. Keying by
+    (chapter, month) therefore DOUBLE COUNTED — 69 sessions for a Grade 5 whose
+    sheet plans 33 (confirmed with the APM).
+
+    Where two occurrences state different counts the larger is taken, so the
+    plan is never under-stated, and `month` is the LAST month the chapter
+    appears in — the month by which it should be finished, which is what
+    "expected by now" needs.
+
+    Chapters with no name fall back to their Topic at import time (see
+    excel_import.parse_grade_tab), so a sheet that plans against topics rather
+    than chapters still counts."""
+    return chapters_from_rows(get_planner_rows(db, subject, grade))
+
+
+class PlannerChapter:
+    """A chapter as the progress maths sees it. Deliberately NOT a
+    models.PlannerTopic: this collapses several rows into one and adjusts the
+    month, and mutating ORM instances would write those adjustments back to
+    planner_topics on the next commit."""
+
+    __slots__ = ("chapter_name", "month", "first_month", "sessions", "discipline", "subject")
+
+    def __init__(self, row):
+        self.chapter_name = row.chapter_name
+        self.month = row.month
+        self.first_month = row.month
+        self.sessions = row.sessions or 0
+        self.discipline = row.strands_of_language or row.discipline
+        self.subject = row.subject
+
+
+def chapters_from_rows(rows: List[models.PlannerTopic]) -> List[PlannerChapter]:
+    chosen = {}
     order = []
     for r in rows:
-        key = (r.chapter_name, r.month)
-        if key not in seen:
-            seen[key] = r
+        key = r.chapter_name
+        if key not in chosen:
+            chosen[key] = PlannerChapter(r)
             order.append(key)
-    return [seen[key] for key in order]
+            continue
+        entry = chosen[key]
+        # the largest stated count wins, so the plan is never under-stated
+        entry.sessions = max(entry.sessions, r.sessions or 0)
+        # and the chapter is due by the LAST month it appears in
+        if MONTH_INDEX.get(r.month, -1) > MONTH_INDEX.get(entry.month, -1):
+            entry.month = r.month
+        if MONTH_INDEX.get(r.month, 99) < MONTH_INDEX.get(entry.first_month, 99):
+            entry.first_month = r.month
+    return [chosen[key] for key in order]
 
 
 def save_import_log(db: Session, subject: str, grade: int, tab: str, row_count: int,
@@ -645,6 +681,140 @@ def get_pow_notification_recipients(db: Session, teacher_email: str, subject: st
     return list(recipients.values())
 
 
+# ─── Backfill: curriculum covered before POWs began ─────────────────────────
+
+def months_before_now() -> List[str]:
+    """Academic months strictly earlier than the current one — the only months
+    a backfill mark makes sense for. In August that's April to July."""
+    current = now_ist().strftime("%B")
+    cutoff = MONTH_INDEX.get(current)
+    if cutoff is None:
+        return []
+    return [m for m in ACADEMIC_MONTHS if MONTH_INDEX[m] < cutoff]
+
+
+def get_backfill_view(db: Session, subject: str, grade: int, teacher_email: str) -> dict:
+    """The marking sheet: every planner chapter in a month already past, with
+    its sub-topics and what's ticked so far.
+
+    `locked` is the one-time rule — once a POW exists for this subject+grade,
+    progress comes from POWs and the marking is closed for good."""
+    rows = get_planner_rows(db, subject, grade)
+    past = set(months_before_now())
+
+    marks = db.query(models.CurriculumBackfill).filter(
+        func.lower(models.CurriculumBackfill.teacher_email) == teacher_email.lower(),
+        func.lower(models.CurriculumBackfill.subject) == subject.lower(),
+        models.CurriculumBackfill.grade == int(grade),
+    ).all()
+    chapter_marks = {(m.month, m.chapter_name) for m in marks if not m.subtopic}
+    item_marks = {(m.month, m.chapter_name, m.subtopic) for m in marks if m.subtopic}
+
+    chapters = {}
+    for r in rows:
+        if r.month not in past:
+            continue
+        key = (r.month, r.chapter_name)
+        entry = chapters.setdefault(key, {
+            "month": r.month, "chapter_name": r.chapter_name, "sessions": r.sessions or 0,
+            "done": key in chapter_marks, "items": [], "_seen": set(),
+        })
+        label = r.subtopic or r.topic
+        if label and label not in entry["_seen"]:
+            entry["_seen"].add(label)
+            entry["items"].append({"label": label, "done": (r.month, r.chapter_name, label) in item_marks})
+
+    out = []
+    for entry in chapters.values():
+        entry.pop("_seen")
+        entry["items_done"] = sum(1 for i in entry["items"] if i["done"])
+        out.append(entry)
+    out.sort(key=lambda c: (MONTH_INDEX.get(c["month"], 99), c["chapter_name"]))
+
+    # Locked per teacher: this teacher's own first POW closes their marking,
+    # whatever colleagues sharing the class have filed.
+    pow_count = db.query(func.count(models.PowEntry.id)).filter(
+        func.lower(models.PowEntry.teacher_email) == teacher_email.lower(),
+        _subject_group_filter(subject), models.PowEntry.grade == str(grade)
+    ).scalar()
+
+    return {
+        "subject": subject, "grade": int(grade), "teacher_email": teacher_email,
+        "months": months_before_now(),
+        "chapters": out,
+        "locked": bool(pow_count),
+        "pow_count": int(pow_count or 0),
+        "marked_by": next((m.marked_by for m in marks if m.marked_by), None),
+    }
+
+
+def save_backfill(db: Session, subject: str, grade: int, teacher_email: str,
+                  marks: list, email: str) -> dict:
+    """Replaces the marks for this subject+grade. A tick is a row; unticking
+    removes it, so the table only ever states what WAS covered."""
+    db.query(models.CurriculumBackfill).filter(
+        func.lower(models.CurriculumBackfill.teacher_email) == teacher_email.lower(),
+        func.lower(models.CurriculumBackfill.subject) == subject.lower(),
+        models.CurriculumBackfill.grade == int(grade),
+    ).delete(synchronize_session=False)
+
+    saved = 0
+    for m in marks:
+        if not m.done:
+            continue
+        db.add(models.CurriculumBackfill(
+            teacher_email=teacher_email.lower(), subject=subject, grade=int(grade),
+            month=m.month, chapter_name=m.chapter_name,
+            subtopic=m.subtopic or None, marked_by=email,
+        ))
+        saved += 1
+    db.commit()
+    return {"saved": saved}
+
+
+def planner_item_counts(rows: List[models.PlannerTopic]) -> dict:
+    """{(month, chapter_name): number of distinct topics/sub-topics}. Must be
+    built from the FULL planner rows, not from get_planner_chapters() — that
+    collapses each chapter to a single row, which would make every chapter look
+    like it had exactly one sub-topic."""
+    items = {}
+    for r in rows:
+        label = r.subtopic or r.topic
+        if label:
+            items.setdefault((r.month, r.chapter_name), set()).add(label)
+    return {k: len(v) for k, v in items.items()}
+
+
+def backfill_credit(marks: list, chapters: List[models.PlannerTopic], item_counts: dict) -> int:
+    """Sessions to credit from backfill marks, for the progress/lag maths.
+
+    A whole-chapter tick credits all its sessions. A part-marked chapter
+    credits pro rata — 1 of 11 sub-topics ticked on a 26-session chapter counts
+    2 — a rough but honest reading of "partly covered". item_counts comes from
+    planner_item_counts(): using the deduped chapter list as the denominator
+    credited the whole chapter for a single ticked sub-topic."""
+    if not marks:
+        return 0
+
+    full = {(m.month, m.chapter_name) for m in marks if not m.subtopic}
+    partial = {}
+    for m in marks:
+        if m.subtopic:
+            partial.setdefault((m.month, m.chapter_name), set()).add(m.subtopic)
+
+    total = 0
+    for c in chapters:
+        key = (c.month, c.chapter_name)
+        sessions = c.sessions or 0
+        if key in full:
+            total += sessions
+        elif key in partial:
+            denominator = item_counts.get(key, 0)
+            if denominator:
+                total += round(sessions * len(partial[key]) / denominator)
+    return total
+
+
 # ─── Lagging report (leadership/SME dashboard) ──────────────────────────────
 
 # Every leadership designation, the technical accounts included, has view
@@ -693,9 +863,9 @@ def _all_planner_chapters(db: Session) -> dict:
     ~60 round trips to remote Postgres and took ~30s. The whole planner is only
     a few thousand rows, so it's read once and grouped in memory instead.
 
-    Returns {(subject_lower, grade): [first-seen (chapter, month) rows]},
-    ordered exactly as get_planner_chapters would (subject, then the sheet's
-    own row order).
+    Returns ({(subject_lower, grade): [first-seen (chapter, month) rows]},
+    {(subject_lower, grade): {(month, chapter): item count}}) — the second is
+    the denominator for pro-rata backfill credit.
     """
     rows = (
         db.query(models.PlannerTopic)
@@ -707,12 +877,11 @@ def _all_planner_chapters(db: Session) -> dict:
         by_key.setdefault((r.subject.lower(), r.grade), []).append(r)
 
     chapters = {}
+    item_counts = {}
     for key, group in by_key.items():
-        seen = {}
-        for r in group:
-            seen.setdefault((r.chapter_name, r.month), r)
-        chapters[key] = list(seen.values())
-    return chapters
+        chapters[key] = chapters_from_rows(group)
+        item_counts[key] = planner_item_counts(group)
+    return chapters, item_counts
 
 
 def _grouped_chapters(all_chapters: dict, subject: str, grade: int) -> List[models.PlannerTopic]:
@@ -721,10 +890,7 @@ def _grouped_chapters(all_chapters: dict, subject: str, grade: int) -> List[mode
     out = []
     for member in subjects_in_group(subject):
         out.extend(all_chapters.get((member.lower(), int(grade)), []))
-    seen = {}
-    for r in out:
-        seen.setdefault((r.chapter_name, r.month), r)
-    return list(seen.values())
+    return out
 
 
 def get_lagging_report(db: Session, viewer_email: str, role: str) -> dict:
@@ -757,7 +923,21 @@ def get_lagging_report(db: Session, viewer_email: str, role: str) -> dict:
     for p in pows:
         buckets.setdefault((p.teacher_email.lower(), p.subject, p.grade), []).append(p)
 
-    all_chapters = _all_planner_chapters(db)   # one query, then all lookups are in memory
+    all_chapters, all_item_counts = _all_planner_chapters(db)   # one query, then all lookups are in memory
+
+    # Backfill marks: what an SME recorded as covered before POWs began. Also
+    # one query, grouped by (subject, grade).
+    backfill_by_key = {}
+    for m in db.query(models.CurriculumBackfill).all():
+        key = ((m.teacher_email or "").lower(), m.subject.lower(), m.grade)
+        backfill_by_key.setdefault(key, []).append(m)
+
+    def credited(teacher, subject_name, grade_num, chapters):
+        marks, items = [], {}
+        for member in subjects_in_group(subject_name):
+            marks.extend(backfill_by_key.get((teacher.lower(), member.lower(), int(grade_num)), []))
+            items.update(all_item_counts.get((member.lower(), int(grade_num)), {}))
+        return backfill_credit(marks, chapters, items) if marks else 0
     rows = []
 
     for (email, subject, grade), entries in buckets.items():
@@ -794,6 +974,10 @@ def get_lagging_report(db: Session, viewer_email: str, role: str) -> dict:
             if last is None or p.week_start > last.week_start:
                 last = p
 
+        # Backfill is a floor, not an addition: it states where the class had
+        # already reached before POWs started, so progress is whichever is
+        # further along.
+        done = max(done, credited(email, subject, grade_int, chapters))
         behind = max(0, expected - done)
         info = teacher_map.get(email, {})
         weeks_since = ((today.date() - last.week_start).days // 7) if last and last.week_start else None
@@ -842,20 +1026,21 @@ def get_lagging_report(db: Session, viewer_email: str, role: str) -> dict:
                     continue
 
                 covered.add((email, subject.lower(), str(grade_int)))
+                done_from_backfill = credited(email, subject, grade_int, chapters)
                 rows.append({
                     "teacher_email": email,
                     "teacher_name": info.get("name") or email,
                     "subject": subject,
                     "grade": str(grade_int),
                     "expected_sessions": expected,
-                    "done_sessions": 0,
-                    "sessions_behind": expected,
+                    "done_sessions": done_from_backfill,
+                    "sessions_behind": max(0, expected - done_from_backfill),
                     "total_planned": total_planned,
-                    "percent_done": 0,
+                    "percent_done": round(done_from_backfill * 100 / expected) if expected else 100,
                     "last_topic": "",
                     "last_week": None,
                     "weeks_since_last_pow": None,
-                    "status": "behind",
+                    "status": "behind" if expected > done_from_backfill else "on_track",
                     "no_pow_yet": True,
                 })
 
