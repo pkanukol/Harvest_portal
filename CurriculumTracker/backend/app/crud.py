@@ -759,21 +759,60 @@ def get_backfill_view(db: Session, subject: str, grade: int, teacher_email: str)
         out.append(entry)
     out.sort(key=lambda c: (MONTH_INDEX.get(c["month"], 99), c["chapter_name"]))
 
-    # Locked per teacher: this teacher's own first POW closes their marking,
-    # whatever colleagues sharing the class have filed.
+    # POWs do NOT close the marking — an SME may still be working through past
+    # coverage after teachers have started filing. Only their explicit
+    # confirmation closes it. The POW count is still reported, as context.
     pow_count = db.query(func.count(models.PowEntry.id)).filter(
         func.lower(models.PowEntry.teacher_email) == teacher_email.lower(),
         _subject_group_filter(subject), models.PowEntry.grade == str(grade)
     ).scalar()
+    confirmation = _backfill_confirmation(db, subject, grade, teacher_email)
 
     return {
         "subject": subject, "grade": int(grade), "teacher_email": teacher_email,
         "months": months_before_now(),
         "chapters": out,
-        "locked": bool(pow_count),
+        "locked": confirmation is not None,
+        "confirmed_by": confirmation.confirmed_by if confirmation else None,
+        "confirmed_at": confirmation.confirmed_at.isoformat() if confirmation and confirmation.confirmed_at else None,
         "pow_count": int(pow_count or 0),
         "marked_by": next((m.marked_by for m in marks if m.marked_by), None),
     }
+
+
+def _backfill_confirmation(db: Session, subject: str, grade: int, teacher_email: str):
+    return (
+        db.query(models.BackfillConfirmation)
+        .filter(func.lower(models.BackfillConfirmation.teacher_email) == teacher_email.lower(),
+                func.lower(models.BackfillConfirmation.subject) == subject.lower(),
+                models.BackfillConfirmation.grade == int(grade))
+        .first()
+    )
+
+
+def confirm_backfill(db: Session, subject: str, grade: int, teacher_email: str, email: str) -> dict:
+    """Closes the marking for this teacher+subject+grade."""
+    existing = _backfill_confirmation(db, subject, grade, teacher_email)
+    if existing:
+        return {"already_confirmed": True, "confirmed_by": existing.confirmed_by}
+    db.add(models.BackfillConfirmation(
+        teacher_email=teacher_email.lower(), subject=subject, grade=int(grade), confirmed_by=email,
+    ))
+    db.commit()
+    return {"already_confirmed": False, "confirmed_by": email}
+
+
+def reopen_backfill(db: Session, subject: str, grade: int, teacher_email: str) -> dict:
+    """Undoes a confirmation — the marks themselves are untouched."""
+    deleted = (
+        db.query(models.BackfillConfirmation)
+        .filter(func.lower(models.BackfillConfirmation.teacher_email) == teacher_email.lower(),
+                func.lower(models.BackfillConfirmation.subject) == subject.lower(),
+                models.BackfillConfirmation.grade == int(grade))
+        .delete(synchronize_session=False)
+    )
+    db.commit()
+    return {"reopened": bool(deleted)}
 
 
 def save_backfill(db: Session, subject: str, grade: int, teacher_email: str,
