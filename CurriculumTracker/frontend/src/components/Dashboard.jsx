@@ -49,12 +49,14 @@ export default function Dashboard({ token, user, isReadOnlyViewer, isLeadership,
   // Nag popup for missing TBS MOM — deliberately independent of the subject/grade
   // filter below (a separate, lightweight, filter-independent query), so a teacher
   // isn't only warned about it if they happen to browse to that exact grade.
+  // Shown to anyone who files POWs — a teaching HOD/Coordinator/SME needs the
+  // reminder as much as a plain teacher does.
   useEffect(() => {
-    if (isReadOnlyViewer) return;
+    if (!canCreatePow) return;
     api.getTbsMomAlerts(token)
       .then((res) => { if ((res.cards || []).length > 0) setMissingTbsMomPopup(res.cards); })
       .catch(() => {});
-  }, [token, isReadOnlyViewer]);
+  }, [token, canCreatePow]);
 
   // POW cards only fetch once both Subject and Grade are picked — no data
   // loads on mount at all, so the dashboard renders instantly regardless of
