@@ -223,9 +223,16 @@ MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 @app.get("/api/planner/inventory", response_model=schemas.PlannerInventoryResponse)
 def planner_inventory(
     db: Session = Depends(get_db),
-    _user: auth.CurrentUser = Depends(auth.require_curriculum_uploader),
+    current_user: auth.CurrentUser = Depends(auth.require_curriculum_uploader),
 ):
-    return {"inventory": crud.get_planner_inventory(db), "subjects": crud.get_known_subjects(db)}
+    # An SME only owns their own subject, so both the picker and the "currently
+    # loaded" list are scoped to it. Curriculum Head / DLP Manager / APM
+    # administer every subject and get the unrestricted list.
+    limit = crud.allowed_upload_subjects(db, current_user.email, current_user.designation, current_user.subject)
+    return {
+        "inventory": crud.get_planner_inventory(db, limit_to=limit),
+        "subjects": crud.get_known_subjects(db, limit_to=limit),
+    }
 
 
 @app.post("/api/planner/import", response_model=schemas.PlannerImportResponse)
@@ -248,6 +255,15 @@ async def import_planner_workbook(
     subject = (subject or "").strip()
     if not subject:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Please choose a subject.")
+
+    # Enforced server-side: hiding other subjects in the dropdown is not a
+    # permission check, and an upload replaces a whole subject+grade.
+    limit = crud.allowed_upload_subjects(db, current_user.email, current_user.designation, current_user.subject)
+    if limit is not None and subject.lower() not in {s.lower() for s in limit}:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"You can only upload curriculum for {', '.join(limit) or 'your own subject'}.",
+        )
     if not (file.filename or "").lower().endswith((".xlsx", ".xlsm")):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Please upload an Excel .xlsx file (a .xls or Google Sheet needs saving as .xlsx first).")
 
@@ -340,8 +356,20 @@ def get_teachers(
     current_user: auth.CurrentUser = Depends(auth.get_current_user),
 ):
     """Cheap, pow_entries-free lookup used to populate the Subject filter
-    dropdown before any POW cards are fetched."""
-    return {"teachers": crud.get_teachers_for_role(db, current_user.email, current_user.role)}
+    dropdown before any POW cards are fetched. Also returns the subjects
+    grouped into curriculum vs other, so the dashboard filter reads the same
+    way as the upload screen's picker."""
+    teachers = crud.get_teachers_for_role(db, current_user.email, current_user.role)
+    if current_user.role == "SME":
+        # An SME's dashboard is already limited to their mapped teachers, so the
+        # subject list follows from those rather than the whole school.
+        scope = sorted({t["subject"] for t in teachers if t.get("subject")})
+    else:
+        scope = None
+    return {
+        "teachers": teachers,
+        "subjects": crud.get_known_subjects(db, limit_to=scope),
+    }
 
 
 @app.get("/api/pow/cards", response_model=schemas.PowCardsResponse)
