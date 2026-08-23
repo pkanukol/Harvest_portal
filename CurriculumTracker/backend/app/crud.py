@@ -599,6 +599,24 @@ CURRICULUM_HEAD_BY_SUBJECT = {
 }
 
 
+def can_edit_pow(user, pow_entry) -> bool:
+    """Who may fill in a POW's IMPLEMENTATION. Nobody edits what another
+    teacher planned: an SME reviews through remarks and Confirm & Close, not by
+    rewriting the POW (confirmed with the APM).
+
+    So: whoever teaches that subject, before their Confirm Final Save. POWs are
+    shared across section teachers (see get_pow_cards) so it's subject-scoped
+    rather than creator-scoped, and it's group-aware so a Science-tagged
+    teacher reaches their Physics/Biology/Chemistry POWs. Leadership and
+    Curriculum Heads are view-only."""
+    from .auth import teaching_subjects, POW_VIEW_ONLY_DESIGNATIONS
+    if (user.designation or "").strip().lower() in POW_VIEW_ONLY_DESIGNATIONS:
+        return False
+    if (pow_entry.subject or "").lower() not in {s.lower() for s in teaching_subjects(user)}:
+        return False
+    return pow_entry.status not in ("final", "reviewed", "approved")
+
+
 def get_pow_notification_recipients(db: Session, teacher_email: str, subject: str = "") -> List[dict]:
     """Who hears about a POW: the SMEs this teacher is mapped to in
     teacher_sme, plus the Curriculum Head who owns that subject. A subject
@@ -629,10 +647,10 @@ def get_pow_notification_recipients(db: Session, teacher_email: str, subject: st
 
 # ─── Lagging report (leadership/SME dashboard) ──────────────────────────────
 
-# role='auditor' also covers a couple of purely technical accounts. The IT
-# Manager was explicitly granted view access; 'Information Technology' and
-# 'Sys Admin' stay out until someone asks for them.
-LAGGING_EXCLUDED_DESIGNATIONS = {"information technology", "sys admin"}
+# Every leadership designation, the technical accounts included, has view
+# access to the lag report. Kept as an (empty) set rather than deleted so a
+# designation can be excluded again without restructuring the check.
+LAGGING_EXCLUDED_DESIGNATIONS = set()
 
 
 def can_see_lagging(role: str, designation: str) -> bool:
