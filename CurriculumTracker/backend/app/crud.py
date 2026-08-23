@@ -101,7 +101,7 @@ def get_planner_rows(db: Session, subject: str, grade: Optional[int] = None) -> 
     return q.order_by(models.PlannerTopic.subject, models.PlannerTopic.display_order).all()
 
 
-def get_planner_chapters(db: Session, subject: str, grade: int) -> List[models.PlannerTopic]:
+def get_planner_chapters(db: Session, subject: str, grade: int) -> List["PlannerChapter"]:
     """One entry per unique CHAPTER NAME — the progress-tracking unit.
 
     "No of sessions" is a chapter-level total, and the importer carries it down
@@ -128,7 +128,12 @@ class PlannerChapter:
     month, and mutating ORM instances would write those adjustments back to
     planner_topics on the next commit."""
 
-    __slots__ = ("chapter_name", "month", "first_month", "sessions", "discipline", "subject")
+    # Carries every field the progress screens read off a chapter. Keep this in
+    # step with them: a missing attribute here is a 500 at request time, not an
+    # error at import time (that's how `topic` went missing and broke
+    # /api/progress/summary).
+    __slots__ = ("chapter_name", "month", "first_month", "sessions", "discipline",
+                 "subject", "topic", "subtopic", "cct", "grade")
 
     def __init__(self, row):
         self.chapter_name = row.chapter_name
@@ -137,6 +142,10 @@ class PlannerChapter:
         self.sessions = row.sessions or 0
         self.discipline = row.strands_of_language or row.discipline
         self.subject = row.subject
+        self.grade = row.grade
+        self.topic = row.topic
+        self.subtopic = row.subtopic
+        self.cct = row.cct
 
 
 def chapters_from_rows(rows: List[models.PlannerTopic]) -> List[PlannerChapter]:
@@ -488,20 +497,23 @@ def get_pow(db: Session, pow_id: int) -> Optional[models.PowEntry]:
     return db.query(models.PowEntry).filter(models.PowEntry.id == pow_id).first()
 
 
+IMPLEMENTATION_FIELDS = ("impl_a", "impl_b", "impl_c", "impl_d", "impl_e", "impl_f",
+                         "tbs_mom", "correction_done", "instructions", "teacher_remarks")
+
+
 def update_pow_implementation(db: Session, pow_entry: models.PowEntry, data) -> models.PowEntry:
     """Only finalSave=true ever changes status (to 'final') — a non-final
     draft save never touches status, matching Code.gs's updatePowImpl()
-    comment: 'Status always stays as-is after teacher saves'."""
-    pow_entry.impl_a = data.impl_a or ""
-    pow_entry.impl_b = data.impl_b or ""
-    pow_entry.impl_c = data.impl_c or ""
-    pow_entry.impl_d = data.impl_d or ""
-    pow_entry.impl_e = data.impl_e or ""
-    pow_entry.impl_f = data.impl_f or ""
-    pow_entry.tbs_mom = data.tbs_mom or ""
-    pow_entry.correction_done = data.correction_done or ""
-    pow_entry.instructions = data.instructions or ""
-    pow_entry.teacher_remarks = data.teacher_remarks or ""
+    comment: 'Status always stays as-is after teacher saves'.
+
+    Only fields the caller actually sent are written. This used to assign all
+    ten unconditionally, so saving one section blanked the others — a real risk
+    with A-F filled in by different section teachers, and it silently wiped the
+    implementation when only the TBS MOM was being saved."""
+    for field in IMPLEMENTATION_FIELDS:
+        value = getattr(data, field, None)
+        if value is not None:
+            setattr(pow_entry, field, value)
     if data.final_save:
         pow_entry.status = "final"
     db.commit()
@@ -635,22 +647,33 @@ CURRICULUM_HEAD_BY_SUBJECT = {
 }
 
 
-def can_edit_pow(user, pow_entry) -> bool:
-    """Who may fill in a POW's IMPLEMENTATION. Nobody edits what another
-    teacher planned: an SME reviews through remarks and Confirm & Close, not by
-    rewriting the POW (confirmed with the APM).
+FINALISED_STATUSES = ("final", "reviewed", "approved")
 
-    So: whoever teaches that subject, before their Confirm Final Save. POWs are
-    shared across section teachers (see get_pow_cards) so it's subject-scoped
-    rather than creator-scoped, and it's group-aware so a Science-tagged
-    teacher reaches their Physics/Biology/Chemistry POWs. Leadership and
-    Curriculum Heads are view-only."""
+
+def teaches_pow_subject(user, pow_entry) -> bool:
+    """Does this person teach the POW's subject at all? POWs are shared across
+    the section teachers of a subject (see get_pow_cards), so this is
+    subject-scoped rather than creator-scoped, and group-aware so a
+    Science-tagged teacher reaches their Physics/Biology/Chemistry POWs.
+    Leadership and Curriculum Heads are view-only."""
     from .auth import teaching_subjects, POW_VIEW_ONLY_DESIGNATIONS
     if (user.designation or "").strip().lower() in POW_VIEW_ONLY_DESIGNATIONS:
         return False
-    if (pow_entry.subject or "").lower() not in {s.lower() for s in teaching_subjects(user)}:
-        return False
-    return pow_entry.status not in ("final", "reviewed", "approved")
+    return (pow_entry.subject or "").lower() in {s.lower() for s in teaching_subjects(user)}
+
+
+def can_edit_pow(user, pow_entry) -> bool:
+    """Who may fill in a POW's IMPLEMENTATION: any teacher of that subject,
+    until Confirm Final Save locks it. Nobody edits what another teacher
+    planned — an SME reviews through remarks and Confirm & Close."""
+    return teaches_pow_subject(user, pow_entry) and pow_entry.status not in FINALISED_STATUSES
+
+
+def can_edit_tbs_mom(user, pow_entry) -> bool:
+    """TBS MOM stays editable after the final save — the discussion it records
+    happens later, which is the whole point of the missing-MOM reminder. So it
+    follows "do you teach this subject", with no status condition."""
+    return teaches_pow_subject(user, pow_entry)
 
 
 def get_pow_notification_recipients(db: Session, teacher_email: str, subject: str = "") -> List[dict]:
