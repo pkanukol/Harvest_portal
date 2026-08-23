@@ -76,6 +76,16 @@ def run_migrations():
                 with engine.begin() as conn:
                     conn.execute(text(f"ALTER TABLE planner_topics ADD COLUMN {column} VARCHAR"))
 
+    if "curriculum_backfill" in existing_tables:
+        cols = {c["name"] for c in inspector.get_columns("curriculum_backfill")}
+        if "teacher_email" not in cols:
+            # Marks were per subject+grade in the first cut; they're per teacher
+            # now, and an existing row can't be attributed to a teacher after
+            # the fact, so the (pre-launch, easily redone) marks are cleared.
+            with engine.begin() as conn:
+                conn.execute(text("DELETE FROM curriculum_backfill"))
+                conn.execute(text("ALTER TABLE curriculum_backfill ADD COLUMN teacher_email VARCHAR"))
+
     if "sme_reviews" in existing_tables:
         cols = {c["name"] for c in inspector.get_columns("sme_reviews")}
         if "sme_name" not in cols:
