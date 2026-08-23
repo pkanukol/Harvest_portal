@@ -74,7 +74,7 @@ export default function POWView({ token, user, powId, onBack, onDone }) {
     try {
       await api.updatePowImplementation(token, powId, {
         impl_a: implA, impl_b: implB, impl_c: implC, impl_d: implD, impl_e: implE, impl_f: implF,
-        tbs_mom: tbsMom, correction_done: correctionDone, instructions, teacher_remarks: teacherRemarks,
+        correction_done: correctionDone, instructions, teacher_remarks: teacherRemarks,
         final_save: finalSave,
       });
       onDone();
@@ -195,10 +195,15 @@ export default function POWView({ token, user, powId, onBack, onDone }) {
         <label className="form-label">Teacher Remarks</label>
         <textarea className="form-control" value={teacherRemarks} disabled={isLocked} onChange={(e) => setTeacherRemarks(e.target.value)} />
       </div>
-      <div className="form-group">
-        <label className="form-label">TBS MOM{!tbsMom.trim() && isPastFinalSave && <span style={{ color: "var(--red)" }}> — not filled in yet</span>}</label>
-        <textarea className="form-control" value={tbsMom} disabled={isTbsMomLocked} onChange={(e) => setTbsMom(e.target.value)} />
-      </div>
+      {isPastFinalSave && (
+        <div className="form-group">
+          <label className="form-label">
+            TBS MOM
+            {!tbsMom.trim() && <span style={{ color: "var(--red)" }}> — not filled in yet</span>}
+          </label>
+          <textarea className="form-control" value={tbsMom} disabled={isTbsMomLocked} onChange={(e) => setTbsMom(e.target.value)} />
+        </div>
+      )}
 
       {!isLocked && (
         <div className="form-actions">
