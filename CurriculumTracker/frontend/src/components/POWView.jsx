@@ -50,6 +50,7 @@ export default function POWView({ token, user, powId, onBack, onDone }) {
   // it depends on subject groups and staff_roles assignments the client can't
   // work out on its own.
   const canEdit = Boolean(pow.can_edit);
+  const canEditTbsMom = Boolean(pow.can_edit_tbs_mom);
   // Who may fill in the implementation, from the server (crud.can_edit_pow):
   // role==Teacher was too narrow — HODs, Coordinators and SMEs who teach their
   // own classes were locked out of their own POWs. This does NOT let an SME
@@ -61,7 +62,9 @@ export default function POWView({ token, user, powId, onBack, onDone }) {
   const isLocked = !canFillImplementation || isPastFinalSave;
   // TBS MOM stays editable by the teacher regardless of status — only
   // non-teacher viewers are ever locked out of it.
-  const isTbsMomLocked = !canFillImplementation;
+  // Deliberately NOT tied to the final save: the TBS discussion happens after
+  // the POW is finalised, which is what the missing-MOM reminder chases.
+  const isTbsMomLocked = !canEditTbsMom;
   const hasImpl = [implA, implB, implC, implD, implE, implF].some((v) => v && v.trim().length > 0);
   const cctYes = (pow.cct_topic_yn || "").toLowerCase() === "yes";
 
@@ -86,11 +89,9 @@ export default function POWView({ token, user, powId, onBack, onDone }) {
     setSaving(true);
     setError("");
     try {
-      await api.updatePowImplementation(token, powId, {
-        impl_a: implA, impl_b: implB, impl_c: implC, impl_d: implD, impl_e: implE, impl_f: implF,
-        tbs_mom: tbsMom, correction_done: correctionDone, instructions, teacher_remarks: teacherRemarks,
-        final_save: false,
-      });
+      // Only the MOM — sending the implementation fields too would be rejected
+      // once the POW is finalised, which is exactly when this button is used.
+      await api.updatePowImplementation(token, powId, { tbs_mom: tbsMom, final_save: false });
       onDone();
     } catch (err) {
       setError(err.message);
