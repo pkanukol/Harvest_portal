@@ -2,8 +2,9 @@ import { useEffect, useState } from "react";
 import { createAttendanceClient } from "./lib/supabaseClients";
 import { resolveAccessToken, clearAccessToken, goToPortal } from "./lib/auth";
 import { resolveCurrentStaff } from "./lib/currentUser";
-import { fetchRoleConfig, computeCapabilities } from "./lib/rolesApi";
+import { fetchRoleConfig, computeCapabilities, ATTENDANCE_AUDIT_EMPLOYEE_IDS } from "./lib/rolesApi";
 import MonthCalendar from "./components/MonthCalendar";
+import AttendanceAuditPanel from "./components/AttendanceAuditPanel";
 import AdminPage from "./pages/AdminPage";
 import ApprovalsPage from "./pages/ApprovalsPage";
 import ReportsPage from "./pages/ReportsPage";
@@ -61,6 +62,7 @@ export default function App() {
   const staffRow = viewAsStaffRow ?? realStaffRow;
   const caps = staffRow && roleConfig ? computeCapabilities(staffRow, roleConfig) : EMPTY_CAPS;
   const realCaps = realStaffRow && roleConfig ? computeCapabilities(realStaffRow, roleConfig) : EMPTY_CAPS;
+  const canAudit = ATTENDANCE_AUDIT_EMPLOYEE_IDS.includes(staffRow?.id);
 
   const TABS = [
     { key: "mine", label: "My Attendance" },
@@ -68,6 +70,7 @@ export default function App() {
     ...(caps.canSeeApprovals ? [{ key: "approvals", label: "Approvals" }] : []),
     ...(caps.canSeeReports ? [{ key: "reports", label: "Team Reports" }] : []),
     ...(caps.canSeeAdmin ? [{ key: "admin", label: "Admin" }] : []),
+    ...(canAudit ? [{ key: "audit", label: "Attendance Check" }] : []),
   ];
 
   function openCalendarFor(person) {
@@ -129,7 +132,7 @@ export default function App() {
           <main
             className={
               (isCalendarView ? "app-main app-main-fit" : "app-main") +
-              (!viewingStaff && ["myrequests", "approvals", "reports", "admin"].includes(tab) ? " page-compact" : "")
+              (!viewingStaff && ["myrequests", "approvals", "reports", "admin", "audit"].includes(tab) ? " page-compact" : "")
             }
           >
             {viewingStaff ? (
@@ -170,6 +173,7 @@ export default function App() {
                 {tab === "admin" && caps.canSeeAdmin && (
                   <AdminPage client={client} staffRow={staffRow} branches={caps.adminBranchesAllowed} />
                 )}
+                {tab === "audit" && canAudit && <AttendanceAuditPanel client={client} />}
               </>
             )}
           </main>
