@@ -580,11 +580,59 @@ def get_progress_summary(db: Session, subject: str, grade: int, teacher_email: O
     }
 
 
+# Which Curriculum Head owns which subject, by the split confirmed with the
+# APM: Vinny Arora takes the languages plus Social Science, Chitra Venkatesh
+# Prasanna takes Science (including its Biology/Physics/Chemistry streams),
+# Mathematics and Kannada. Matched on NAME, not email — an email in the shared
+# users table changed hands once already, and sending a subject's POWs to the
+# wrong person is worse than sending to both.
+CURRICULUM_HEAD_BY_SUBJECT = {
+    "english": "Vinny",
+    "hindi": "Vinny",
+    "social science": "Vinny",
+    "science": "Chitra",
+    "biology": "Chitra",
+    "physics": "Chitra",
+    "chemistry": "Chitra",
+    "mathematics": "Chitra",
+    "kannada": "Chitra",
+}
+
+
+def get_pow_notification_recipients(db: Session, teacher_email: str, subject: str = "") -> List[dict]:
+    """Who hears about a POW: the SMEs this teacher is mapped to in
+    teacher_sme, plus the Curriculum Head who owns that subject. A subject
+    outside the mapping (Computer Science, PE...) goes to every head rather
+    than to nobody. The teacher themselves is excluded — they just saved it."""
+    recipients = {}
+
+    teacher = db.query(models.User).filter(func.lower(models.User.email) == teacher_email.lower()).first()
+    if teacher:
+        sme_ids = [m.sme_id for m in db.query(models.TeacherSme).filter(models.TeacherSme.teacher_id == teacher.id).all()]
+        if sme_ids:
+            for sme in db.query(models.User).filter(models.User.id.in_(sme_ids)).all():
+                if sme.email:
+                    recipients[sme.email.lower()] = {"email": sme.email, "name": sme.name or sme.email, "why": "SME"}
+
+    heads = db.query(models.User).filter(models.User.designation == "Curriculum Head").all()
+    wanted = CURRICULUM_HEAD_BY_SUBJECT.get((subject or "").strip().lower())
+    if wanted:
+        matched = [h for h in heads if wanted.lower() in (h.name or "").lower()]
+        heads = matched or heads   # never silently drop the notification
+    for head in heads:
+        if head.email:
+            recipients.setdefault(head.email.lower(), {"email": head.email, "name": head.name or head.email, "why": "Curriculum Head"})
+
+    recipients.pop(teacher_email.lower(), None)
+    return list(recipients.values())
+
+
 # ─── Lagging report (leadership/SME dashboard) ──────────────────────────────
 
-# role='auditor' covers a few purely technical accounts too — they're
-# leadership by role but have no business reading a curriculum-lag report.
-LAGGING_EXCLUDED_DESIGNATIONS = {"it manager", "information technology", "sys admin"}
+# role='auditor' also covers a couple of purely technical accounts. The IT
+# Manager was explicitly granted view access; 'Information Technology' and
+# 'Sys Admin' stay out until someone asks for them.
+LAGGING_EXCLUDED_DESIGNATIONS = {"information technology", "sys admin"}
 
 
 def can_see_lagging(role: str, designation: str) -> bool:
