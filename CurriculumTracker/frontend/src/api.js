@@ -114,6 +114,12 @@ export const api = {
 
   saveBackfill: (token, payload) => request("/backfill", { method: "POST", token, body: payload }),
 
+  confirmBackfill: (token, payload) =>
+    request("/backfill/confirm", { method: "POST", token, body: payload }),
+
+  reopenBackfill: (token, payload) =>
+    request("/backfill/reopen", { method: "POST", token, body: payload }),
+
   getPlannerInventory: (token) => request("/planner/inventory", { token }),
 
   // commit=false previews without writing; commit=true imports every grade
