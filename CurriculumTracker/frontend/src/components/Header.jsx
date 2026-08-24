@@ -2,7 +2,7 @@ import ViewAsSwitcher from "./ViewAsSwitcher";
 
 // No logout control here by design — this app is embedded in the school
 // portal shell, which owns signing out (same as AuditApp).
-export default function Header({ user, realUser, token, view, onDashboard, onViewAs, onResetToMe }) {
+export default function Header({ user, realUser, token, view, onDashboard, onViewAs, onResetToMe, branch, branches = [], onBranchChange }) {
   if (!user) return null;
 
   const isViewingAs = Boolean(realUser);
@@ -18,6 +18,20 @@ export default function Header({ user, realUser, token, view, onDashboard, onVie
             <div className="hdr-title">📚 Curriculum Tracker</div>
           </div>
           <div className="hdr-right">
+            {/* Campus selector, for every role. A single-campus account has
+                nothing to choose, so it reads as a label instead. */}
+            {branches.length > 1 ? (
+              <select
+                className="form-control hdr-branch"
+                value={branch}
+                onChange={(e) => onBranchChange(e.target.value)}
+              >
+                <option value="">All branches</option>
+                {branches.map((b) => <option key={b} value={b}>{b}</option>)}
+              </select>
+            ) : branches.length === 1 ? (
+              <div className="user-badge">{branches[0]}</div>
+            ) : null}
             {canSwitch && <ViewAsSwitcher token={token} onPicked={onViewAs} />}
             <div className="user-badge">{user.name} ({user.role})</div>
             {view !== "dashboard" && (
