@@ -1,5 +1,6 @@
 import datetime
 from typing import List, Optional
+import httpx
 from sqlalchemy.orm import Session
 from .config import settings
 from . import models, schemas
@@ -42,20 +43,31 @@ def get_user_by_email(db: Session, email: str) -> Optional[models.User]:
     return db.query(models.User).filter(models.User.email.ilike(email)).first()
 
 
+_ROLE_GROUP_RANK = {"sme": 0, "auditor": 1, "teacher": 2}
+
+
 def get_all_org_users(db: Session) -> List[models.User]:
     """Everyone with an account who can use GoalTracker at all - teacher, sme,
     or any leadership/admin account (role='auditor' is the shared bucket for
     every non-teaching designation in the real data, including ones outside
-    the initially-named roles like IT Manager)."""
-    return (
-        db.query(models.User)
-        .filter(models.User.role.in_(["teacher", "sme", "auditor"]))
-        .order_by(models.User.name)
-        .all()
-    )
+    the initially-named roles like IT Manager). Grouped SME first, then every
+    other admin/leadership designation, then teachers last - within each
+    group, alphabetical by name."""
+    users = db.query(models.User).filter(models.User.role.in_(["teacher", "sme", "auditor"])).all()
+    return sorted(users, key=lambda u: (_ROLE_GROUP_RANK.get((u.role or "").strip().lower(), 99), u.name))
 
 
-# ─── Reviewer / acknowledger assignments ────────────────────────────────────
+# Designations a Principal should not see/manage in the reviewer-assignment
+# admin screen - Managing Director and the roles that report directly to MD
+# (DLP Manager, APM) or sit outside the academic chain entirely (IT), plus
+# Chairman at the very top. Principal-specific scoping only; every other
+# admin designation still sees everyone (not asked for anything narrower yet).
+PRINCIPAL_HIDDEN_DESIGNATIONS = {
+    "chairman", "managing director", "dlp manager", "it manager", "information technology", "apm",
+}
+
+
+# ─── Reviewer assignments ────────────────────────────────────────────────────
 
 def get_assignment(db: Session, email: str) -> Optional[models.ReviewerAssignment]:
     return db.query(models.ReviewerAssignment).filter(models.ReviewerAssignment.person_email.ilike(email)).first()
@@ -64,13 +76,6 @@ def get_assignment(db: Session, email: str) -> Optional[models.ReviewerAssignmen
 def get_reviewer_for(db: Session, email: str) -> Optional[str]:
     a = get_assignment(db, email)
     return a.reviewer_email if a else None
-
-
-def get_acknowledger_for(db: Session, email: str) -> Optional[str]:
-    """Who acknowledges `email`'s review actions when they act as a reviewer
-    for someone else (not who reviews their own goals)."""
-    a = get_assignment(db, email)
-    return a.acknowledger_email if a else None
 
 
 def get_reviewees(db: Session, reviewer_email: str) -> List[models.User]:
@@ -87,28 +92,18 @@ def get_reviewees(db: Session, reviewer_email: str) -> List[models.User]:
     return [by_email[e.lower()] for e in person_emails if e.lower() in by_email]
 
 
-def get_pending_acknowledgments(db: Session, acknowledger_email: str) -> List[models.GoalReviewAction]:
-    pending = (
-        db.query(models.GoalReviewAction)
-        .filter(models.GoalReviewAction.upper_ack_at.is_(None))
-        .all()
-    )
-    return [a for a in pending if (get_acknowledger_for(db, a.reviewed_by) or "").lower() == acknowledger_email.lower()]
-
-
 def list_all_assignments(db: Session) -> dict:
     return {a.person_email.lower(): a for a in db.query(models.ReviewerAssignment).all()}
 
 
 def upsert_assignment(
-    db: Session, person_email: str, reviewer_email: Optional[str], acknowledger_email: Optional[str], updated_by: str
+    db: Session, person_email: str, reviewer_email: Optional[str], updated_by: str
 ) -> models.ReviewerAssignment:
     row = get_assignment(db, person_email)
     if not row:
         row = models.ReviewerAssignment(person_email=person_email)
         db.add(row)
     row.reviewer_email = reviewer_email or None
-    row.acknowledger_email = acknowledger_email or None
     row.updated_by = updated_by
     row.updated_at = datetime.datetime.utcnow()
     db.commit()
@@ -145,6 +140,58 @@ def compute_flags(db: Session, owner_email: str, today: Optional[datetime.date] 
     )
 
 
+def goal_slot_status(db: Session, owner_email: str, cadence: str, period_key: str) -> str:
+    """Collapses a goal's existence + review state into one of three values
+    for the reviewer-facing team table: 'not_set' (no live goal), 'pending'
+    (a goal exists but something is still outstanding - never reviewed, or
+    reviewed but not yet acknowledged by the owner), 'approved' (reviewed
+    and resolved, nothing outstanding)."""
+    goal = (
+        db.query(models.Goal)
+        .filter(
+            models.Goal.owner_email.ilike(owner_email),
+            models.Goal.cadence == cadence,
+            models.Goal.period_key == period_key,
+            models.Goal.status != "deleted",
+        )
+        .first()
+    )
+    if not goal:
+        return "not_set"
+    latest = goal.review_actions[0] if goal.review_actions else None
+    if not latest:
+        return "pending"  # created, nobody has reviewed it yet
+    if goal.status in ("modified_pending_ack", "struck_off_pending_ack"):
+        return "pending"  # owner hasn't acknowledged the review yet
+    return "approved"
+
+
+def goal_progress(db: Session, owner_email: str, cadence: str, period_key: str) -> dict:
+    """Goals set vs. marked complete for one cadence/period, across both
+    categories - drives the completed/total progress bars. Deliberately
+    separate from goal_slot_status: that tracks review sign-off, this tracks
+    whether the goal was actually achieved."""
+    goals = (
+        db.query(models.Goal)
+        .filter(
+            models.Goal.owner_email.ilike(owner_email),
+            models.Goal.cadence == cadence,
+            models.Goal.period_key == period_key,
+            models.Goal.status != "deleted",
+        )
+        .all()
+    )
+    return {"completed": sum(1 for g in goals if g.is_completed), "total": len(goals)}
+
+
+def set_goal_completion(db: Session, goal: models.Goal, is_completed: bool) -> models.Goal:
+    goal.is_completed = is_completed
+    goal.completed_at = datetime.datetime.utcnow() if is_completed else None
+    db.commit()
+    db.refresh(goal)
+    return goal
+
+
 # ─── Goals ───────────────────────────────────────────────────────────────────
 
 def list_goals(db: Session, owner_email: str) -> List[models.Goal]:
@@ -160,7 +207,6 @@ def create_goal(db: Session, owner_email: str, req: schemas.GoalCreate) -> model
     goal = models.Goal(
         owner_email=owner_email,
         cadence=req.cadence,
-        category=req.category,
         period_key=current_academic_year_key(),
         title=req.title,
         specific_text=req.specific_text,
@@ -209,8 +255,8 @@ _GOAL_FIELDS = ["title", "specific_text", "measurable_text", "achievable_text", 
 def review_goal(db: Session, goal: models.Goal, reviewer_email: str, req: schemas.ReviewRequest) -> models.GoalReviewAction:
     if req.action_type not in ("approved", "modified", "struck_off"):
         raise ValueError("Invalid action_type")
-    if req.action_type in ("modified", "struck_off") and not (req.reason or "").strip():
-        raise ValueError("A reason is required to modify or strike off a goal")
+    if req.action_type == "struck_off" and not (req.reason or "").strip():
+        raise ValueError("A reason is required to strike off a goal")
     if req.action_type == "modified" and not req.edit:
         raise ValueError("edit fields are required to modify a goal")
 
@@ -251,20 +297,27 @@ def owner_acknowledge(db: Session, goal: models.Goal, action: models.GoalReviewA
     return action
 
 
-def upper_acknowledge(db: Session, action: models.GoalReviewAction, acknowledger_email: str, notes: Optional[str]) -> models.GoalReviewAction:
-    action.upper_ack_by = acknowledger_email
-    action.upper_ack_at = datetime.datetime.utcnow()
-    action.upper_ack_notes = notes
-    db.commit()
-    db.refresh(action)
-    return action
-
-
-def can_delete_goal(goal: models.Goal) -> bool:
-    if goal.status != "struck_off_pending_ack":
-        return False
+def goal_delete_block_reason(goal: models.Goal) -> Optional[str]:
+    """None means the goal can be deleted. Otherwise, a message explaining
+    the SPECIFIC reason it can't be - deletion is only allowed for a goal
+    that's never been reviewed at all, or one that was struck off and
+    acknowledged; every other state has a different, more accurate reason
+    than a single generic message could cover."""
     latest = goal.review_actions[0] if goal.review_actions else None
-    return bool(latest and latest.action_type == "struck_off" and latest.owner_ack_at)
+
+    if goal.status == "active" and not latest:
+        return None  # never reviewed - nothing to protect, freely removable
+    if goal.status == "active" and latest:
+        return "This goal was approved by your reviewer, so it can't be deleted - approved goals are permanently kept as part of the review record. There's no action you can take to unlock deletion; if it genuinely needs to go, ask your reviewer to strike it off instead of leaving it approved."
+    if goal.status == "modified_pending_ack":
+        return "Your reviewer modified this goal and it's awaiting your acknowledgment. Acknowledge the change first - a goal pending acknowledgment can't be deleted."
+    if goal.status == "struck_off_pending_ack":
+        if latest and latest.action_type == "struck_off" and latest.owner_ack_at:
+            return None  # struck off and acknowledged - deletable
+        return "Your reviewer struck off this goal. Acknowledge the strike-off first (see the reason shown above) - once acknowledged, you'll be able to delete it."
+    if goal.status == "deleted":
+        return "This goal has already been deleted."
+    return "This goal can't be deleted right now."
 
 
 def soft_delete_goal(db: Session, goal: models.Goal) -> None:
@@ -296,3 +349,189 @@ def record_notification(db: Session, owner_email: str, flag_type: str, period_ke
             owner_email=owner_email, flag_type=flag_type, period_key=period_key, last_notified_at=now,
         ))
     db.commit()
+
+
+# ─── Classroom observations (read-only, owned by AuditApp) ─────────────────
+
+def get_observations_for_teacher(db: Session, teacher_email: str) -> List[models.Observation]:
+    teacher = get_user_by_email(db, teacher_email)
+    if not teacher:
+        return []
+    return (
+        db.query(models.Observation)
+        .filter(models.Observation.teacher_id == teacher.id, models.Observation.is_draft.is_(False))
+        .order_by(models.Observation.date_time.desc())
+        .all()
+    )
+
+
+def get_observation_average(observations: List[models.Observation]) -> Optional[float]:
+    if not observations:
+        return None
+    return round(sum(o.overall_score for o in observations) / len(observations), 1)
+
+
+# ─── Tasks ───────────────────────────────────────────────────────────────────
+
+def get_upward_chain(db: Session, email: str) -> List[str]:
+    """Walks reviewer_email links upward from `email` (excluding `email`
+    itself) until there's no more reviewer or a cycle is hit - the full
+    stack of people above this person in the review chain, used for task
+    visibility (see can_view_task)."""
+    seen = set()
+    chain = []
+    current = email
+    while True:
+        reviewer = get_reviewer_for(db, current)
+        if not reviewer or reviewer.lower() in seen or reviewer.lower() == current.lower():
+            break
+        seen.add(reviewer.lower())
+        chain.append(reviewer)
+        current = reviewer
+    return chain
+
+
+def can_view_task(db: Session, task: models.Task, viewer_email: str) -> bool:
+    viewer = viewer_email.lower()
+    if task.created_by_email.lower() == viewer or task.assignee_email.lower() == viewer:
+        return True
+    return viewer in {e.lower() for e in get_upward_chain(db, task.assignee_email)}
+
+
+def get_task(db: Session, task_id: int) -> Optional[models.Task]:
+    return db.query(models.Task).filter(models.Task.id == task_id).first()
+
+
+def create_task(db: Session, created_by_email: str, created_by_name: str, req: schemas.TaskCreate) -> models.Task:
+    task = models.Task(
+        parent_id=req.parent_id,
+        goal_id=req.goal_id,
+        title=req.title,
+        description=req.description,
+        created_by_email=created_by_email,
+        created_by_name=created_by_name,
+        assignee_email=req.assignee_email,
+        assignee_name=req.assignee_name,
+        due_at=req.due_at,
+    )
+    db.add(task)
+    db.commit()
+    db.refresh(task)
+    return task
+
+
+def edit_task(db: Session, task: models.Task, req: schemas.TaskEdit) -> models.Task:
+    task.title = req.title
+    task.description = req.description
+    task.assignee_email = req.assignee_email
+    task.assignee_name = req.assignee_name
+    task.due_at = req.due_at
+    task.goal_id = req.goal_id
+    db.commit()
+    db.refresh(task)
+    return task
+
+
+def set_task_completion(db: Session, task: models.Task, is_completed: bool) -> models.Task:
+    task.is_completed = is_completed
+    task.completed_at = datetime.datetime.utcnow() if is_completed else None
+    db.commit()
+    db.refresh(task)
+    return task
+
+
+def delete_task(db: Session, task: models.Task) -> None:
+    db.delete(task)  # cascades to the whole subtree - see Task.subtasks relationship
+    db.commit()
+
+
+def postpone_task_week(db: Session, task: models.Task) -> models.Task:
+    """Moves a task's due date one week later - if it never had a due date,
+    anchors it to a week from today instead so it lands somewhere sensible."""
+    base = task.due_at or datetime.datetime.utcnow()
+    task.due_at = base + datetime.timedelta(days=7)
+    task.postpone_count += 1
+    db.commit()
+    db.refresh(task)
+    return task
+
+
+def add_task_note(db: Session, task_id: int, author_email: str, author_name: str, note: str) -> models.TaskNote:
+    row = models.TaskNote(task_id=task_id, author_email=author_email, author_name=author_name, note=note)
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def _find_root(task: models.Task) -> models.Task:
+    node = task
+    while node.parent is not None:
+        node = node.parent
+    return node
+
+
+def list_visible_tasks(db: Session, viewer_email: str) -> List[models.Task]:
+    """Every task tree the viewer can see, as top-level roots: a tree is
+    included if the viewer can see ANY node within it (its root, or any
+    subtask at any depth) - so someone assigned only a deeply-nested subtask
+    still finds the whole tree, with every subtask visible once they're in
+    it (mirrors how opening a Goal shows its full history rather than
+    hiding parts of it)."""
+    all_tasks = db.query(models.Task).all()
+    visible_root_ids = {
+        _find_root(t).id for t in all_tasks if can_view_task(db, t, viewer_email)
+    }
+    roots = [t for t in all_tasks if t.id in visible_root_ids and t.parent_id is None]
+    roots.sort(key=lambda t: t.created_at, reverse=True)
+    return roots
+
+
+def get_tasks_for_goal(db: Session, goal_id: int) -> List[models.Task]:
+    """Every task tree that has at least one node linked to this goal,
+    returned as full top-level roots - same "show the whole tree for
+    context" rule as list_visible_tasks, just keyed off goal_id instead of
+    viewer permission."""
+    all_tasks = db.query(models.Task).all()
+    root_ids = {_find_root(t).id for t in all_tasks if t.goal_id == goal_id}
+    roots = [t for t in all_tasks if t.id in root_ids and t.parent_id is None]
+    roots.sort(key=lambda t: t.created_at, reverse=True)
+    return roots
+
+
+def can_view_goal(db: Session, viewer_email: str, goal: models.Goal, viewer_is_admin: bool) -> bool:
+    if goal.owner_email.lower() == viewer_email.lower():
+        return True
+    reviewer_email = get_reviewer_for(db, goal.owner_email)
+    if reviewer_email and reviewer_email.lower() == viewer_email.lower():
+        return True
+    return viewer_is_admin
+
+
+# ─── Staff directory (staff_roles - a SEPARATE Supabase project, read-only) ─
+
+async def search_staff(query: str, location: Optional[str] = None) -> List[dict]:
+    params = {
+        "select": "email,name,designation,branches",
+        "active": "eq.true",
+        "order": "name",
+        "limit": "30",
+    }
+    if query.strip():
+        params["name"] = f"ilike.*{query.strip()}*"
+    if location:
+        # Staff explicitly at this branch, OR staff with no branch set at all
+        # (leadership like MD/APM aren't tied to one campus).
+        params["or"] = f"(branches.cs.{{{location}}},branches.eq.{{}})"
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            f"{settings.STAFF_SUPABASE_URL}/rest/v1/staff_roles",
+            params=params,
+            headers={
+                "apikey": settings.STAFF_SUPABASE_ANON_KEY,
+                "Authorization": f"Bearer {settings.STAFF_SUPABASE_ANON_KEY}",
+            },
+            timeout=10,
+        )
+    resp.raise_for_status()
+    return resp.json()
