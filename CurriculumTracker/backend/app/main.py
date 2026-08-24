@@ -376,12 +376,11 @@ def _check_backfill_scope(db: Session, user: auth.CurrentUser, subject: str) -> 
 def get_backfill(
     subject: str = Query(...),
     grade: int = Query(...),
-    teacher_email: str = Query(...),
     db: Session = Depends(get_db),
     current_user: auth.CurrentUser = Depends(auth.require_curriculum_uploader),
 ):
     _check_backfill_scope(db, current_user, subject)
-    return crud.get_backfill_view(db, subject, grade, teacher_email)
+    return crud.get_backfill_view(db, subject, grade)
 
 
 @app.post("/api/backfill")
@@ -394,16 +393,16 @@ def save_backfill(
     from that point progress is whatever the POWs say, and re-opening the
     marking would let someone silently rewrite history."""
     _check_backfill_scope(db, current_user, req.subject)
-    view = crud.get_backfill_view(db, req.subject, req.grade, req.teacher_email)
+    view = crud.get_backfill_view(db, req.subject, req.grade)
     if view["locked"]:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Past coverage for {req.subject} Grade {req.grade} was confirmed complete by "
+            detail=f"Coverage for {req.subject} Grade {req.grade} was confirmed complete by "
                    f"{view['confirmed_by'] or 'an SME'} — reopen it first if it needs changing.",
         )
-    result = crud.save_backfill(db, req.subject, req.grade, req.teacher_email, req.marks, current_user.email)
-    logger.info("Backfill saved by %s for %s: %s Grade %s — %s marks",
-                current_user.email, req.teacher_email, req.subject, req.grade, result["saved"])
+    result = crud.save_backfill(db, req.subject, req.grade, req.marks, current_user.email)
+    logger.info("Backfill saved by %s: %s Grade %s — %s marks",
+                current_user.email, req.subject, req.grade, result["saved"])
     return {"success": True, **result}
 
 
@@ -416,9 +415,9 @@ def confirm_backfill(
     """The SME saying "past coverage for this teacher is complete". This — not
     the arrival of POWs — is what closes the marking."""
     _check_backfill_scope(db, current_user, req.subject)
-    result = crud.confirm_backfill(db, req.subject, req.grade, req.teacher_email, current_user.email)
-    logger.info("Backfill confirmed by %s for %s: %s Grade %s",
-                current_user.email, req.teacher_email, req.subject, req.grade)
+    result = crud.confirm_backfill(db, req.subject, req.grade, current_user.email)
+    logger.info("Backfill confirmed by %s: %s Grade %s",
+                current_user.email, req.subject, req.grade)
     return {"success": True, **result}
 
 
@@ -430,9 +429,9 @@ def reopen_backfill(
 ):
     """Undo a confirmation — the marks are kept, the window just opens again."""
     _check_backfill_scope(db, current_user, req.subject)
-    result = crud.reopen_backfill(db, req.subject, req.grade, req.teacher_email)
-    logger.info("Backfill reopened by %s for %s: %s Grade %s",
-                current_user.email, req.teacher_email, req.subject, req.grade)
+    result = crud.reopen_backfill(db, req.subject, req.grade)
+    logger.info("Backfill reopened by %s: %s Grade %s",
+                current_user.email, req.subject, req.grade)
     return {"success": True, **result}
 
 
@@ -501,6 +500,11 @@ def get_pow(
             "cct_dashboard_updated": pow_entry.cct_dashboard_updated,
             "impl_a": pow_entry.impl_a, "impl_b": pow_entry.impl_b, "impl_c": pow_entry.impl_c,
             "impl_d": pow_entry.impl_d, "impl_e": pow_entry.impl_e, "impl_f": pow_entry.impl_f,
+            **{
+                f"impl_{s}_date": (getattr(pow_entry, f"impl_{s}_date").isoformat()
+                                   if getattr(pow_entry, f"impl_{s}_date") else None)
+                for s in "abcdef"
+            },
             "correction_done": pow_entry.correction_done, "instructions": pow_entry.instructions,
             "teacher_remarks": pow_entry.teacher_remarks, "status": pow_entry.status, "tbs_mom": pow_entry.tbs_mom,
             # Inside `pow` deliberately: the frontend keeps res.pow in state, so
