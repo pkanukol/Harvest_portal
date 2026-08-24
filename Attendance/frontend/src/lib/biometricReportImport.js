@@ -2,6 +2,14 @@ import * as XLSX from "xlsx";
 
 const MONTH_ABBR = { Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5, Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11 };
 
+// Canonical form of an employee id for matching: trimmed + upper-cased. The
+// biometric sheet's codes sometimes differ from staff_master only by case or
+// stray spaces ("1255hisib" vs "1255HISIB"), so every id comparison normalises
+// first - otherwise those people look "not in staff_master" and never link.
+function normId(id) {
+  return String(id ?? "").trim().toUpperCase();
+}
+
 // A re-link fires ~one recompute request per staff member (hundreds, sequential).
 // A single transient network hiccup ("TypeError: Failed to fetch") or a gateway
 // idle-timeout on one slow recompute would otherwise abort the whole run. Retry
@@ -185,12 +193,27 @@ export async function fetchAttendanceNotRead(client, fromIso, toIso, branch) {
 
 export async function matchAgainstStaffMaster(client, employeeCodes) {
   const uniqueCodes = [...new Set(employeeCodes)];
-  const { data, error } = await client.from("staff_master").select("employee_id, employee_name").in("employee_id", uniqueCodes);
-  if (error) throw error;
-  const known = new Set((data ?? []).map((r) => r.employee_id));
+  // Compare case/whitespace-insensitively against the whole staff list, so the
+  // preview's matched/unmatched counts are honest (a `.in()` filter would be an
+  // exact match and wrongly report case-differing codes as unmatched).
+  const known = new Set();
+  const PAGE = 1000;
+  for (let offset = 0; ; offset += PAGE) {
+    const data = await withRetry(async () => {
+      const { data, error } = await client
+        .from("staff_master")
+        .select("employee_id")
+        .order("employee_id", { ascending: true })
+        .range(offset, offset + PAGE - 1);
+      if (error) throw error;
+      return data;
+    }, { label: "reading the staff list" });
+    (data ?? []).forEach((r) => r.employee_id && known.add(normId(r.employee_id)));
+    if (!data || data.length < PAGE) break;
+  }
   return {
-    matchedCount: uniqueCodes.filter((c) => known.has(c)).length,
-    unmatchedCodes: uniqueCodes.filter((c) => !known.has(c)),
+    matchedCount: uniqueCodes.filter((c) => known.has(normId(c))).length,
+    unmatchedCodes: uniqueCodes.filter((c) => !known.has(normId(c))),
   };
 }
 
@@ -256,9 +279,11 @@ export async function bridgeToAttendancePipeline(client, employeeIds, fromDate, 
     if (!data || data.length < PAGE) break;
   }
 
-  // The attendance key IS employee_id now, so "bridging" is just: keep the rows
-  // whose employee_id exists in staff_master, and use employee_id as staff_id.
-  const knownEmployeeIds = new Set();
+  // The attendance key IS employee_id now, so "bridging" is: keep the rows whose
+  // employee_id exists in staff_master. Match case/whitespace-insensitively, and
+  // map to staff_master's canonical id - so punches store under the SAME id the
+  // calendar/reports read by, even when the sheet's code differs only by case.
+  const canonicalByNorm = new Map(); // normalised id -> staff_master.employee_id
   for (let offset = 0; ; offset += PAGE) {
     const data = await withRetry(async () => {
       const { data, error } = await client
@@ -269,7 +294,7 @@ export async function bridgeToAttendancePipeline(client, employeeIds, fromDate, 
       if (error) throw error;
       return data;
     }, { label: "reading the staff list" });
-    (data ?? []).forEach((r) => r.employee_id && knownEmployeeIds.add(r.employee_id));
+    (data ?? []).forEach((r) => r.employee_id && canonicalByNorm.set(normId(r.employee_id), r.employee_id));
     if (!data || data.length < PAGE) break;
   }
 
@@ -278,7 +303,7 @@ export async function bridgeToAttendancePipeline(client, employeeIds, fromDate, 
   const noStaffRolesAccount = new Set(); // reserved (kept for the import UI's counters)
 
   for (const row of dailyRows ?? []) {
-    const staffId = knownEmployeeIds.has(row.employee_id) ? row.employee_id : null;
+    const staffId = canonicalByNorm.get(normId(row.employee_id)) ?? null;
     if (!staffId) {
       noEmailInMaster.add(row.employee_id);
       continue;
