@@ -18,20 +18,25 @@ export default function App() {
 
   // Same SSO-exchange-inside-React pattern as CurriculumTracker's App.jsx -
   // avoids a full page reload just so AuthContext notices the new token.
+  //
+  // A fresh ?sso= param ALWAYS re-authenticates, even when a token is already
+  // cached (the rule AuditApp's index.html already follows). Short-circuiting
+  // on a cached token meant a stale session could never be replaced - it kept
+  // serving an old identity, and a `user` object saved before is_admin /
+  // can_manage_reviewers existed silently hid every leadership button. With
+  // Logout now owned by the portal, this is the only way back to a good state.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const ssoToken = params.get("sso");
     if (!ssoToken) return;
-    if (localStorage.getItem("token")) {
-      window.history.replaceState({}, "", window.location.pathname);
-      setSsoLoading(false);
-      return;
-    }
 
     function attemptExchange(attemptNumber) {
       console.log(LOG, "attempt", attemptNumber);
       return api.ssoLogin(ssoToken);
     }
+
+    localStorage.removeItem("own_token");
+    localStorage.removeItem("own_user");
 
     attemptExchange(1)
       .catch((firstErr) => {
