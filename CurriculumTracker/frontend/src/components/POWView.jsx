@@ -11,6 +11,8 @@ export default function POWView({ token, user, powId, onBack, onDone }) {
   const [implA, setImplA] = useState(""); const [implB, setImplB] = useState("");
   const [implC, setImplC] = useState(""); const [implD, setImplD] = useState("");
   const [implE, setImplE] = useState(""); const [implF, setImplF] = useState("");
+  // Completion date per section — sections finish a chapter on different days.
+  const [implDates, setImplDates] = useState({ a: "", b: "", c: "", d: "", e: "", f: "" });
   const [tbsMom, setTbsMom] = useState("");
   const [correctionDone, setCorrectionDone] = useState("");
   const [instructions, setInstructions] = useState("");
@@ -30,6 +32,10 @@ export default function POWView({ token, user, powId, onBack, onDone }) {
       setImplA(res.pow.impl_a || ""); setImplB(res.pow.impl_b || "");
       setImplC(res.pow.impl_c || ""); setImplD(res.pow.impl_d || "");
       setImplE(res.pow.impl_e || ""); setImplF(res.pow.impl_f || "");
+      setImplDates({
+        a: res.pow.impl_a_date || "", b: res.pow.impl_b_date || "", c: res.pow.impl_c_date || "",
+        d: res.pow.impl_d_date || "", e: res.pow.impl_e_date || "", f: res.pow.impl_f_date || "",
+      });
       setTbsMom(res.pow.tbs_mom || "");
       setCorrectionDone(res.pow.correction_done || "");
       setInstructions(res.pow.instructions || "");
@@ -74,6 +80,8 @@ export default function POWView({ token, user, powId, onBack, onDone }) {
     try {
       await api.updatePowImplementation(token, powId, {
         impl_a: implA, impl_b: implB, impl_c: implC, impl_d: implD, impl_e: implE, impl_f: implF,
+        impl_a_date: implDates.a, impl_b_date: implDates.b, impl_c_date: implDates.c,
+        impl_d_date: implDates.d, impl_e_date: implDates.e, impl_f_date: implDates.f,
         correction_done: correctionDone, instructions, teacher_remarks: teacherRemarks,
         final_save: finalSave,
       });
@@ -179,6 +187,16 @@ export default function POWView({ token, user, powId, onBack, onDone }) {
             <div className="form-group" key={label}>
               <label className="form-label">Grade {pow.grade} — Section {label}</label>
               <textarea className="form-control" value={val} disabled={isLocked} onChange={(e) => setter(e.target.value)} />
+              <div className="impl-date-row">
+                <span className="hint-text">Completed on</span>
+                <input
+                  type="date"
+                  className="form-control impl-date"
+                  value={implDates[label.toLowerCase()]}
+                  disabled={isLocked}
+                  onChange={(e) => setImplDates({ ...implDates, [label.toLowerCase()]: e.target.value })}
+                />
+              </div>
             </div>
           ))}
         </div>
