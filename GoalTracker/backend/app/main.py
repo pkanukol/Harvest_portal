@@ -309,6 +309,18 @@ def get_goals_overview(
     return {"people": people, "mid_term_summary": mid_term_counts, "annual_summary": annual_counts}
 
 
+@app.get("/api/admin/people", response_model=List[schemas.OrgPersonOut])
+def list_org_people(
+    db: Session = Depends(get_db),
+    current_user: auth.CurrentUser = Depends(auth.require_owner),
+):
+    """Flat roster for the "view as" picker. One query, no per-person work -
+    goals-overview was being used for this and costs several queries per
+    person (status, progress, observation averages), which made just opening
+    the picker slow."""
+    return crud.get_all_org_users(db)
+
+
 @app.post("/api/admin/act-as/{email}", response_model=schemas.SSOResponse)
 def act_as(
     email: str,
