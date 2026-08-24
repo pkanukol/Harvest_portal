@@ -30,6 +30,11 @@ export const api = {
   ssoLogin: (supabaseToken) =>
     request("/auth/sso", { method: "POST", body: { supabase_token: supabaseToken } }),
 
+  // Local-testing-only shortcut - the backend 404s this unless it's running
+  // against the local SQLite DB, so it's structurally inert against a real
+  // deployment regardless of whether this button is visible.
+  devLogin: (email) => request("/dev/login", { method: "POST", body: { email } }),
+
   getMyGoals: (token) => request("/goals", { token }),
 
   createGoal: (token, payload) => request("/goals", { method: "POST", token, body: payload }),
@@ -38,6 +43,9 @@ export const api = {
     request(`/goals/${goalId}`, { method: "PATCH", token, body: payload }),
 
   deleteGoal: (token, goalId) => request(`/goals/${goalId}`, { method: "DELETE", token }),
+
+  setGoalCompletion: (token, goalId, isCompleted) =>
+    request(`/goals/${goalId}/completion`, { method: "PATCH", token, body: { is_completed: isCompleted } }),
 
   addGoalLog: (token, goalId, payload) =>
     request(`/goals/${goalId}/logs`, { method: "POST", token, body: payload }),
@@ -48,15 +56,52 @@ export const api = {
   ownerAck: (token, goalId, actionId, notes) =>
     request(`/goals/${goalId}/review/${actionId}/owner-ack`, { method: "POST", token, body: { notes } }),
 
-  upperAck: (token, goalId, actionId, notes) =>
-    request(`/goals/${goalId}/review/${actionId}/upper-ack`, { method: "POST", token, body: { notes } }),
-
   getTeam: (token) => request("/team", { token }),
 
   getMemberGoals: (token, email) => request(`/team/${encodeURIComponent(email)}/goals`, { token }),
+
+  getGoalsOverview: (token) => request("/admin/goals-overview", { token }),
+
+  // Manual stand-in for the daily flag-check cron (paid-tier only on Render).
+  // Idempotent - the server's renotify window stops a second click re-emailing.
+  runFlagCheck: (token) => request("/admin/flag-check", { method: "POST", token }),
+
+  // Leadership preview: one person's whole dashboard (goals + tasks) resolved
+  // against their own visibility. Read-only - mints no token for them.
+  viewAs: (token, email) => request(`/admin/view-as/${encodeURIComponent(email)}`, { token }),
+
+  // Switch into someone's account (write-capable). Restricted server-side to
+  // settings.ACT_AS_ADMIN_EMAIL; the returned token carries impersonated_by.
+  actAs: (token, email) => request(`/admin/act-as/${encodeURIComponent(email)}`, { method: "POST", token }),
+
+  getObservations: (token, email) => request(`/observations/${encodeURIComponent(email)}`, { token }),
+
+  getTasksForGoal: (token, goalId) => request(`/goals/${goalId}/tasks`, { token }),
+
+  getGoalOptions: (token, email) => request(`/tasks/goal-options?email=${encodeURIComponent(email)}`, { token }),
 
   getReviewerAssignments: (token) => request("/admin/reviewer-assignments", { token }),
 
   putReviewerAssignment: (token, payload) =>
     request("/admin/reviewer-assignments", { method: "PUT", token, body: payload }),
+
+  getTasks: (token) => request("/tasks", { token }),
+
+  createTask: (token, payload) => request("/tasks", { method: "POST", token, body: payload }),
+
+  editTask: (token, taskId, payload) =>
+    request(`/tasks/${taskId}`, { method: "PATCH", token, body: payload }),
+
+  setTaskCompletion: (token, taskId, isCompleted) =>
+    request(`/tasks/${taskId}/completion`, { method: "PATCH", token, body: { is_completed: isCompleted } }),
+
+  deleteTask: (token, taskId) => request(`/tasks/${taskId}`, { method: "DELETE", token }),
+
+  postponeTaskWeek: (token, taskId) => request(`/tasks/${taskId}/postpone-week`, { method: "POST", token }),
+
+  addTaskNote: (token, taskId, note) =>
+    request(`/tasks/${taskId}/notes`, { method: "POST", token, body: { note } }),
+
+  searchStaff: (token, query, location) =>
+    request(`/staff/search?q=${encodeURIComponent(query)}${location ? `&location=${encodeURIComponent(location)}` : ""}`, { token }),
 };
