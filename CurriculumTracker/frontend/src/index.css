@@ -216,3 +216,5 @@ th { color: var(--muted); font-weight: 600; font-size: 11px; }
 .impl-detail { font-size: 11px; margin-bottom: 6px; }
 .impl-detail-remark { color: var(--muted); white-space: pre-wrap; }
 .backfill-current { font-weight: 600; }
+.discipline-filter { max-width: 260px; margin-bottom: 12px; }
+.pow-detail-head { font-size: 11px; font-weight: 600; margin-bottom: 6px; }
