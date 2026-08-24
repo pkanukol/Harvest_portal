@@ -1,14 +1,20 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  /* Brand — Harvest teal/green (distinct from CurriculumTracker's blue) */
-  --brand: #2FA88A;
-  --brand-600: #26967A;
-  --brand-700: #1D7C64;
-  --brand-050: #E9F7F3;
-  --brand-100: #CDEEE4;
-  --brand-200: #A3E0CE;
-  --grad: linear-gradient(135deg, #4FC2A4 0%, #2FA88A 45%, #1D7C64 100%);
+  /* Brand — Harvest blue, shared with AuditApp / CurriculumTracker / TicketTracker */
+  --brand: #4BA3D3;
+  --brand-600: #3893C4;
+  --brand-700: #2A7BAD;
+  --brand-050: #EBF5FB;
+  --brand-100: #CFE7F6;
+  --brand-200: #A8D4EC;
+  --grad: linear-gradient(135deg, #6BB6DE 0%, #4BA3D3 45%, #2A7BAD 100%);
+
+  /* SMART-table label bands (see .smart-table) */
+  --band-specific: #E8F1FA;
+  --band-measurable: #EAF4EC;
+  --band-achievable: #FBF3E3;
+  --band-relevant: #F3EEFA;
 
   /* Semantic */
   --green: #5A9E47; --green-bg: #EBF5E8;
@@ -28,22 +34,22 @@
   --radius: 16px;
   --radius-sm: 11px;
   --shadow: 0 1px 2px rgba(16,24,40,.04), 0 6px 20px rgba(16,24,40,.06);
-  --shadow-lg: 0 10px 40px rgba(29,124,100,.18);
+  --shadow-lg: 0 10px 40px rgba(42,123,173,.18);
 }
 
 body {
-  font-family: "Segoe UI", -apple-system, sans-serif;
+  font-family: "Outfit", "Segoe UI", -apple-system, sans-serif;
   font-size: 14px;
   background: var(--bg);
   color: var(--ink);
   min-height: 100vh;
 }
 
-.app-container { max-width: 1000px; margin: 0 auto; padding: 24px 20px 60px; }
+.app-container { max-width: 900px; margin: 0 auto; padding: 24px 20px 60px; }
 
 /* Header */
 .hdr { background: var(--card); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 10; }
-.hdr-inner { max-width: 1000px; margin: 0 auto; padding: 14px 20px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.hdr-inner { max-width: 900px; margin: 0 auto; padding: 14px 20px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .hdr-left { display: flex; align-items: center; gap: 12px; }
 .hdr-title { font-size: 16px; font-weight: 700; color: var(--brand-700); }
 .hdr-right { display: flex; align-items: center; gap: 10px; }
@@ -80,9 +86,142 @@ body {
 
 /* Section / tabs */
 .section-title { font-size: 15px; font-weight: 700; margin: 24px 0 12px; color: var(--brand-700); }
-.cadence-tabs { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+.cadence-tabs { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
 .cadence-tab { padding: 7px 14px; border-radius: 20px; font-size: 12px; font-weight: 600; border: 1.5px solid var(--border); background: var(--card); color: var(--muted); cursor: pointer; }
 .cadence-tab.active { background: var(--brand-050); border-color: var(--brand); color: var(--brand-700); }
+
+.period-superheader { font-size: 12px; font-weight: 700; color: var(--muted); letter-spacing: .02em; margin-bottom: 12px; }
+
+/* ── Role / Organisation goal panels ─────────────────────────────────────
+   Two columns side by side so both cadences are visible at once, each panel
+   colour-keyed to its badge (amber = Role, violet = Organisation). Stacks on
+   narrow screens. */
+.goals-grid { display: flex; flex-direction: column; gap: 16px; margin-bottom: 20px; }
+
+.goal-panel { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); border-top: 3px solid var(--line-2); overflow: hidden; }
+.goal-panel-mid_term { border-top-color: var(--warn); }
+.goal-panel-annual { border-top-color: #6B4FBB; }
+.goal-panel-head { display: flex; align-items: center; gap: 10px; padding: 13px 18px; border-bottom: 1px solid var(--border); background: var(--bg-soft); }
+.goal-panel-label { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: var(--muted); }
+.goal-panel-count { font-size: 10px; font-weight: 700; color: var(--ink-faint); margin-left: auto; flex-shrink: 0; }
+
+/* One segment per goal, filled when complete. */
+.goal-panel-meter { display: flex; gap: 3px; align-items: center; }
+.goal-panel-seg { width: 14px; height: 5px; border-radius: 3px; background: var(--line-2); }
+.goal-panel-seg.is-done { background: var(--green); }
+
+/* Empty state keeps the panel's shape so the page doesn't jump as goals land. */
+.goal-panel-empty { padding: 22px 18px; text-align: center; }
+.ghost-bullet { display: block; height: 7px; border-radius: 4px; background: repeating-linear-gradient(90deg, var(--border) 0 8px, transparent 8px 14px); margin-bottom: 7px; }
+.ghost-bullet-short { width: 78%; }
+.ghost-bullet-shorter { width: 55%; }
+.goal-panel-empty-msg { font-size: 12px; color: var(--ink-faint); margin: 12px 0 10px; }
+.goal-panel-add { width: 100%; padding: 9px; border: none; border-top: 1px dashed var(--line-2); background: transparent; color: var(--brand-700); font-size: 11px; font-weight: 700; cursor: pointer; }
+.goal-panel-add:hover { background: var(--brand-050); }
+
+/* Bulleted goal rows - click to expand in place (no modal). */
+.goal-bullets { list-style: none; }
+.goal-bullet { border-bottom: 1px solid var(--border); }
+.goal-bullet:last-child { border-bottom: none; }
+.goal-bullet.is-open { background: var(--bg-soft); }
+.goal-bullet-row { display: flex; align-items: center; gap: 6px; padding: 3px 14px 3px 10px; }
+.goal-bullet-main { flex: 1; display: flex; align-items: center; gap: 10px; padding: 12px 4px; background: none; border: none; text-align: left; cursor: pointer; font: inherit; color: inherit; min-width: 0; }
+.goal-bullet-chevron { font-size: 9px; color: var(--ink-faint); flex-shrink: 0; width: 10px; }
+.goal-bullet-title { font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+.goal-bullet-title.is-completed { text-decoration: line-through; color: var(--muted); }
+.goal-bullet-actions { display: flex; gap: 2px; flex-shrink: 0; opacity: 0; transition: opacity .12s; }
+.goal-bullet-row:hover .goal-bullet-actions, .goal-bullet.is-open .goal-bullet-actions { opacity: 1; }
+.goal-bullet-actions .btn { padding: 3px 6px; }
+.goal-bullet-detail { padding: 2px 18px 16px 34px; }
+
+/* ── Carried-over (still-open) tasks ───────────────────────────────────
+   Pinned above the current week. The week list is a window, so without this
+   an unclosed task silently drops out of view once the week turns over. */
+.carried-panel { border: 1px solid #F0C9CA; border-left: 4px solid var(--red); border-radius: var(--radius-sm); background: var(--red-bg); margin-bottom: 18px; overflow: hidden; }
+.carried-head { display: flex; align-items: center; gap: 9px; width: 100%; padding: 11px 14px; background: none; border: none; cursor: pointer; font: inherit; text-align: left; }
+.carried-chevron { font-size: 10px; color: var(--red); }
+.carried-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: #8E2226; }
+.carried-count { margin-left: auto; min-width: 22px; padding: 2px 8px; border-radius: 20px; background: var(--red); color: #fff; font-size: 11px; font-weight: 700; text-align: center; }
+.carried-tree { background: var(--card); border-top: 1px solid #F0C9CA; padding: 4px 0; }
+.task-late-badge { background: var(--red); color: #fff; }
+
+/* Count on the Tasks tab, so carried-over work is visible from Goals too. */
+.tab-alert-count { display: inline-block; margin-left: 7px; min-width: 18px; padding: 1px 6px; border-radius: 20px; background: var(--red); color: #fff; font-size: 10px; font-weight: 700; }
+
+/* ── Acting-as banner ──────────────────────────────────────────────────
+   Sticky and high-contrast on purpose: the real risk of an act-as session is
+   forgetting you are in one. */
+.acting-banner { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 10px; padding: 9px 20px; background: #8E2226; color: #fff; }
+.acting-banner-dot { width: 8px; height: 8px; border-radius: 50%; background: #fff; flex-shrink: 0; animation: acting-pulse 1.8s ease-in-out infinite; }
+@keyframes acting-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+.acting-banner-text { flex: 1; font-size: 12.5px; }
+.acting-banner-btn { background: #fff; color: #8E2226; border: none; font-weight: 700; }
+.acting-banner-btn:hover:not(:disabled) { background: #FBEAEA; }
+
+.preview-queue { margin: 4px 0 18px; padding: 12px 14px; border: 1px solid var(--brand-200); border-radius: var(--radius-sm); background: var(--card); }
+.preview-queue-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; font-size: 12px; color: var(--muted); }
+
+.viewas-row-actions { display: flex; gap: 6px; justify-self: end; }
+
+/* ── Preview ("view as") shell ─────────────────────────────────────────
+   Full-screen so the previewed page looks like the real page, with a fixed
+   bar that makes it unmistakable you're looking at someone else's view. */
+.preview-overlay { position: fixed; inset: 0; z-index: 60; background: var(--bg); overflow-y: auto; }
+.preview-shell { min-height: 100%; }
+.preview-bar { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 10px; padding: 10px 20px; background: #2A3547; color: #fff; }
+.preview-eye { font-size: 14px; }
+.preview-bar-text { flex: 1; font-size: 12.5px; }
+.preview-bar-text strong { font-weight: 700; }
+.preview-ro { margin-left: 10px; padding: 2px 9px; border-radius: 20px; background: rgba(255,255,255,.16); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; }
+.preview-bar .btn { background: rgba(255,255,255,.1); color: #fff; border-color: rgba(255,255,255,.25); }
+.preview-body { max-width: 900px; margin: 0 auto; padding: 22px 20px 60px; }
+
+/* A flattened copy of their header - labels only, nothing clickable. */
+.preview-hdr { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 12px 16px; margin-bottom: 18px; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.preview-hdr-btns { display: flex; gap: 6px; margin-left: auto; flex-wrap: wrap; }
+.preview-fake-btn { padding: 6px 12px; border: 1.5px dashed var(--line-2); border-radius: var(--radius-sm); font-size: 11px; font-weight: 600; color: var(--muted); }
+.preview-actions { gap: 8px; margin-bottom: 12px; }
+.preview-fake-primary { border-style: dashed; border-color: var(--brand-200); color: var(--brand-700); background: var(--brand-050); }
+.preview-fake-highlight { border-color: var(--brand); color: var(--brand-700); background: var(--brand-050); border-style: solid; box-shadow: 0 0 0 3px var(--brand-100); }
+.preview-note { padding: 9px 13px; margin-bottom: 14px; border-left: 3px solid var(--brand); background: var(--brand-050); border-radius: 6px; font-size: 12px; color: var(--brand-700); }
+
+/* ── "View as" person picker ───────────────────────────────────────────── */
+.viewas-list { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; max-height: 340px; overflow-y: auto; }
+.viewas-row { display: grid; grid-template-columns: 1.1fr .9fr auto auto; gap: 10px; align-items: center; text-align: left; padding: 9px 12px; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-sm); font: inherit; }
+.viewas-row:hover { border-color: var(--brand-200); }
+.viewas-name { font-size: 13px; font-weight: 700; }
+.viewas-desig { font-size: 12px; color: var(--muted); }
+.viewas-status { font-size: 11px; color: var(--ink-faint); white-space: nowrap; }
+.viewas-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+@media (max-width: 700px) { .viewas-row { grid-template-columns: 1fr; gap: 4px; } .viewas-row-actions { justify-self: start; } }
+
+/* ── SMART table ───────────────────────────────────────────────────────
+   Label column + value column, one coloured band per element - mirrors the
+   school's paper goal-setting sheet rather than a stack of tiny captions. */
+.smart-table { width: 100%; border-collapse: separate; border-spacing: 0; margin: 4px 0 14px; font-size: 13.5px; }
+.smart-table th[scope="row"] { width: 118px; text-align: left; vertical-align: top; padding: 10px 12px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--ink); border-bottom: 1px solid var(--card); white-space: nowrap; }
+.smart-table td { padding: 10px 14px; vertical-align: top; line-height: 1.6; color: var(--ink); background: var(--bg-soft); border-bottom: 1px solid var(--card); overflow-wrap: anywhere; white-space: pre-wrap; }
+.smart-row-specific th { background: var(--band-specific); }
+.smart-row-measurable th { background: var(--band-measurable); }
+.smart-row-achievable th { background: var(--band-achievable); }
+.smart-row-relevant th { background: var(--band-relevant); }
+.smart-table tr:first-child th { border-top-left-radius: 10px; }
+.smart-table tr:first-child td { border-top-right-radius: 10px; }
+.smart-table tr:last-child th { border-bottom-left-radius: 10px; }
+.smart-table tr:last-child td { border-bottom-right-radius: 10px; }
+.smart-table textarea { min-height: 62px; }
+.smart-empty { color: var(--ink-faint); font-style: italic; }
+
+/* Embedded card: the row above already carries the title and cadence. */
+.goal-card-embedded { border: none; background: transparent; margin-bottom: 0; }
+.goal-card-embedded .goal-card-body { padding: 4px 0 0; }
+
+.goal-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 20px; }
+.goal-list-item { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 16px; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 13px; font-weight: 600; transition: box-shadow 0.15s, transform 0.1s; }
+.goal-list-item:hover { box-shadow: var(--shadow); transform: translateY(-1px); border-color: var(--brand-200); }
+.goal-list-item-title { flex: 1; cursor: pointer; display: flex; align-items: center; gap: 8px; }
+.goal-list-item-actions { display: flex; gap: 4px; flex-shrink: 0; }
+.goal-list-item-actions .btn { padding: 4px 8px; }
 
 .dashboard-actions { display: flex; justify-content: flex-end; gap: 10px; margin-bottom: 20px; }
 .empty-msg { text-align: center; color: var(--muted); padding: 40px 0; font-size: 13px; }
@@ -110,9 +249,13 @@ body {
 .review-history-item { font-size: 12px; padding: 4px 0; }
 .ack-box { margin-top: 10px; padding: 10px; background: var(--warn-bg); border-radius: 8px; }
 .review-form { margin-top: 12px; padding: 12px; background: var(--bg-soft); border-radius: 8px; }
+.review-action-icons { display: flex; gap: 6px; }
+.review-action-btn { font-size: 15px; padding: 6px 12px; }
+.review-action-btn.active { background: var(--brand-050); border-color: var(--brand); }
 
 /* Goal logs */
 .log-list { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 10px; }
+.goal-linked-tasks { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 10px; }
 .log-item { display: flex; gap: 10px; font-size: 12px; padding: 6px 0; }
 .log-date { color: var(--muted); flex-shrink: 0; width: 78px; }
 .log-add-row { display: flex; gap: 8px; margin-top: 10px; }
@@ -123,6 +266,7 @@ body {
 .form-label { display: block; font-size: 12px; font-weight: 600; margin-bottom: 6px; }
 .form-control { width: 100%; padding: 9px 12px; border: 1.5px solid var(--border); border-radius: 8px; font-size: 13px; font-family: inherit; color: var(--ink); }
 .form-control:focus { outline: none; border-color: var(--brand); }
+.readonly-field { background: var(--bg-soft); color: var(--muted); cursor: not-allowed; }
 .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .hint-text { font-size: 11px; color: var(--muted); margin-bottom: 12px; }
 .form-actions { display: flex; justify-content: space-between; align-items: center; margin-top: 24px; }
@@ -140,3 +284,77 @@ th { color: var(--muted); font-weight: 600; font-size: 11px; }
 tr.team-row { cursor: pointer; }
 tr.team-row:hover { background: var(--bg-soft); }
 .loading-spinner { text-align: center; padding: 40px; color: var(--muted); font-size: 13px; }
+
+/* Searchable person picker (reviewer assignment) */
+.searchable-select { position: relative; min-width: 200px; }
+.searchable-select-options { position: absolute; top: 100%; left: 0; right: 0; z-index: 50; max-height: 220px; overflow-y: auto; background: var(--card); border: 1.5px solid var(--brand); border-radius: 8px; box-shadow: var(--shadow-lg); margin-top: 2px; }
+.searchable-select-option { padding: 8px 12px; font-size: 12px; cursor: pointer; white-space: nowrap; }
+.searchable-select-option:hover { background: var(--brand-050); }
+.searchable-select-none { color: var(--muted); font-style: italic; }
+.staff-search-row { display: flex; gap: 6px; }
+.staff-search-row .form-control:first-child { flex: 1; }
+.staff-search-location { flex-shrink: 0; width: 120px; }
+
+/* Goals overview heatmap */
+.heatmap-summary-row { display: flex; align-items: center; gap: 14px; padding: 4px 0; font-size: 12px; }
+.heatmap-summary-label { font-weight: 700; width: 84px; flex-shrink: 0; }
+.heatmap-summary-stat { font-weight: 700; }
+.status-approved-text { color: #3d6e30; }
+.status-pending-text { color: #8a5a10; }
+.status-not_set-text { color: var(--muted); }
+
+/* "Email everyone flagged" bar + result readout on the leadership overview */
+.nudge-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
+.nudge-bar .hint-text { margin-bottom: 0; flex: 1 1 260px; min-width: 200px; }
+.nudge-result { margin-top: 10px; padding: 10px 12px; border: 1px solid #d4e4d4; border-radius: 8px; background: #f0f7f0; font-size: 12px; }
+.nudge-recipients { margin: 8px 0 0; padding-left: 18px; max-height: 160px; overflow-y: auto; }
+.nudge-recipients li { margin-bottom: 3px; }
+.nudge-recipients .hint-text { margin-bottom: 0; }
+/* Per-column filter row (Goals overview table) */
+.filter-row th { padding: 4px 8px 8px; font-weight: 400; }
+.form-control-sm { padding: 5px 8px; font-size: 11px; }
+
+/* Goal completion progress bars */
+.goal-progress-row { display: flex; gap: 20px; margin-bottom: 16px; }
+.progress-bar-wrap { display: flex; align-items: center; gap: 6px; }
+.progress-bar-caption { font-size: 11px; font-weight: 700; color: var(--muted); width: 76px; flex-shrink: 0; }
+.progress-bar-track { width: 70px; height: 8px; border-radius: 4px; background: #D6DAE2; border: 1px solid #C2C8D2; overflow: hidden; flex-shrink: 0; }
+.progress-bar-fill { height: 100%; background: var(--brand-600); border-radius: 4px 0 0 4px; }
+.progress-bar-label { font-size: 11px; font-weight: 600; color: var(--ink); }
+.status-cell { display: flex; flex-direction: column; gap: 4px; }
+.goal-list-item-title.is-completed { text-decoration: line-through; color: var(--muted); }
+.completed-tick { color: var(--green); margin-left: 4px; }
+.completion-toggle { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 600; color: var(--ink); margin-bottom: 12px; cursor: pointer; background: none; border: none; padding: 0; text-align: left; }
+.completion-toggle:disabled { cursor: not-allowed; opacity: 0.6; }
+
+/* Task tracker */
+.task-tree { margin-top: 12px; }
+.task-node { border-bottom: 1px solid var(--border); }
+.task-node:last-child { border-bottom: none; }
+.task-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; font-size: 12px; }
+.task-expand-btn { background: none; border: none; cursor: pointer; color: var(--muted); font-size: 10px; width: 16px; flex-shrink: 0; }
+.task-title { cursor: pointer; font-weight: 600; font-size: 12px; }
+.task-title:hover { color: var(--brand-700); text-decoration: underline; }
+.task-title.is-completed { text-decoration: line-through; color: var(--muted); font-weight: 400; }
+.task-title-readonly { cursor: default; }
+.task-title-readonly:hover { color: inherit; text-decoration: none; }
+.task-due { background: var(--bg-soft); color: var(--muted); font-size: 10px; }
+.task-due-overdue { background: var(--red-bg); color: var(--red); }
+.task-due-rolled-over { background: var(--warn-bg); color: #8a5a10; }
+.task-rolled-badge { background: var(--warn-bg); color: #8a5a10; font-size: 10px; }
+.task-goal-badge { background: var(--brand-050); color: var(--brand-700); }
+.task-goal-col { min-width: 140px; font-size: 10px; color: var(--muted); flex-shrink: 0; }
+.task-complete-icon { background: none; border: none; cursor: pointer; font-size: 14px; padding: 0; line-height: 1; flex-shrink: 0; }
+.task-complete-icon:disabled { cursor: not-allowed; opacity: 0.6; }
+.task-row-actions { margin-left: auto; display: flex; gap: 4px; flex-shrink: 0; }
+.task-row-actions .btn-sm { font-size: 10px; padding: 4px 8px; }
+
+/* Weekly task header */
+.week-header { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
+.week-header-label { font-size: 13px; font-weight: 700; color: var(--ink); }
+
+/* Classroom observation cards (leadership drill-down from Goals overview) */
+.observation-card { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; }
+.observation-card-header { display: flex; align-items: center; justify-content: space-between; font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+.observation-card-body { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.observation-card-score { font-size: 16px; font-weight: 700; color: var(--brand); }
