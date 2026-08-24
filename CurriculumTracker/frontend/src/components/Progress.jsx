@@ -3,7 +3,7 @@ import Chart from "chart.js/auto";
 import { api } from "../api";
 import BackfillPanel from "./BackfillPanel";
 
-export default function Progress({ token, user, isReadOnlyViewer, onBack }) {
+export default function Progress({ token, user, isReadOnlyViewer, branch = "", onBack }) {
   const [teachersList, setTeachersList] = useState([]);
   // Distinguishes "still loading" from "genuinely none" — the dropdown used to
   // read "No subjects available" during the fetch, which looks like a failure,
