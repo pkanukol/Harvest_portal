@@ -9,6 +9,7 @@ import LeavePolicyConfig from "../components/LeavePolicyConfig";
 import CalendarOverrideConfig from "../components/CalendarOverrideConfig";
 import RolesConfig from "../components/RolesConfig";
 import VacationConfig from "../components/VacationConfig";
+import DefaultScheduleConfig from "../components/DefaultScheduleConfig";
 import WfhManager from "../components/WfhManager";
 import AttendanceDiagnostics from "../components/AttendanceDiagnostics";
 import BranchChips from "../components/BranchChips";
@@ -177,6 +178,10 @@ export default function AdminPage({ client, staffRow, branches = [] }) {
           <div style={{ marginTop: 10 }}>
             <BranchChips branches={branches} value={sharedScope} onChange={setSharedScope} includeAll label="Applies to" />
           </div>
+
+          <Card title="Default Working Schedule (per category)" open={open.defsched} onToggle={() => toggle("defsched")}>
+            <DefaultScheduleConfig client={client} currentUserEmail={staffRow?.email} />
+          </Card>
 
           <Card title="Import Festival Holiday List" open={open.fest} onToggle={() => toggle("fest")}>
             <FestivalHolidayImport client={client} currentUserEmail={staffRow?.email} branch={sharedBranch} />
