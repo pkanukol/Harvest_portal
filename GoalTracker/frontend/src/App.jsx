@@ -5,11 +5,14 @@ import Header from "./components/Header";
 import LoginView from "./components/LoginView";
 import Dashboard from "./components/Dashboard";
 import AdminAssignments from "./components/AdminAssignments";
+import GoalsHeatmap from "./components/GoalsHeatmap";
+import ViewAsPerson from "./components/ViewAsPerson";
+import ActingAsBanner from "./components/ActingAsBanner";
 
 const LOG = "[GoalTracker SSO]";
 
 export default function App() {
-  const { user, token, login, logout, isAuthenticated } = useAuth();
+  const { user, token, login, switchTo, switchBack, actingAs, isAuthenticated } = useAuth();
   const [ssoLoading, setSsoLoading] = useState(() => !!new URLSearchParams(window.location.search).get("sso"));
   const [ssoError, setSsoError] = useState("");
 
@@ -48,18 +51,33 @@ export default function App() {
   }, []);
 
   const [showAdmin, setShowAdmin] = useState(false);
+  const [showHeatmap, setShowHeatmap] = useState(false);
+  const [showViewAs, setShowViewAs] = useState(false);
+  const [switchError, setSwitchError] = useState("");
 
-  const handleLogout = () => {
-    logout();
-    const portalUrl = import.meta.env.VITE_PORTAL_URL || "http://localhost:3000/portal/login.html";
-    window.location.href = portalUrl;
-  };
+  async function enterAs(person) {
+    setSwitchError("");
+    try {
+      const data = await api.actAs(token, person.email);
+      setShowViewAs(false);
+      switchTo(data);
+    } catch (err) {
+      setSwitchError(err.message);
+    }
+  }
 
   return (
     <>
-      {isAuthenticated && <Header user={user} onLogout={handleLogout} onAdmin={() => setShowAdmin(true)} />}
+      {isAuthenticated && actingAs && (
+        <ActingAsBanner user={user} onReturn={switchBack} />
+      )}
+
+      {isAuthenticated && (
+        <Header user={user} onAdmin={() => setShowAdmin(true)} onHeatmap={() => setShowHeatmap(true)} onViewAs={() => setShowViewAs(true)} />
+      )}
 
       <div className="app-container">
+        {switchError && <div className="form-error">{switchError}</div>}
         {!isAuthenticated ? (
           ssoLoading ? (
             <div className="sso-loading-screen">
@@ -70,11 +88,13 @@ export default function App() {
             <LoginView error={ssoError} />
           )
         ) : (
-          <Dashboard token={token} user={user} />
+          <Dashboard key={user.email} token={token} user={user} />
         )}
       </div>
 
       {showAdmin && <AdminAssignments token={token} onClose={() => setShowAdmin(false)} />}
+      {showHeatmap && <GoalsHeatmap token={token} user={user} onClose={() => setShowHeatmap(false)} />}
+      {showViewAs && <ViewAsPerson token={token} canActAs={Boolean(user && user.can_act_as)} onEnterAs={enterAs} onClose={() => setShowViewAs(false)} />}
     </>
   );
 }
