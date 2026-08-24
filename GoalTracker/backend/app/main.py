@@ -46,10 +46,14 @@ def _mint_sso_response(user: models.User, impersonated_by: Optional[str] = None)
     is_admin = auth.role_is_leadership(user.role) or auth.designation_is_leadership(user.designation)
     can_manage_reviewers = user.email.strip().lower() == settings.REVIEWER_ASSIGNMENTS_ADMIN_EMAIL.lower()
     can_view_observations = auth.designation_can_view_observations(user.designation)
+    # Org-wide overview is narrower than is_admin: the MD, the branch
+    # principals, and the owner - not every leadership designation.
+    can_view_overview = auth.designation_can_view_overview(user.designation) or can_manage_reviewers
     claims = {
         "sub": user.email, "name": user.name, "designation": user.designation,
         "is_admin": is_admin, "can_manage_reviewers": can_manage_reviewers,
         "can_view_observations": can_view_observations,
+        "can_view_overview": can_view_overview,
     }
     # Carried in the token, not just the response, so a switched session stays
     # identifiable across reloads and the client cannot drop the marker.
@@ -62,6 +66,7 @@ def _mint_sso_response(user: models.User, impersonated_by: Optional[str] = None)
         "name": user.name, "email": user.email, "designation": user.designation,
         "is_admin": is_admin, "can_manage_reviewers": can_manage_reviewers,
         "can_view_observations": can_view_observations, "location": user.location,
+        "can_view_overview": can_view_overview,
         "impersonated_by": impersonated_by,
         # Lets the UI show the switcher only to the one person who can use it,
         # and hide it inside an already-switched session.
@@ -279,7 +284,7 @@ def get_member_goals(
 @app.get("/api/admin/goals-overview", response_model=schemas.GoalsOverviewResponse)
 def get_goals_overview(
     db: Session = Depends(get_db),
-    current_user: auth.CurrentUser = Depends(auth.require_admin),
+    current_user: auth.CurrentUser = Depends(auth.require_overview_access),
 ):
     period_key = crud.current_academic_year_key()
     people = []
@@ -333,7 +338,7 @@ def act_as(
 def view_as(
     email: str,
     db: Session = Depends(get_db),
-    current_user: auth.CurrentUser = Depends(auth.require_admin),
+    current_user: auth.CurrentUser = Depends(auth.require_owner),
 ):
     """Leadership preview of one person's whole dashboard - goals and tasks -
     resolved against THEIR visibility, so it answers "is the flow right for
@@ -385,7 +390,7 @@ def view_as(
 @app.post("/api/admin/flag-check", response_model=schemas.FlagCheckResultOut)
 async def run_flag_check_now(
     db: Session = Depends(get_db),
-    current_user: auth.CurrentUser = Depends(auth.require_admin),
+    current_user: auth.CurrentUser = Depends(auth.require_owner),
 ):
     """Manual trigger for the flag-reminder emails, from the leadership Goals
     overview - the same pass the daily cron runs (paid-tier only on Render, so
