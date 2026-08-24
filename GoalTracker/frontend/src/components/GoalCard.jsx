@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { api } from "../api";
+import GoalLinkedTasks from "./GoalLinkedTasks";
 
-const CADENCE_LABEL = { mid_term: "Mid Term", annual: "Annual" };
-const CATEGORY_LABEL = { role_based: "Role-based", organizational: "Organizational" };
+const CADENCE_LABEL = { mid_term: "Role", annual: "Organisation" };
 
 const STATUS_LABEL = {
   active: "Active",
@@ -11,20 +11,27 @@ const STATUS_LABEL = {
   deleted: "Deleted",
 };
 
-export default function GoalCard({ goal, token, isOwner, reviewMode, onChanged, onEdit }) {
+const REVIEW_ACTIONS = [
+  { key: "approved", icon: "✅", title: "Approve as-is" },
+  { key: "modified", icon: "✏️", title: "Modify" },
+  { key: "struck_off", icon: "🚫", title: "Strike off" },
+];
+
+export default function GoalCard({ goal, token, user, myGoals, isOwner, reviewMode, onChanged, embedded, readOnly }) {
   const [noteText, setNoteText] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
-  const [reviewAction, setReviewAction] = useState("approved");
+  const [reviewAction, setReviewAction] = useState(null);
   const [reviewReason, setReviewReason] = useState("");
   const [editFields, setEditFields] = useState({
-    title: goal.title,
     specific_text: goal.specific_text,
     measurable_text: goal.measurable_text,
     achievable_text: goal.achievable_text || "",
     relevant_text: goal.relevant_text || "",
   });
+
+  const isModifying = reviewMode && reviewAction === "modified" && goal.status === "active";
 
   const latestAction = goal.review_actions && goal.review_actions[0];
   const pendingOwnerAck = isOwner && goal.status !== "active" && goal.status !== "deleted" && latestAction && !latestAction.owner_ack_at;
@@ -59,6 +66,19 @@ export default function GoalCard({ goal, token, isOwner, reviewMode, onChanged, 
     }
   }
 
+  async function toggleCompletion() {
+    setSaving(true);
+    setError("");
+    try {
+      await api.setGoalCompletion(token, goal.id, !goal.is_completed);
+      onChanged && onChanged();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function submitDelete() {
     setSaving(true);
     setError("");
@@ -72,10 +92,10 @@ export default function GoalCard({ goal, token, isOwner, reviewMode, onChanged, 
     }
   }
 
-  async function submitReview(e) {
-    e.preventDefault();
-    if (reviewAction !== "approved" && !reviewReason.trim()) {
-      setError("A reason is required to modify or strike off a goal.");
+  async function submitReview() {
+    if (!reviewAction) return;
+    if (reviewAction === "struck_off" && !reviewReason.trim()) {
+      setError("A reason is required to strike off a goal.");
       return;
     }
     setSaving(true);
@@ -83,10 +103,11 @@ export default function GoalCard({ goal, token, isOwner, reviewMode, onChanged, 
     try {
       await api.reviewGoal(token, goal.id, {
         action_type: reviewAction,
-        reason: reviewReason.trim() || null,
-        edit: reviewAction === "modified" ? editFields : null,
+        reason: reviewAction === "struck_off" ? reviewReason.trim() : null,
+        edit: reviewAction === "modified" ? { title: goal.title, ...editFields } : null,
       });
       setReviewReason("");
+      setReviewAction(null);
       onChanged && onChanged();
     } catch (err) {
       setError(err.message);
@@ -95,47 +116,64 @@ export default function GoalCard({ goal, token, isOwner, reviewMode, onChanged, 
     }
   }
 
+  // One labelled band per SMART element, laid out as a table (label column +
+  // value column) so a goal reads like the school's paper goal-setting sheet.
+  // Required rows always show, even empty, so the shape of a goal is
+  // consistent; optional rows appear only once filled in - except in modify
+  // mode, where a reviewer needs a box to type into.
+  function field(label, key, required) {
+    const value = goal[key];
+    if (!required && !value && !isModifying) return null;
+    return (
+      <tr className={`smart-row smart-row-${key.replace("_text", "")}`}>
+        <th scope="row">{label}</th>
+        <td>
+          {isModifying ? (
+            <textarea
+              className="form-control"
+              value={editFields[key]}
+              onChange={(e) => setEditFields({ ...editFields, [key]: e.target.value })}
+            />
+          ) : (
+            value || <span className="smart-empty">Not set</span>
+          )}
+        </td>
+      </tr>
+    );
+  }
+
   return (
-    <div className="goal-card">
-      <div className="goal-card-header">
-        <div>
+    <div className={embedded ? "goal-card goal-card-embedded" : "goal-card"}>
+      {/* Inside an expanded accordion row the title and cadence are already
+          on the row itself - repeating them here just wastes vertical space. */}
+      {!embedded && (
+        <div className="goal-card-header">
           <div className="goal-card-title">{goal.title}</div>
-          <div className="goal-card-period">{goal.period_key}</div>
+          <div style={{ display: "flex", gap: 6 }}>
+            <span className={`badge badge-${goal.cadence}`}>{CADENCE_LABEL[goal.cadence]}</span>
+          </div>
         </div>
-        <div style={{ display: "flex", gap: 6 }}>
-          <span className={`badge badge-${goal.cadence}`}>{CADENCE_LABEL[goal.cadence]}</span>
-          <span className="badge badge-category">{CATEGORY_LABEL[goal.category]}</span>
-        </div>
-      </div>
+      )}
       <div className="goal-card-body">
+        {isOwner && (
+          <button type="button" className="completion-toggle" onClick={toggleCompletion} disabled={saving}>
+            <span className="task-complete-icon">{goal.is_completed ? "✅" : "⬜"}</span>
+            {goal.is_completed ? "Marked complete" : "Mark this goal complete"}
+          </button>
+        )}
+
         {goal.status !== "active" && (
           <div className={`status-banner status-${goal.status}`}>{STATUS_LABEL[goal.status]}</div>
         )}
 
-        <div className="goal-field">
-          <div className="goal-field-label">Specific</div>
-          <div className="goal-field-value">{goal.specific_text}</div>
-        </div>
-        <div className="goal-field">
-          <div className="goal-field-label">Measurable</div>
-          <div className="goal-field-value">{goal.measurable_text}</div>
-        </div>
-        {goal.achievable_text && (
-          <div className="goal-field">
-            <div className="goal-field-label">Achievable</div>
-            <div className="goal-field-value">{goal.achievable_text}</div>
-          </div>
-        )}
-        {goal.relevant_text && (
-          <div className="goal-field">
-            <div className="goal-field-label">Relevant</div>
-            <div className="goal-field-value">{goal.relevant_text}</div>
-          </div>
-        )}
-
-        {isOwner && goal.status === "active" && onEdit && (
-          <button className="btn btn-ghost btn-sm" onClick={() => onEdit(goal)}>Edit</button>
-        )}
+        <table className="smart-table">
+          <tbody>
+            {field("Specific", "specific_text", true)}
+            {field("Measurable", "measurable_text", true)}
+            {field("Achievable", "achievable_text", false)}
+            {field("Relevant", "relevant_text", false)}
+          </tbody>
+        </table>
 
         {goal.review_actions.length > 0 && (
           <div className="review-history">
@@ -145,7 +183,6 @@ export default function GoalCard({ goal, token, isOwner, reviewMode, onChanged, 
                 <strong>{a.action_type}</strong> by {a.reviewed_by}
                 {a.reason && <> — "{a.reason}"</>}
                 {a.owner_ack_at && <div className="hint-text">Acknowledged by owner on {a.owner_ack_at.slice(0, 10)}</div>}
-                {a.upper_ack_at && <div className="hint-text">Acknowledged by {a.upper_ack_by} on {a.upper_ack_at.slice(0, 10)}</div>}
               </div>
             ))}
           </div>
@@ -162,30 +199,28 @@ export default function GoalCard({ goal, token, isOwner, reviewMode, onChanged, 
             <button className="btn btn-ghost btn-sm" onClick={submitDelete} disabled={saving}>Delete this goal</button>
           </div>
         )}
-
         {reviewMode && goal.status === "active" && (
-          <form className="review-form" onSubmit={submitReview}>
-            <div className="goal-field-label">Review this goal</div>
-            <select className="form-control" value={reviewAction} onChange={(e) => setReviewAction(e.target.value)}>
-              <option value="approved">Approve as-is</option>
-              <option value="modified">Modify</option>
-              <option value="struck_off">Strike off</option>
-            </select>
-            {reviewAction === "modified" && (
-              <div style={{ marginTop: 8 }}>
-                {["title", "specific_text", "measurable_text", "achievable_text", "relevant_text"].map((f) => (
-                  <input
-                    key={f}
-                    className="form-control"
-                    placeholder={f.replace("_text", "").replace("_", " ")}
-                    value={editFields[f]}
-                    onChange={(e) => setEditFields({ ...editFields, [f]: e.target.value })}
-                    style={{ marginBottom: 6 }}
-                  />
-                ))}
-              </div>
-            )}
-            {reviewAction !== "approved" && (
+          <div className="review-form">
+            <div className="goal-field-label">
+              Review this goal
+              {readOnly && <span className="hint-text"> — preview only, not clickable</span>}
+            </div>
+            <div className="review-action-icons">
+              {REVIEW_ACTIONS.map((a) => (
+                <button
+                  key={a.key}
+                  type="button"
+                  className={`btn btn-ghost btn-sm review-action-btn ${reviewAction === a.key ? "active" : ""}`}
+                  title={readOnly ? `${a.title} (preview only)` : a.title}
+                  disabled={readOnly}
+                  onClick={readOnly ? undefined : () => setReviewAction(a.key)}
+                >
+                  {a.icon}
+                </button>
+              ))}
+            </div>
+
+            {reviewAction === "struck_off" && (
               <input
                 className="form-control"
                 placeholder="Reason (required)"
@@ -194,10 +229,13 @@ export default function GoalCard({ goal, token, isOwner, reviewMode, onChanged, 
                 style={{ marginTop: 8 }}
               />
             )}
-            <button className="btn btn-primary btn-sm" type="submit" disabled={saving} style={{ marginTop: 8 }}>
-              Submit review
-            </button>
-          </form>
+
+            {reviewAction && (
+              <button className="btn btn-primary btn-sm" onClick={submitReview} disabled={saving} style={{ marginTop: 8 }}>
+                Submit review
+              </button>
+            )}
+          </div>
         )}
 
         {isOwner && goal.status === "active" && (
@@ -221,6 +259,8 @@ export default function GoalCard({ goal, token, isOwner, reviewMode, onChanged, 
             </form>
           </div>
         )}
+
+        <GoalLinkedTasks token={token} user={user} myGoals={myGoals} goal={goal} onGoalChanged={onChanged} readOnly={readOnly} />
 
         {error && <div className="form-error" style={{ marginTop: 8 }}>{error}</div>}
       </div>
