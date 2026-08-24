@@ -4,7 +4,7 @@ import POWCard from "./POWCard";
 import LaggingPanel from "./LaggingPanel";
 import { fmtDate } from "../dateUtils";
 
-export default function Dashboard({ token, user, isReadOnlyViewer, isLeadership, canUploadCurriculum, canCreatePow, onNewPow, onProgress, onPlannerUpload, onOpenPow }) {
+export default function Dashboard({ token, user, isReadOnlyViewer, isLeadership, canUploadCurriculum, canCreatePow, branch = "", onNewPow, onProgress, onPlannerUpload, onOpenPow }) {
   const [teachersList, setTeachersList] = useState([]);
   const mySubjects = (user.subjects && user.subjects.length ? user.subjects : [user.subject]).filter(Boolean);
   const [subject, setSubject] = useState(isReadOnlyViewer ? "" : (user.subject || mySubjects[0] || ""));
@@ -22,14 +22,14 @@ export default function Dashboard({ token, user, isReadOnlyViewer, isLeadership,
   useEffect(() => {
     if (!isReadOnlyViewer) return;
     setSubjectsLoading(true);
-    api.getTeachers(token)
+    api.getTeachers(token, branch)
       .then((res) => {
         setTeachersList(res.teachers || []);
         if (res.subjects) setSubjectGroups(res.subjects);
       })
       .catch((err) => setError(err.message))
       .finally(() => setSubjectsLoading(false));
-  }, [token, isReadOnlyViewer]);
+  }, [token, isReadOnlyViewer, branch]);
 
   // Grouped list when the API provides one; the flat list derived from the
   // teachers is the fallback so an older backend still works.
@@ -64,10 +64,10 @@ export default function Dashboard({ token, user, isReadOnlyViewer, isLeadership,
   useEffect(() => {
     if (!subject || !grade) { setCards(null); return; }
     setError("");
-    api.getPowCards(token, subject, grade)
+    api.getPowCards(token, subject, grade, branch)
       .then((res) => setCards(res.cards || []))
       .catch((err) => setError(err.message));
-  }, [token, subject, grade]);
+  }, [token, subject, grade, branch]);
 
   const grouped = {};
   const order = [];
@@ -109,6 +109,7 @@ export default function Dashboard({ token, user, isReadOnlyViewer, isLeadership,
       {user.can_see_lagging && (
         <LaggingPanel
           token={token}
+          branch={branch}
           onOpenTeacher={(row) => { setSubject(row.subject); setGrade(row.grade); }}
         />
       )}
@@ -156,6 +157,8 @@ export default function Dashboard({ token, user, isReadOnlyViewer, isLeadership,
         </div>
       </div>
 
+
+
       {error && <div className="form-error">{error}</div>}
 
       {!subject || !grade ? (
@@ -171,7 +174,10 @@ export default function Dashboard({ token, user, isReadOnlyViewer, isLeadership,
           const teacherSubject = teacherCards[0].subject || "";
           return (
             <div className="teacher-group" key={email}>
-              <div className="teacher-group-title">👤 {name}{teacherSubject ? ` · ${teacherSubject}` : ""}</div>
+              <div className="teacher-group-title">
+                👤 {name}{teacherSubject ? ` · ${teacherSubject}` : ""}
+                {!branch && teacherCards[0].branch ? ` · ${teacherCards[0].branch}` : ""}
+              </div>
               <div className="cards-grid">
                 {teacherCards.map((c) => <POWCard key={c.id} card={c} onClick={onOpenPow} />)}
               </div>
