@@ -19,6 +19,7 @@ class SSOResponse(BaseModel):
     can_upload_curriculum: bool = False  # SME, or a named curriculum administrator
     can_see_lagging: bool = False   # SME/HOD and leadership — the curriculum-lag dashboard
     can_create_pow: bool = False    # also teaches, so may file POWs regardless of role
+    branches: List[str] = []        # campuses this account may view
 
 
 class MeResponse(BaseModel):
@@ -35,6 +36,7 @@ class MeResponse(BaseModel):
     can_upload_curriculum: bool = False
     can_see_lagging: bool = False
     can_create_pow: bool = False
+    branches: List[str] = []
 
 
 class ViewAsRequest(BaseModel):
@@ -104,6 +106,7 @@ class SubjectOptions(BaseModel):
 
 class TeachersResponse(BaseModel):
     teachers: List[TeacherOut]
+    branches: List[str] = []   # campuses this viewer may switch between
     # Optional with a default on purpose: a required field here means any
     # response that omits it is a 500 rather than a slightly emptier dropdown —
     # which is what a half-deployed backend produced. The frontend already
