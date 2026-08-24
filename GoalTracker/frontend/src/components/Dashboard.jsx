@@ -1,22 +1,34 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
-import GoalCard from "./GoalCard";
 import GoalForm from "./GoalForm";
+import GoalPanels from "./GoalPanels";
 import TeamOverview from "./TeamOverview";
+import TaskTracker from "./TaskTracker";
+import { getWeekStart, collectOverdue } from "../taskUtils";
 
 export default function Dashboard({ token, user }) {
+  const [mainTab, setMainTab] = useState("goals");
   const [goals, setGoals] = useState([]);
+  const [periodKey, setPeriodKey] = useState("");
   const [flags, setFlags] = useState({ mid_term_missing: false, annual_missing: false, mid_term_set: false, annual_set: false });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [editingGoal, setEditingGoal] = useState(null);
+  const [activeCadence, setActiveCadence] = useState("mid_term");
+  const [showReview, setShowReview] = useState(false);
 
-  const [team, setTeam] = useState({ reviewees: [], pending_acknowledgments: [] });
+  // Held here, not inside TaskTracker, so the Tasks tab can carry an overdue
+  // count while you're still looking at the Goals tab - the count was useless
+  // living inside the tab you had to open to see it.
+  const [tasks, setTasks] = useState([]);
+
+  const [team, setTeam] = useState({ reviewees: [] });
   const [teamLoading, setTeamLoading] = useState(true);
 
   const [selectedMember, setSelectedMember] = useState(null); // { email, name }
   const [memberGoals, setMemberGoals] = useState([]);
+  const [memberPeriodKey, setMemberPeriodKey] = useState("");
   const [memberLoading, setMemberLoading] = useState(false);
 
   async function loadMyGoals() {
@@ -26,10 +38,19 @@ export default function Dashboard({ token, user }) {
       const data = await api.getMyGoals(token);
       setGoals(data.goals);
       setFlags(data.flags);
+      setPeriodKey(data.period_key);
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function loadTasks() {
+    try {
+      setTasks(await api.getTasks(token));
+    } catch {
+      // Non-critical: the Tasks tab loads and reports its own errors.
     }
   }
 
@@ -48,6 +69,7 @@ export default function Dashboard({ token, user }) {
   useEffect(() => {
     loadMyGoals();
     loadTeam();
+    loadTasks();
   }, []);
 
   async function openMember(email, name) {
@@ -56,6 +78,7 @@ export default function Dashboard({ token, user }) {
     try {
       const data = await api.getMemberGoals(token, email);
       setMemberGoals(data.goals);
+      setMemberPeriodKey(data.period_key);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -63,28 +86,68 @@ export default function Dashboard({ token, user }) {
     }
   }
 
-  function refreshMember() {
-    if (selectedMember) openMember(selectedMember.email, selectedMember.name);
+  async function refreshMember() {
+    if (!selectedMember) return;
+    try {
+      const data = await api.getMemberGoals(token, selectedMember.email);
+      setMemberGoals(data.goals);
+      setMemberPeriodKey(data.period_key);
+    } catch (err) {
+      setError(err.message);
+    }
     loadTeam();
   }
 
-  const hasReviewees = team.reviewees.length > 0;
+  function handleEditGoal(goal) {
+    setEditingGoal(goal);
+    setShowForm(true);
+  }
+
+  async function handleDeleteGoal(goal) {
+    if (!window.confirm(`Delete "${goal.title}"? This can't be undone.`)) return;
+    setError("");
+    try {
+      await api.deleteGoal(token, goal.id);
+      loadMyGoals();
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  const overdueCount = collectOverdue(tasks, getWeekStart(new Date())).length;
 
   return (
     <>
+      <div className="cadence-tabs" style={{ marginBottom: 16 }}>
+        <button className={`cadence-tab ${mainTab === "goals" ? "active" : ""}`} onClick={() => setMainTab("goals")}>Goals</button>
+        <button className={`cadence-tab ${mainTab === "tasks" ? "active" : ""}`} onClick={() => setMainTab("tasks")}>
+          Tasks
+          {overdueCount > 0 && <span className="tab-alert-count" title={`${overdueCount} still open from earlier weeks`}>{overdueCount}</span>}
+        </button>
+      </div>
+
+      {mainTab === "tasks" ? (
+        <TaskTracker token={token} user={user} myGoals={goals} onTasksChanged={loadTasks} />
+      ) : (
+      <>
       {(flags.mid_term_missing || flags.annual_missing) && (
         <div className="flag-banner">
           <span className="flag-dot" />
           {flags.mid_term_missing && flags.annual_missing
-            ? "You haven't set your Mid Term goal yet, and you have no Annual goal."
+            ? "You haven't set your Role goal yet, and you have no Organisation goal."
             : flags.mid_term_missing
-              ? "You haven't set your Mid Term goal yet."
-              : "You have no Annual goal set."}
+              ? "You haven't set your Role goal yet."
+              : "You have no Organisation goal set."}
         </div>
       )}
 
       <div className="dashboard-actions">
         <button className="btn btn-primary" onClick={() => { setEditingGoal(null); setShowForm(true); }}>+ Add goal</button>
+        {team.reviewees.length > 0 && (
+          <button className="btn btn-ghost" onClick={() => setShowReview(true)}>
+            Goals I review ({team.reviewees.length})
+          </button>
+        )}
       </div>
 
       <div className="section-title" style={{ marginTop: 0 }}>My goals</div>
@@ -93,34 +156,47 @@ export default function Dashboard({ token, user }) {
 
       {loading ? (
         <div className="loading-spinner">Loading…</div>
-      ) : goals.length === 0 ? (
-        <div className="empty-msg">No goals yet.</div>
       ) : (
-        goals.map((g) => (
-          <GoalCard
-            key={g.id}
-            goal={g}
-            token={token}
-            isOwner={true}
-            onChanged={loadMyGoals}
-            onEdit={(goal) => { setEditingGoal(goal); setShowForm(true); }}
-          />
-        ))
+        <GoalPanels
+          goals={goals}
+          periodKey={periodKey}
+          token={token}
+          user={user}
+          myGoals={goals}
+          isOwner={true}
+          onEditGoal={handleEditGoal}
+          onDeleteGoal={handleDeleteGoal}
+          onAddGoal={(cadence) => { setActiveCadence(cadence); setEditingGoal(null); setShowForm(true); }}
+          onChanged={loadMyGoals}
+        />
       )}
-
-      {teamLoading ? (
-        <div className="loading-spinner">Loading…</div>
-      ) : (hasReviewees || team.pending_acknowledgments.length > 0) ? (
-        <TeamOverview team={team} token={token} onSelectMember={openMember} onChanged={loadTeam} />
-      ) : null}
 
       {showForm && (
         <GoalForm
           token={token}
           editingGoal={editingGoal}
+          defaultCadence={activeCadence}
           onCancel={() => { setShowForm(false); setEditingGoal(null); }}
           onDone={() => { setShowForm(false); setEditingGoal(null); loadMyGoals(); }}
         />
+      )}
+
+      {showReview && (
+        <div className="modal-overlay" onClick={() => setShowReview(false)}>
+          <div className="modal-box" style={{ maxWidth: 700 }} onClick={(e) => e.stopPropagation()}>
+            <div className="section-title" style={{ marginTop: 0 }}>Goals I review</div>
+            {teamLoading ? (
+              <div className="loading-spinner">Loading…</div>
+            ) : team.reviewees.length > 0 ? (
+              <TeamOverview team={team} onSelectMember={openMember} />
+            ) : (
+              <div className="empty-msg">No one has you assigned as their reviewer yet.</div>
+            )}
+            <div className="form-actions" style={{ justifyContent: "flex-end" }}>
+              <button className="btn btn-ghost" onClick={() => setShowReview(false)}>Close</button>
+            </div>
+          </div>
+        </div>
       )}
 
       {selectedMember && (
@@ -129,18 +205,26 @@ export default function Dashboard({ token, user }) {
             <div className="section-title" style={{ marginTop: 0 }}>{selectedMember.name}'s goals</div>
             {memberLoading ? (
               <div className="loading-spinner">Loading…</div>
-            ) : memberGoals.length === 0 ? (
-              <div className="empty-msg">No goals set yet.</div>
             ) : (
-              memberGoals.map((g) => (
-                <GoalCard key={g.id} goal={g} token={token} isOwner={false} reviewMode={true} onChanged={refreshMember} />
-              ))
+              <GoalPanels
+                goals={memberGoals}
+                periodKey={memberPeriodKey}
+                token={token}
+                user={user}
+                myGoals={goals}
+                reviewMode={true}
+                onChanged={refreshMember}
+                emptyMessage="No goals set yet."
+              />
             )}
             <div className="form-actions" style={{ justifyContent: "flex-end" }}>
               <button className="btn btn-ghost" onClick={() => setSelectedMember(null)}>Close</button>
             </div>
           </div>
         </div>
+      )}
+
+      </>
       )}
     </>
   );
