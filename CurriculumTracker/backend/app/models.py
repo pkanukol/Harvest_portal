@@ -62,6 +62,14 @@ class PowEntry(Base):
     impl_d = Column(Text, nullable=True)
     impl_e = Column(Text, nullable=True)
     impl_f = Column(Text, nullable=True)
+    # When each section actually finished this chapter's sessions. Sections run
+    # at different speeds, so the date belongs per section, next to its text.
+    impl_a_date = Column(Date, nullable=True)
+    impl_b_date = Column(Date, nullable=True)
+    impl_c_date = Column(Date, nullable=True)
+    impl_d_date = Column(Date, nullable=True)
+    impl_e_date = Column(Date, nullable=True)
+    impl_f_date = Column(Date, nullable=True)
     correction_done = Column(Text, nullable=True)
     instructions = Column(Text, nullable=True)
     teacher_remarks = Column(Text, nullable=True)
@@ -159,13 +167,14 @@ class CurriculumBackfill(Base):
     the table only ever holds positive statements."""
     __tablename__ = "curriculum_backfill"
     __table_args__ = (
-        Index("ix_backfill_teacher_subject_grade", "teacher_email", "subject", "grade"),
+        Index("ix_backfill_subject_grade", "subject", "grade"),
     )
 
     id = Column(Integer, primary_key=True, index=True)
-    # Per TEACHER, not just per class: two teachers sharing Grade 3 English can
-    # be at different points, so each is marked separately.
-    teacher_email = Column(String, nullable=False, index=True)
+    # Grade-wise: the curriculum was covered for the CLASS, not per teacher of
+    # it. Kept nullable only so the earlier per-teacher rows can be migrated
+    # away without dropping the column.
+    teacher_email = Column(String, nullable=True, index=True)
     subject = Column(String, nullable=False)
     grade = Column(Integer, nullable=False)
     month = Column(String, nullable=False)
@@ -186,11 +195,11 @@ class BackfillConfirmation(Base):
     premature confirmation isn't permanent."""
     __tablename__ = "curriculum_backfill_confirmed"
     __table_args__ = (
-        Index("ix_backfill_confirmed_key", "teacher_email", "subject", "grade", unique=True),
+        Index("ix_backfill_confirmed_subject_grade", "subject", "grade", unique=True),
     )
 
     id = Column(Integer, primary_key=True, index=True)
-    teacher_email = Column(String, nullable=False, index=True)
+    teacher_email = Column(String, nullable=True, index=True)   # unused; see CurriculumBackfill
     subject = Column(String, nullable=False)
     grade = Column(Integer, nullable=False)
     confirmed_by = Column(String, nullable=True)
