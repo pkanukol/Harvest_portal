@@ -16,6 +16,7 @@ export function AuthProvider({ children }) {
     is_admin: ssoResponse.is_admin,
     can_manage_reviewers: ssoResponse.can_manage_reviewers,
     can_view_observations: ssoResponse.can_view_observations,
+    can_view_overview: ssoResponse.can_view_overview,
     location: ssoResponse.location,
     can_act_as: ssoResponse.can_act_as,
     impersonated_by: ssoResponse.impersonated_by,
