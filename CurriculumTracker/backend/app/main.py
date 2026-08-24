@@ -100,6 +100,7 @@ async def sso_login(req: schemas.SSORequest, db: Session = Depends(get_db)):
         "can_create_pow": auth.can_author_pow(
             auth.CurrentUser(user.email, user.name, user.designation, user.subject, app_role)
         ),
+        "branches": crud.viewer_branches(user.location) or crud.BRANCHES,
     }
 
 
@@ -140,6 +141,8 @@ def get_me(
         "can_upload_curriculum": auth.can_upload_curriculum(resolved),
         "can_see_lagging": crud.can_see_lagging(app_role, user.designation),
         "can_create_pow": auth.can_author_pow(resolved),
+        # Campuses this account may look at: their own, or both for 'Both'.
+        "branches": crud.viewer_branches(user.location) or crud.BRANCHES,
     }
 
 
@@ -207,6 +210,7 @@ def view_as(
         "can_create_pow": auth.can_author_pow(
             auth.CurrentUser(target.email, target.name, target.designation, target.subject, app_role)
         ),
+        "branches": crud.viewer_branches(target.location) or crud.BRANCHES,
     }
 
 
@@ -436,6 +440,7 @@ def reopen_backfill(
 
 @app.get("/api/teachers", response_model=schemas.TeachersResponse)
 def get_teachers(
+    branch: str = Query(""),
     db: Session = Depends(get_db),
     current_user: auth.CurrentUser = Depends(auth.get_current_user),
 ):
@@ -443,7 +448,7 @@ def get_teachers(
     dropdown before any POW cards are fetched. Also returns the subjects
     grouped into curriculum vs other, so the dashboard filter reads the same
     way as the upload screen's picker."""
-    teachers = crud.get_teachers_for_role(db, current_user.email, current_user.role)
+    teachers = crud.get_teachers_for_role(db, current_user.email, current_user.role, branch)
     if current_user.role == "SME":
         # An SME's dashboard is already limited to their mapped teachers, so the
         # subject list follows from those rather than the whole school.
@@ -453,6 +458,7 @@ def get_teachers(
     return {
         "teachers": teachers,
         "subjects": crud.get_known_subjects(db, limit_to=scope),
+        "branches": crud.branch_choices(db, current_user.email, current_user.role),
     }
 
 
@@ -460,10 +466,11 @@ def get_teachers(
 def get_pow_cards(
     subject: str = Query(...),
     grade: str = Query(...),
+    branch: str = Query(""),
     db: Session = Depends(get_db),
     current_user: auth.CurrentUser = Depends(auth.get_current_user),
 ):
-    return {"cards": crud.get_pow_cards(db, current_user.email, current_user.role, subject, grade)}
+    return {"cards": crud.get_pow_cards(db, current_user.email, current_user.role, subject, grade, branch)}
 
 
 @app.get("/api/pow/tbs-mom-alerts", response_model=schemas.PowCardsResponse)
@@ -614,6 +621,7 @@ def get_progress_summary(
 
 @app.get("/api/progress/lagging")
 def get_lagging(
+    branch: str = Query(""),
     db: Session = Depends(get_db),
     current_user: auth.CurrentUser = Depends(auth.get_current_user),
 ):
@@ -622,7 +630,7 @@ def get_lagging(
     leadership sees the school)."""
     if not crud.can_see_lagging(current_user.role, current_user.designation):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not available for your role")
-    return crud.get_lagging_report(db, current_user.email, current_user.role)
+    return crud.get_lagging_report(db, current_user.email, current_user.role, branch)
 
 
 @app.get("/api/progress/chart")
