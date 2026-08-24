@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import List
 from pydantic_settings import BaseSettings
 
 # Resolved relative to this file, not the process's current working directory -
@@ -14,8 +15,18 @@ class Settings(BaseSettings):
 
     SUPABASE_URL: str = "https://aouvxdfamzprykezeovl.supabase.co"
     SUPABASE_ANON_KEY: str = "sb_publishable_rIfo8DPrbyOmU006ii3onw_sDRWJwvE"
-    PORTAL_URL: str = "http://localhost:3000/portal/login.html"
-    APP_URL: str = "http://localhost:5177"
+
+    # staff_roles lives in a SEPARATE Supabase project owned by a different
+    # app (also read by Timetable/frontend-v2) - GoalTracker only ever reads
+    # name/designation/branches from it for the task-assignment picker, via
+    # its public anon key (RLS already grants the anon role read access -
+    # see Timetable/frontend-v2/staff_roles_rls_policy.sql). Never write here.
+    STAFF_SUPABASE_URL: str = "https://ukpythuclqvjwygqrsds.supabase.co"
+    STAFF_SUPABASE_ANON_KEY: str = "sb_publishable_D5VRoe631mb0PiJWGGD7fQ_eymhH2nN"
+
+    # Where email notifications send people. The standalone app is now embedded
+    # in this Netlify shell as the actual front door.
+    APP_URL: str = "https://his-academy360.netlify.app"
 
     RESEND_API_KEY: str = ""
     RESEND_FROM_EMAIL: str = ""
@@ -32,6 +43,36 @@ class Settings(BaseSettings):
     ACADEMIC_YEAR_START_DAY: int = 1
     MID_TERM_CUTOFF_MONTH: int = 11
     MID_TERM_CUTOFF_DAY: int = 1
+
+    # /api/dev/login (local-testing shortcut) only ever mints a token for one
+    # of these emails, on top of the sqlite-only gate in main.py - restricts
+    # who can use the one-click "test as" panel, not just hiding it in the
+    # UI. Pavani (the person actually operating this locally) plus one real
+    # account per role she wants to preview the dashboard of.
+    DEV_LOGIN_ALLOWED_EMAILS: List[str] = [
+        "pavani.k@harvestinternationalschool.in",       # APM
+        "principal.kodathi@harvestinternationalschool.in",  # Principal
+        "abhinav_g@harvestinternationalschool.in",      # Managing Director
+        "sumathi@harvestinternationalschool.in",        # Coordinator
+        "timsy.thomas@harvestinternationalschool.in",   # SME / HOD
+        "chitra@harvestinternationalschool.in",         # Curriculum Head
+    ]
+
+    # The reviewer-assignment admin screen (who reviews/acknowledges whom) is
+    # restricted to just this one person, separate from the broader
+    # `is_admin`/leadership flag which still gates other admin-ish behavior
+    # (e.g. viewing anyone's goals as a fallback).
+    REVIEWER_ASSIGNMENTS_ADMIN_EMAIL: str = "pavani.k@harvestinternationalschool.in"
+
+    # The "act as" switch (POST /api/admin/act-as) mints a real, write-capable
+    # token for another person so a whole role's flow can be exercised end to
+    # end. That is a genuine impersonation power - anything done while switched
+    # is recorded as the person being acted as - so unlike `is_admin` it is
+    # restricted to this ONE email rather than leadership as a group, and works
+    # in production only for that person. Deliberately a separate setting from
+    # REVIEWER_ASSIGNMENTS_ADMIN_EMAIL so the two powers can diverge later.
+    # Set to "" to disable the switch entirely, everywhere.
+    ACT_AS_ADMIN_EMAIL: str = "pavani.k@harvestinternationalschool.in"
 
     model_config = {"env_file": _ENV_FILE, "extra": "ignore"}
 
