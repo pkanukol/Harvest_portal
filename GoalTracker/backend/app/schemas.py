@@ -307,6 +307,17 @@ class TaskOut(BaseModel):
 TaskOut.model_rebuild()
 
 
+class OrgPersonOut(BaseModel):
+    """Just enough to pick someone from a list. Deliberately NOT the overview
+    shape - that one runs several queries per person to compute goal status
+    and observation averages, which is far too much work to render names."""
+    email: str
+    name: str
+    designation: Optional[str] = None
+    role: Optional[str] = None
+    location: Optional[str] = None
+
+
 class ViewAsPersonOut(BaseModel):
     email: str
     name: str
