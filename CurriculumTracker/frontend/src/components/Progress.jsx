@@ -20,14 +20,14 @@ export default function Progress({ token, user, isReadOnlyViewer, onBack }) {
     if (!isReadOnlyViewer) return;
     setSubjectsLoading(true);
     setSubjectsError("");
-    api.getTeachers(token)
+    api.getTeachers(token, branch)
       .then((res) => {
         setTeachersList(res.teachers || []);
         if (res.subjects) setSubjectGroups(res.subjects);
       })
       .catch((err) => setSubjectsError(err.message))
       .finally(() => setSubjectsLoading(false));
-  }, [token, isReadOnlyViewer]);
+  }, [token, isReadOnlyViewer, branch]);
 
   const subjects = useMemo(() => {
     if (!isReadOnlyViewer) return [user.subject];
