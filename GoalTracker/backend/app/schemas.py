@@ -20,6 +20,7 @@ class SSOResponse(BaseModel):
     is_admin: bool
     can_manage_reviewers: bool
     can_view_observations: bool
+    can_view_overview: bool = False
     location: Optional[str] = None
     # Set only on a leadership "act as" switch: the admin who started it.
     # Present so the UI can show a permanent banner and a way back, and so
