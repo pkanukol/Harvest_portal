@@ -10,8 +10,8 @@ import { api } from "../api";
  * Leaving it unticked opens its topics/sub-topics, so a partly-taught chapter
  * can be marked precisely.
  *
- * It closes itself for good once the first POW exists for that subject+grade:
- * from then on progress comes from POWs, and nobody is asked again.
+ * Teachers filing POWs does NOT close it — only the SME confirming that the
+ * teacher's past coverage is complete does, and that can be reopened.
  */
 export default function BackfillPanel({ token, subject, grade, teachers = [] }) {
   const [data, setData] = useState(null);
@@ -69,8 +69,8 @@ export default function BackfillPanel({ token, subject, grade, teachers = [] }) 
       <div className="backfill-panel">
         <div className="section-title">✅ Mark what was already covered</div>
         <div className="hint-text">
-          A one-time entry per teacher, for the months before this one — so a class that was already
-          part-way through the curriculum isn't reported as fully behind.
+          Per teacher, for the months before this one — so a class that was already part-way through the
+          curriculum isn&apos;t reported as fully behind. Stays open until you confirm it&apos;s complete.
         </div>
         {picker}
       </div>
@@ -199,10 +199,10 @@ export default function BackfillPanel({ token, subject, grade, teachers = [] }) 
       {open && (
         <>
           <div className="hint-text">
-            One-time only, for {data.months.join(", ")} — the months before this one. Tick a chapter to count
-            all its topics, sub-topics and sessions as done. Leave it unticked to mark only some of its
-            topics. Once {teacherName} files their first POW for {subject} Grade {grade}, this closes and
-            their progress is tracked from POWs alone.
+            For {data.months.join(", ")} — the months before this one. Tick a chapter to count all its
+            topics, sub-topics and sessions as done. Leave it unticked to mark only some of its topics.
+            Teachers filing POWs doesn&apos;t close this; it stays open until you confirm
+            {" "}{teacherName}&apos;s past coverage is complete.
           </div>
 
           {saved && <div className="upload-success">Saved. The progress and lag reports now treat these as covered.</div>}
