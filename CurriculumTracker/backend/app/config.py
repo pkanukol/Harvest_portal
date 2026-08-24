@@ -55,6 +55,9 @@ class Settings(BaseSettings):
     # notification failure must never break saving a POW.
     RESEND_API_KEY: str = ""
     RESEND_FROM_EMAIL: str = ""
+    # Where POW notification emails point: the PORTAL, never the Render URL of
+    # this app. A direct Render link carries no SSO token, so anyone following
+    # it lands on the sign-in screen instead of the POW.
     APP_URL: str = "https://his-academy360.netlify.app"
 
     model_config = {"env_file": _ENV_FILE, "extra": "ignore"}
