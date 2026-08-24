@@ -47,6 +47,10 @@ export default function POWForm({ token, user, mode, prefillPow, onDone, onBack 
   const [implD, setImplD] = useState(prefillPow?.impl_d || "");
   const [implE, setImplE] = useState(prefillPow?.impl_e || "");
   const [implF, setImplF] = useState(prefillPow?.impl_f || "");
+  const [implDates, setImplDates] = useState({
+    a: prefillPow?.impl_a_date || "", b: prefillPow?.impl_b_date || "", c: prefillPow?.impl_c_date || "",
+    d: prefillPow?.impl_d_date || "", e: prefillPow?.impl_e_date || "", f: prefillPow?.impl_f_date || "",
+  });
   const [finalSave, setFinalSave] = useState(false);
 
   const [submitting, setSubmitting] = useState(false);
@@ -196,6 +200,8 @@ export default function POWForm({ token, user, mode, prefillPow, onDone, onBack 
       try {
         await api.updatePowImplementation(token, prefillPow.id, {
           impl_a: implA, impl_b: implB, impl_c: implC, impl_d: implD, impl_e: implE, impl_f: implF,
+          impl_a_date: implDates.a, impl_b_date: implDates.b, impl_c_date: implDates.c,
+          impl_d_date: implDates.d, impl_e_date: implDates.e, impl_f_date: implDates.f,
           ...(tbsMomOpen ? { tbs_mom: tbsMom } : {}),
           correction_done: correctionDone, instructions, teacher_remarks: teacherRemarks,
           final_save: finalSave,
@@ -459,6 +465,15 @@ export default function POWForm({ token, user, mode, prefillPow, onDone, onBack 
                   <div className="form-group" key={label}>
                     <label className="form-label">Grade {prefillPow?.grade} — Section {label}</label>
                     <textarea className="form-control" value={val} onChange={(e) => setter(e.target.value)} />
+                    <div className="impl-date-row">
+                      <span className="hint-text">Completed on</span>
+                      <input
+                        type="date"
+                        className="form-control impl-date"
+                        value={implDates[label.toLowerCase()]}
+                        onChange={(e) => setImplDates({ ...implDates, [label.toLowerCase()]: e.target.value })}
+                      />
+                    </div>
                   </div>
                 ))}
               </div>
