@@ -153,13 +153,18 @@ class PlannerChapter:
     # step with them: a missing attribute here is a 500 at request time, not an
     # error at import time (that's how `topic` went missing and broke
     # /api/progress/summary).
-    __slots__ = ("chapter_name", "month", "first_month", "sessions", "discipline",
+    __slots__ = ("chapter_name", "month", "first_month", "months", "sessions", "discipline",
                  "subject", "topic", "subtopic", "cct", "grade")
 
     def __init__(self, row):
         self.chapter_name = row.chapter_name
         self.month = row.month
         self.first_month = row.month
+        # EVERY month the sheet lists this chapter in. A chapter spanning
+        # August-September is being taught in both, so a monthly view must count
+        # it in both — attributing it only to its last month made August look
+        # like it had one chapter when the sheet plans four.
+        self.months = [row.month]
         self.sessions = row.sessions or 0
         self.discipline = row.strands_of_language or row.discipline
         self.subject = row.subject
@@ -179,6 +184,8 @@ def chapters_from_rows(rows: List[models.PlannerTopic]) -> List[PlannerChapter]:
             order.append(key)
             continue
         entry = chosen[key]
+        if r.month and r.month not in entry.months:
+            entry.months.append(r.month)
         # the largest stated count wins, so the plan is never under-stated
         entry.sessions = max(entry.sessions, r.sessions or 0)
         # and the chapter is due by the LAST month it appears in
@@ -651,139 +658,7 @@ def save_sme_review(db: Session, pow_entry: models.PowEntry, sme_email: str, dat
 
 # ─── Progress summary (monthly) ─────────────────────────────────────────────
 
-def get_progress_summary(db: Session, subject: str, grade: int, teacher_email: Optional[str] = None):
-    today = now_ist()
-    month = today.strftime("%B")
-    last_day = calendar.monthrange(today.year, today.month)[1]
-    days_left = max(0, (datetime.date(today.year, today.month, last_day) - today.date()).days)
-
-    chapters = get_planner_chapters(db, subject, grade)
-    planned_chapters = [c for c in chapters if (c.month or "").lower() == month.lower()]
-    total_sessions_planned = sum(c.sessions or 0 for c in planned_chapters)
-
-    # Drafts count too: a POW filed for the week ahead is precisely what says
-    # the sessions before it are done (see _sessions_completed), and its
-    # implementation text and per-section dates are worth showing as they are
-    # filled in rather than only after the final save.
-    q = db.query(models.PowEntry).filter(
-        _subject_group_filter(subject),
-        models.PowEntry.grade == str(grade),
-    )
-    if teacher_email:
-        q = q.filter(func.lower(models.PowEntry.teacher_email) == teacher_email.lower())
-
-    month_pows = []
-    topic_session_map = {}
-    for p in q.all():
-        if p.week_start and p.week_start.strftime("%B") != month:
-            continue
-        topic = (p.topic or "").strip()
-        if not topic:
-            continue
-        month_pows.append(p)
-        # Sessions ticked for a week still ahead mean the ones BEFORE them are
-        # done — see _sessions_completed.
-        done_here = _sessions_completed(p.lp_session_num, p.week_start, p.status)
-        if topic not in topic_session_map or done_here > topic_session_map[topic]:
-            topic_session_map[topic] = done_here
-
-    covered_topics = list(topic_session_map.keys())
-    sessions_done = sum(topic_session_map[t] for t in covered_topics)
-
-    topic_rows = []
-    for c in planned_chapters:
-        done = topic_session_map.get(c.chapter_name, 0)
-        plan = c.sessions or 0
-        pct = min(100, round(done / plan * 100)) if plan > 0 else 0
-        topic_rows.append({
-            "topic": c.chapter_name,
-            "subtopic": c.topic or "",
-            "sessions_planned": plan,
-            "sessions_done": done,
-            "sessions_left": max(0, plan - done),
-            "pct": pct,
-            "status": "pending" if done == 0 else ("done" if done >= plan else "in_progress"),
-        })
-
-    planned_names = {c.chapter_name for c in planned_chapters}
-    extra_topics = [t for t in covered_topics if t not in planned_names]
-
-    # The "what actually happened" half of the progress screen: for each
-    # chapter planned this month, what the POWs recorded — sub-topics covered,
-    # and each section's completion date with its remark.
-    chapter_detail = []
-    for c in planned_chapters:
-        entries = []
-        for p in month_pows:
-            if (p.topic or "").strip() != c.chapter_name:
-                continue
-            sections = []
-            for letter in "ABCDEF":
-                remark = (getattr(p, "impl_" + letter.lower(), None) or "").strip()
-                completed_on = getattr(p, "impl_" + letter.lower() + "_date", None)
-                if not remark and not completed_on:
-                    continue
-                sections.append({
-                    "section": letter,
-                    "completed_on": completed_on.isoformat() if completed_on else None,
-                    "remark": remark,
-                })
-            entries.append({
-                "pow_id": p.id,
-                "teacher_email": p.teacher_email,
-                "week_start": p.week_start.isoformat() if p.week_start else None,
-                "subtopic": p.subtopic or "",
-                "sessions_marked": p.lp_session_num or "",
-                "sessions_completed": _sessions_completed(p.lp_session_num, p.week_start, p.status),
-                "status": STATUS_LABELS.get(p.status, p.status),
-                "sections": sections,
-            })
-        entries.sort(key=lambda e: e["week_start"] or "")
-        chapter_detail.append({
-            "chapter": c.chapter_name,
-            "sessions_planned": c.sessions or 0,
-            "entries": entries,
-        })
-
-    sessions_left = max(0, total_sessions_planned - sessions_done)
-    weeks_left = days_left / 5
-    sess_per_week = int(-(-sessions_left // weeks_left)) if weeks_left > 0 else sessions_left  # ceil
-
-    return {
-        "success": True,
-        "month": month,
-        "grade": grade,
-        "days_left": days_left,
-        "topics_planned": len(planned_chapters),
-        "topics_covered": len([t for t in covered_topics if t in planned_names]),
-        "total_sessions_planned": total_sessions_planned,
-        "sessions_done": sessions_done,
-        "sessions_left": sessions_left,
-        "sess_per_week_needed": sess_per_week,
-        "topic_rows": topic_rows,
-        "extra_topics": extra_topics,
-        "chapter_detail": chapter_detail,
-    }
-
-
-# Which Curriculum Head owns which subject, by the split confirmed with the
-# APM: Vinny Arora takes the languages plus Social Science, Chitra Venkatesh
-# Prasanna takes Science (including its Biology/Physics/Chemistry streams),
-# Mathematics and Kannada. Matched on NAME, not email — an email in the shared
-# users table changed hands once already, and sending a subject's POWs to the
-# wrong person is worse than sending to both.
-CURRICULUM_HEAD_BY_SUBJECT = {
-    "english": "Vinny",
-    "hindi": "Vinny",
-    "social science": "Vinny",
-    "science": "Chitra",
-    "biology": "Chitra",
-    "physics": "Chitra",
-    "chemistry": "Chitra",
-    "mathematics": "Chitra",
-    "kannada": "Chitra",
-}
-
+# ─── POW permissions ────────────────────────────────────────────────────────
 
 FINALISED_STATUSES = ("final", "reviewed", "approved")
 
@@ -819,6 +694,27 @@ def can_edit_tbs_mom(user, pow_entry) -> bool:
     return not (pow_entry.tbs_mom or "").strip()      # only while still empty
 
 
+# ─── POW notifications ──────────────────────────────────────────────────────
+
+# Which Curriculum Head owns which subject, by the split confirmed with the
+# APM: Vinny Arora takes the languages plus Social Science, Chitra Venkatesh
+# Prasanna takes Science (including its Biology/Physics/Chemistry streams),
+# Mathematics and Kannada. Matched on NAME, not email — an email in the shared
+# users table changed hands once already, and sending a subject's POWs to the
+# wrong person is worse than sending to both.
+CURRICULUM_HEAD_BY_SUBJECT = {
+    "english": "Vinny",
+    "hindi": "Vinny",
+    "social science": "Vinny",
+    "science": "Chitra",
+    "biology": "Chitra",
+    "physics": "Chitra",
+    "chemistry": "Chitra",
+    "mathematics": "Chitra",
+    "kannada": "Chitra",
+}
+
+
 def get_pow_notification_recipients(db: Session, teacher_email: str, subject: str = "") -> List[dict]:
     """Who hears about a POW: the SMEs this teacher is mapped to in
     teacher_sme, plus the Curriculum Head who owns that subject. A subject
@@ -845,6 +741,191 @@ def get_pow_notification_recipients(db: Session, teacher_email: str, subject: st
 
     recipients.pop(teacher_email.lower(), None)
     return list(recipients.values())
+
+
+def planner_disciplines(db: Session, subject: str, grade: int) -> List[str]:
+    """Disciplines this subject+grade is split into, in sheet order. Science is
+    Biology/Chemistry/Physics from Grade 5 up (EVS in 1-2, plain Science in
+    3-4); English and Hindi use Strands of Language in the same column."""
+    out = []
+    for r in get_planner_rows(db, subject, grade):
+        d = r.strands_of_language or r.discipline
+        if d and d not in out:
+            out.append(d)
+    return out
+
+
+def default_discipline_for(user_subjects: List[str], available: List[str]) -> Optional[str]:
+    """An SME of a discipline lands on it by default. Bhuvana R is Science in
+    the portal but Biology in staff_roles, Deepak Physics, Francis Joy
+    Chemistry — so their own subject list is what picks the discipline."""
+    lowered = {d.lower(): d for d in available}
+    for s in user_subjects or []:
+        if s.lower() in lowered:
+            return lowered[s.lower()]
+    return None
+
+
+def get_progress_summary(db: Session, subject: str, grade: int, teacher_email: Optional[str] = None,
+                         discipline: Optional[str] = None):
+    """One table's worth of truth for the month: per chapter, what was planned
+    and what has actually been done, with the POW detail behind each row. The
+    headline tiles are derived from these same rows, so they cannot disagree.
+
+    Three things count as done:
+      * a POW on the chapter (see _sessions_completed for the session rule),
+      * a chapter EARLIER in its discipline's order than one already started —
+        teaching moves through a discipline in sequence, so starting chapter 3
+        means 1 and 2 are behind you,
+      * an SME's backfill mark.
+    """
+    today = now_ist()
+    month = today.strftime("%B")
+    last_day = calendar.monthrange(today.year, today.month)[1]
+    days_left = max(0, (datetime.date(today.year, today.month, last_day) - today.date()).days)
+
+    rows = get_planner_rows(db, subject, grade)
+    all_chapters = chapters_from_rows(rows)
+    disciplines = planner_disciplines(db, subject, grade)
+
+    wanted = (discipline or "").strip().lower()
+    scoped = [c for c in all_chapters if not wanted or (c.discipline or "").lower() == wanted]
+
+    # A chapter belongs to this month if the sheet lists it in this month.
+    month_chapters = [c for c in scoped if month in (c.months or [])]
+
+    q = db.query(models.PowEntry).filter(
+        _subject_group_filter(subject),
+        models.PowEntry.grade == str(grade),
+    )
+    if teacher_email:
+        q = q.filter(func.lower(models.PowEntry.teacher_email) == teacher_email.lower())
+    pows = q.order_by(models.PowEntry.week_start.asc()).all()
+
+    pows_by_chapter = {}
+    for p in pows:
+        pows_by_chapter.setdefault((p.topic or "").strip(), []).append(p)
+
+    # Sequential completion, computed per DISCIPLINE: a Biology chapter being
+    # under way says nothing about Physics, so each discipline is its own track.
+    implied_complete = set()
+    for disc in (disciplines or [None]):
+        track = [c for c in all_chapters if (c.discipline or None) == disc] if disc else list(all_chapters)
+        started = [i for i, c in enumerate(track) if pows_by_chapter.get(c.chapter_name)]
+        if started:
+            implied_complete.update(c.chapter_name for c in track[:max(started)])
+
+    marks = db.query(models.CurriculumBackfill).filter(
+        func.lower(models.CurriculumBackfill.subject) == subject.lower(),
+        models.CurriculumBackfill.grade == int(grade),
+    ).all()
+    marked_full = {m.chapter_name for m in marks if not m.subtopic}
+    marked_items = {}
+    for m in marks:
+        if m.subtopic:
+            marked_items.setdefault(m.chapter_name, set()).add(m.subtopic)
+    item_counts = planner_item_counts(rows)
+    items_by_chapter = {}
+    for (mth, ch), n in item_counts.items():
+        items_by_chapter[ch] = items_by_chapter.get(ch, 0) + n
+
+    def sessions_done_for(c) -> int:
+        planned = c.sessions or 0
+        done = 0
+        for p in pows_by_chapter.get(c.chapter_name, []):
+            done = max(done, _sessions_completed(p.lp_session_num, p.week_start, p.status))
+        if c.chapter_name in implied_complete or c.chapter_name in marked_full:
+            done = max(done, planned)
+        elif c.chapter_name in marked_items:
+            total_items = items_by_chapter.get(c.chapter_name, 0)
+            if total_items:
+                done = max(done, round(planned * len(marked_items[c.chapter_name]) / total_items))
+        return min(done, planned) if planned else done
+
+    chapter_rows = []
+    for c in month_chapters:
+        planned = c.sessions or 0
+        done = sessions_done_for(c)
+        entries = []
+        for p in pows_by_chapter.get(c.chapter_name, []):
+            sections = []
+            for letter in "ABCDEF":
+                remark = (getattr(p, "impl_" + letter.lower(), None) or "").strip()
+                completed_on = getattr(p, "impl_" + letter.lower() + "_date", None)
+                if not remark and not completed_on:
+                    continue
+                sections.append({
+                    "section": letter,
+                    "completed_on": completed_on.isoformat() if completed_on else None,
+                    "remark": remark,
+                })
+            entries.append({
+                "pow_id": p.id,
+                "teacher_email": p.teacher_email,
+                "week_start": p.week_start.isoformat() if p.week_start else None,
+                "subtopic": p.subtopic or "",
+                "sessions_marked": p.lp_session_num or "",
+                "sessions_completed": _sessions_completed(p.lp_session_num, p.week_start, p.status),
+                "status": STATUS_LABELS.get(p.status, p.status),
+                "sections": sections,
+            })
+
+        why = []
+        if pows_by_chapter.get(c.chapter_name):
+            why.append("POW")
+        if c.chapter_name in implied_complete:
+            why.append("a later chapter has started")
+        if c.chapter_name in marked_full or c.chapter_name in marked_items:
+            why.append("marked by SME")
+
+        chapter_rows.append({
+            "chapter": c.chapter_name,
+            "discipline": c.discipline or "",
+            "months": c.months,
+            "sessions_planned": planned,
+            "sessions_done": done,
+            "sessions_left": max(0, planned - done),
+            "pct": min(100, round(done * 100 / planned)) if planned else 0,
+            "status": "done" if planned and done >= planned else ("in_progress" if done else "pending"),
+            "counted_from": ", ".join(why),
+            "entries": entries,
+        })
+
+    total_planned = sum(r["sessions_planned"] for r in chapter_rows)
+    total_done = sum(r["sessions_done"] for r in chapter_rows)
+    sessions_left = max(0, total_planned - total_done)
+    weeks_left = max(1, days_left / 5)
+
+    # Chapters worked on this month that the sheet doesn't plan for this month.
+    planned_names = {r["chapter"] for r in chapter_rows}
+    discipline_of = {c.chapter_name: (c.discipline or "") for c in all_chapters}
+    extra = []
+    for name, plist in pows_by_chapter.items():
+        if name in planned_names or not name:
+            continue
+        # Don't report another discipline's chapter as an anomaly here: with a
+        # Physics filter on, a Biology POW is simply out of scope, not 'extra'.
+        if wanted and discipline_of.get(name, "").lower() != wanted:
+            continue
+        if any(p.week_start and p.week_start.strftime("%B") == month for p in plist):
+            extra.append(name)
+
+    return {
+        "success": True,
+        "month": month,
+        "grade": grade,
+        "days_left": days_left,
+        "disciplines": disciplines,
+        "discipline": discipline or "",
+        "topics_planned": len(chapter_rows),
+        "topics_covered": sum(1 for r in chapter_rows if r["status"] == "done"),
+        "total_sessions_planned": total_planned,
+        "sessions_done": total_done,
+        "sessions_left": sessions_left,
+        "sess_per_week_needed": int(-(-sessions_left // weeks_left)),
+        "chapter_rows": chapter_rows,
+        "extra_topics": extra,
+    }
 
 
 # ─── Backfill: curriculum covered before POWs began ─────────────────────────
