@@ -1,6 +1,6 @@
 import datetime
-from sqlalchemy import Column, Integer, String, Text, DateTime, Date, ForeignKey, Index, JSON
-from sqlalchemy.orm import relationship
+from sqlalchemy import Column, Integer, String, Text, DateTime, Date, ForeignKey, Index, JSON, Boolean
+from sqlalchemy.orm import relationship, backref
 from .database import Base
 
 
@@ -36,6 +36,27 @@ class TeacherSme(Base):
     teacher_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
 
 
+class Observation(Base):
+    """Read-only mapping onto AuditApp's existing `observations` table (same
+    shared Supabase Postgres project) - only the columns GoalTracker needs to
+    render a summary card + average score. GoalTracker never creates/alters
+    this table; the full schema (domain scores, remarks, images, etc.) lives
+    in AuditApp/backend/app/models.py and is irrelevant here."""
+    __tablename__ = "observations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    teacher_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    auditor_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    date_time = Column(DateTime, nullable=True)
+    subject = Column(String, nullable=False)
+    grade = Column(String, nullable=False)
+    section = Column(String, nullable=False)
+    observation_type = Column(String, nullable=True)
+    overall_score = Column(Integer, nullable=False)
+    rating = Column(String, nullable=False)
+    is_draft = Column(Boolean, default=True)
+
+
 class ReviewerAssignment(Base):
     """Admin-configured, per-person record of who reviews this person's own
     goals, and who acknowledges this person's review actions *when they act
@@ -56,12 +77,15 @@ class ReviewerAssignment(Base):
 
 class Goal(Base):
     """A SMART goal owned by one person for one academic-year period.
-    `cadence` is mid_term or annual; `category` is a self-authored tag
-    (role_based vs organizational); `period_key` is an academic-year label
+    `cadence` is mid_term or annual; `period_key` is an academic-year label
     e.g. "2026-27" (see crud.current_academic_year_key - computed via the
     same June-1 rollover convention AuditApp already uses informally).
     `status` is a small workflow state machine - see GoalReviewAction for the
-    review/acknowledge history that drives transitions between states."""
+    review/acknowledge history that drives transitions between states.
+    `category` (role_based vs organizational) was a user-facing distinction
+    that's no longer exposed anywhere - the column stays (existing rows keep
+    their value, and dropping a column has no upside here) but new goals just
+    get a fixed default; nothing reads it going forward."""
     __tablename__ = "goals"
     __table_args__ = (
         Index("ix_goals_owner_cadence_period", "owner_email", "cadence", "period_key"),
@@ -70,7 +94,7 @@ class Goal(Base):
     id = Column(Integer, primary_key=True, index=True)
     owner_email = Column(String, nullable=False, index=True)
     cadence = Column(String, nullable=False)  # mid_term | annual
-    category = Column(String, nullable=False)  # role_based | organizational
+    category = Column(String, nullable=False, default="general")  # deprecated, unused by the UI
     period_key = Column(String, nullable=False)
     title = Column(String, nullable=False)
     specific_text = Column(Text, nullable=False)
@@ -79,6 +103,11 @@ class Goal(Base):
     relevant_text = Column(Text, nullable=True)
     # active | modified_pending_ack | struck_off_pending_ack | deleted (soft)
     status = Column(String, nullable=False, default="active")
+    # Owner-controlled "did I actually achieve this" flag - independent of
+    # the review/acknowledge workflow above, which only tracks sign-off that
+    # the goal was properly set/reviewed, not whether it was accomplished.
+    is_completed = Column(Boolean, nullable=False, default=False)
+    completed_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
 
@@ -131,6 +160,73 @@ class GoalReviewAction(Base):
     upper_ack_by = Column(String, nullable=True)
     upper_ack_at = Column(DateTime, nullable=True)
     upper_ack_notes = Column(Text, nullable=True)
+
+
+class Task(Base):
+    """A task, optionally nested under a parent task to arbitrary depth
+    (self-referential). Unlike Goal, a task can be assigned to anyone (not
+    just people the creator reviews) and each node - task or subtask -
+    carries its own independent assignee, due date, and completion state.
+    Deleting a task cascades to its whole subtree (cascade="all,
+    delete-orphan") - there's no soft-delete/audit-trail requirement here
+    the way there is for goals."""
+    __tablename__ = "tasks"
+    __table_args__ = (
+        Index("ix_tasks_parent", "parent_id"),
+        Index("ix_tasks_assignee", "assignee_email"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    parent_id = Column(Integer, ForeignKey("tasks.id"), nullable=True)
+    # Optional link to one of the creator's own goals, so a task can be
+    # tracked as work contributing to that goal. No FK-level cascade here on
+    # purpose - deleting a goal shouldn't silently delete unrelated tasks.
+    goal_id = Column(Integer, ForeignKey("goals.id"), nullable=True)
+    title = Column(String, nullable=False)
+    description = Column(Text, nullable=True)
+    created_by_email = Column(String, nullable=False)
+    created_by_name = Column(String, nullable=False)
+    assignee_email = Column(String, nullable=False)
+    # Denormalized at assignment time from staff_roles (a different Supabase
+    # project - see config.STAFF_SUPABASE_URL) so listing tasks never needs a
+    # live cross-project lookup, only the assignment picker/search does.
+    assignee_name = Column(String, nullable=False)
+    due_at = Column(DateTime, nullable=True)
+    is_completed = Column(Boolean, nullable=False, default=False)
+    completed_at = Column(DateTime, nullable=True)
+    # Bumped each time "Move to next week" is used - lets the UI badge a task
+    # as rolled over (distinct from plain "overdue") without needing to keep
+    # the original due date around.
+    postpone_count = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
+    subtasks = relationship(
+        "Task",
+        cascade="all, delete-orphan",
+        order_by="Task.created_at",
+        backref=backref("parent", remote_side=[id]),
+    )
+    notes = relationship(
+        "TaskNote", cascade="all, delete-orphan", order_by="TaskNote.created_at",
+    )
+
+
+class TaskNote(Base):
+    """A free-text progress update logged against a task while work is in
+    progress - separate from editing the task's own fields, and never
+    deleted/edited once posted (append-only, like GoalReviewAction)."""
+    __tablename__ = "task_notes"
+    __table_args__ = (
+        Index("ix_task_notes_task", "task_id"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    task_id = Column(Integer, ForeignKey("tasks.id"), nullable=False)
+    author_email = Column(String, nullable=False)
+    author_name = Column(String, nullable=False)
+    note = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
 
 class GoalFlagNotification(Base):
