@@ -1,4 +1,4 @@
-export default function Header({ user, onLogout, onAdmin }) {
+export default function Header({ user, onAdmin, onHeatmap, onViewAs }) {
   if (!user) return null;
 
   return (
@@ -10,9 +10,14 @@ export default function Header({ user, onLogout, onAdmin }) {
         <div className="hdr-right">
           <div className="user-badge">{user.name} ({user.designation})</div>
           {user.is_admin && (
+            <button className="btn btn-ghost" onClick={onHeatmap}>Goals overview</button>
+          )}
+          {user.is_admin && (
+            <button className="btn btn-ghost" onClick={onViewAs}>View as…</button>
+          )}
+          {user.can_manage_reviewers && (
             <button className="btn btn-ghost" onClick={onAdmin}>Reviewer assignments</button>
           )}
-          <button className="btn btn-ghost" onClick={onLogout}>Logout</button>
         </div>
       </div>
     </div>
