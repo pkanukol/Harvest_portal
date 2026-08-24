@@ -206,3 +206,13 @@ th { color: var(--muted); font-weight: 600; font-size: 11px; }
 
 .branch-filter { max-width: 260px; }
 .hdr-branch { width: 150px; padding: 6px 10px; font-size: 12px; }
+
+/* Implementation completion dates + progress detail */
+.impl-date-row { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.impl-date { width: 170px; padding: 6px 10px; font-size: 12px; }
+.chapter-detail { margin-bottom: 12px; padding: 12px 14px; }
+.chapter-detail-head { margin-bottom: 0; }
+.chapter-detail-name { font-size: 13px; font-weight: 700; color: var(--brand-700); }
+.impl-detail { font-size: 11px; margin-bottom: 6px; }
+.impl-detail-remark { color: var(--muted); white-space: pre-wrap; }
+.backfill-current { font-weight: 600; }
