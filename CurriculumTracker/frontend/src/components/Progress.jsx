@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Chart from "chart.js/auto";
 import { api } from "../api";
+import { fmtDate } from "../dateUtils";
 import BackfillPanel from "./BackfillPanel";
 
 export default function Progress({ token, user, isReadOnlyViewer, branch = "", onBack }) {
@@ -12,6 +13,12 @@ export default function Progress({ token, user, isReadOnlyViewer, branch = "", o
   const [subjectsError, setSubjectsError] = useState("");
   // Same curriculum/other split as the dashboard and the upload picker.
   const [subjectGroups, setSubjectGroups] = useState({ curriculum: [], other: [] });
+  // Which chapters have their POW detail expanded.
+  const [openChapters, setOpenChapters] = useState({});
+
+  function toggleChapter(name) {
+    setOpenChapters((prev) => ({ ...prev, [name]: !prev[name] }));
+  }
 
   // Self-sufficient — fetches its own subject options rather than relying on
   // the Dashboard having been visited first (mirrors Dashboard.jsx's own
@@ -185,6 +192,66 @@ export default function Progress({ token, user, isReadOnlyViewer, branch = "", o
               ))}
             </tbody>
           </table>
+
+          {summary.chapter_detail?.length > 0 && (
+            <>
+              <div className="section-title">What was recorded this month</div>
+              <div className="hint-text">
+                Straight from the POWs: the sub-topics each week covered, and when each section finished
+                them, with the teacher&apos;s remark.
+              </div>
+              {summary.chapter_detail.map((c) => (
+                <div className="card chapter-detail" key={c.chapter}>
+                  <button className="lag-toggle chapter-detail-head" onClick={() => toggleChapter(c.chapter)}>
+                    <span className={`lag-caret ${openChapters[c.chapter] ? "lag-caret-open" : ""}`}>▸</span>
+                    <span className="chapter-detail-name">{c.chapter}</span>
+                    <span className="lag-summary">
+                      {c.entries.length === 0
+                        ? "nothing recorded yet"
+                        : `${c.entries.length} POW${c.entries.length === 1 ? "" : "s"} · ${c.sessions_planned} sessions planned`}
+                    </span>
+                  </button>
+
+                  {openChapters[c.chapter] && c.entries.length > 0 && (
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Week</th><th>Topic / Sub topic</th><th>Sessions</th>
+                          <th>Section completion &amp; remarks</th><th>Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {c.entries.map((e) => (
+                          <tr key={e.pow_id}>
+                            <td>{e.week_start ? fmtDate(e.week_start) : "—"}</td>
+                            <td>{e.subtopic || "—"}</td>
+                            <td>
+                              {e.sessions_marked || "—"}
+                              <div className="hint-text">{e.sessions_completed} done</div>
+                            </td>
+                            <td>
+                              {e.sections.length === 0 ? (
+                                <span className="hint-text">not filled in yet</span>
+                              ) : (
+                                e.sections.map((sec) => (
+                                  <div className="impl-detail" key={sec.section}>
+                                    <strong>Section {sec.section}</strong>
+                                    {sec.completed_on ? ` · completed ${fmtDate(sec.completed_on)}` : " · no date"}
+                                    {sec.remark ? <div className="impl-detail-remark">{sec.remark}</div> : null}
+                                  </div>
+                                ))
+                              )}
+                            </td>
+                            <td>{e.status}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              ))}
+            </>
+          )}
 
           {summary.extra_topics?.length > 0 && (
             <div className="hint-text" style={{ marginTop: 12 }}>
