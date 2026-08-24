@@ -612,6 +612,7 @@ def get_progress_summary(
     subject: str = Query(...),
     grade: str = Query(...),
     teacher_email: str = Query(""),
+    discipline: str = Query(""),
     db: Session = Depends(get_db),
     current_user: auth.CurrentUser = Depends(auth.get_current_user),
 ):
@@ -620,7 +621,18 @@ def get_progress_summary(
     effective_email = teacher_email or None
     if current_user.role == "Teacher":
         effective_email = current_user.email
-    return crud.get_progress_summary(db, subject, int(grade), effective_email)
+    available = crud.planner_disciplines(db, subject, int(grade))
+    chosen = discipline.strip()
+    if not chosen:
+        # A discipline SME lands on their own: Bhuvana R is 'Science' in the
+        # portal but Biology in staff_roles, Deepak Physics, Francis Joy
+        # Chemistry.
+        chosen = crud.default_discipline_for(
+            staff_directory.subjects_for(current_user.email), available
+        ) or ""
+    summary = crud.get_progress_summary(db, subject, int(grade), effective_email, chosen or None)
+    summary["discipline_default"] = chosen
+    return summary
 
 
 @app.get("/api/progress/lagging")
