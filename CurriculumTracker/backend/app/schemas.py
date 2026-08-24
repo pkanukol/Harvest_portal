@@ -79,6 +79,7 @@ class PowCardOut(BaseModel):
     id: int
     teacher_email: str
     teacher_name: str
+    branch: str = ""
     subject: str
     grade: str
     week_start: str
