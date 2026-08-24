@@ -41,6 +41,18 @@ def designation_can_view_observations(designation: str) -> bool:
     return (designation or "").strip().lower() in OBSERVATION_ACCESS_DESIGNATIONS
 
 
+# The org-wide Goals overview is narrower than `is_admin`: it exposes every
+# person's goal status at once, so it is the MD, the branch principals, and
+# the owner - not every leadership designation (Coordinator, IT Manager,
+# Vice Principal, Chairman, ... all classify as is_admin but do not get it).
+# Exact-match, so "Principal" does not also let "Vice Principal" through.
+OVERVIEW_DESIGNATIONS = {"managing director", "principal"}
+
+
+def designation_can_view_overview(designation: str) -> bool:
+    return (designation or "").strip().lower() in OVERVIEW_DESIGNATIONS
+
+
 # tokenUrl is just documentation for the OpenAPI schema; the actual token is
 # minted by /api/auth/sso after exchanging the portal's Supabase token.
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/auth/sso")
@@ -74,13 +86,15 @@ class CurrentUser:
     screen, restricted to one person - see settings.REVIEWER_ASSIGNMENTS_ADMIN_EMAIL)."""
 
     def __init__(self, email: str, name: str, designation: str, is_admin: bool, can_manage_reviewers: bool,
-                 can_view_observations: bool, impersonated_by: Optional[str] = None):
+                 can_view_observations: bool, impersonated_by: Optional[str] = None,
+                 can_view_overview: bool = False):
         self.email = email
         self.name = name
         self.designation = designation
         self.is_admin = is_admin
         self.can_manage_reviewers = can_manage_reviewers
         self.can_view_observations = can_view_observations
+        self.can_view_overview = can_view_overview
         # Set when this session came from the "act as" switch: the real person
         # who started it. Kept on the token (not just the login response) so a
         # switched session stays identifiable across reloads and cannot be
@@ -118,12 +132,30 @@ def get_current_user(token: str = Depends(oauth2_scheme)) -> CurrentUser:
         can_manage_reviewers=bool(payload.get("can_manage_reviewers", False)),
         can_view_observations=bool(payload.get("can_view_observations", False)),
         impersonated_by=payload.get("impersonated_by"),
+        can_view_overview=bool(payload.get("can_view_overview", False)),
     )
 
 
 def require_admin(current_user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
     if not current_user.is_admin:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Leadership access required")
+    return current_user
+
+
+def require_overview_access(current_user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
+    """Org-wide goal status. Narrower than require_admin - see
+    OVERVIEW_DESIGNATIONS."""
+    if not current_user.can_view_overview:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to view the org-wide goals overview")
+    return current_user
+
+
+def require_owner(current_user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
+    """The single owner account. Used for the powers that are one person's
+    tool rather than a leadership capability: reading anyone's page, and
+    triggering an org-wide email."""
+    if not current_user.can_manage_reviewers:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
     return current_user
 
 
