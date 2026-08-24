@@ -341,9 +341,33 @@ def replace_planner_grade(db: Session, subject: str, grade: int, rows: list) -> 
     return {"deleted": deleted, "inserted": len(rows)}
 
 
+# ─── Branches ───────────────────────────────────────────────────────────────
+
+# The two campuses, as spelled in users.location. Staff are 'Kodathi',
+# 'Attibele' or 'Both' (also seen lower-cased), and every TEACHER is on exactly
+# one campus — 91 Kodathi, 45 Attibele — so a teacher list is always
+# branch-separable.
+BRANCHES = ["Kodathi", "Attibele"]
+
+
+def normalize_branch(value: str) -> Optional[str]:
+    v = (value or "").strip().lower()
+    for b in BRANCHES:
+        if v == b.lower():
+            return b
+    return None
+
+
+def viewer_branches(location: str) -> Optional[List[str]]:
+    """Which campuses this account may see. None = no restriction, which is
+    what 'Both' and an unset location mean."""
+    branch = normalize_branch(location)
+    return [branch] if branch else None
+
+
 # ─── POW cards (dashboard) ──────────────────────────────────────────────────
 
-def _build_teacher_map(db: Session, user_email: str, role: str) -> dict:
+def _build_teacher_map(db: Session, user_email: str, role: str, branch: Optional[str] = None) -> dict:
     """email -> {name, subject, location} scoped by role — the set of
     teachers whose POWs this user is allowed to see. Cheap (no pow_entries
     touched), so it's safe to call on its own to populate a subject filter
@@ -358,9 +382,13 @@ def _build_teacher_map(db: Session, user_email: str, role: str) -> dict:
                 for t in db.query(models.User).filter(models.User.id.in_(mapped_ids)).all():
                     teacher_map[t.email.lower()] = {"name": t.name or t.email, "subject": t.subject or "", "location": t.location or ""}
     elif role == "Leadership":
-        # Leadership sees POWs for every subject teacher across the school
+        # Leadership sees every subject teacher on the campuses their own
+        # account covers ('Both' covers all).
+        allowed = viewer_branches(_viewer_location(db, user_email))
         for t in db.query(models.User).all():
             if not t.subject or t.designation == "Subject Matter Expert":
+                continue
+            if allowed and normalize_branch(t.location) not in allowed:
                 continue
             teacher_map[t.email.lower()] = {"name": t.name or t.email, "subject": t.subject or "", "location": t.location or ""}
     else:
@@ -370,19 +398,54 @@ def _build_teacher_map(db: Session, user_email: str, role: str) -> dict:
         # fill in their own section. Confirmed with user 2026-07-22.
         requester = db.query(models.User).filter(func.lower(models.User.email) == user_email.lower()).first()
         subject = requester.subject if requester else None
+        own_branch = normalize_branch(requester.location if requester else "")
         if subject:
             for t in db.query(models.User).all():
                 if not t.subject or t.subject.lower() != subject.lower():
+                    continue
+                # Shared POWs are shared within a campus: a Kodathi teacher has
+                # no business in an Attibele section's POW.
+                if own_branch and normalize_branch(t.location) != own_branch:
                     continue
                 teacher_map[t.email.lower()] = {"name": t.name or t.email, "subject": t.subject or "", "location": t.location or ""}
         else:
             teacher_map[user_email.lower()] = {"name": "", "subject": "", "location": ""}
 
+    # An SME's mapping crosses campuses (all 15 SMEs are mapped to teachers on
+    # both), so for them branch is a FILTER over their mapped teachers rather
+    # than a restriction — otherwise Ms Madhuri Jha, on Kodathi, would lose the
+    # Attibele teachers she is the Hindi SME for.
+    wanted = normalize_branch(branch)
+    if wanted:
+        teacher_map = {
+            e: i for e, i in teacher_map.items()
+            if normalize_branch(i.get("location")) == wanted
+        }
+
     return teacher_map
 
 
-def get_teachers_for_role(db: Session, user_email: str, role: str) -> list:
-    teacher_map = _build_teacher_map(db, user_email, role)
+def _viewer_location(db: Session, email: str) -> str:
+    row = db.query(models.User.location).filter(func.lower(models.User.email) == email.lower()).first()
+    return (row[0] if row else "") or ""
+
+
+def branch_choices(db: Session, user_email: str, role: str) -> List[str]:
+    """Campuses this viewer may switch between. A single-campus account gets
+    just theirs; 'Both' gets whatever campuses actually appear in their own
+    teacher list."""
+    allowed = viewer_branches(_viewer_location(db, user_email))
+    if allowed:
+        return allowed
+    present = {
+        normalize_branch(i.get("location"))
+        for i in _build_teacher_map(db, user_email, role).values()
+    }
+    return [b for b in BRANCHES if b in present]
+
+
+def get_teachers_for_role(db: Session, user_email: str, role: str, branch: Optional[str] = None) -> list:
+    teacher_map = _build_teacher_map(db, user_email, role, branch)
     return [{"email": email, **info} for email, info in teacher_map.items()]
 
 
@@ -405,12 +468,13 @@ def _card_dict(p: models.PowEntry, teacher_map: dict) -> dict:
     }
 
 
-def get_pow_cards(db: Session, user_email: str, role: str, subject: str, grade: str):
+def get_pow_cards(db: Session, user_email: str, role: str, subject: str, grade: str,
+                  branch: Optional[str] = None):
     """Cards are only ever fetched once a subject+grade is picked (see
     main.py) — the dashboard no longer loads anything on mount, since the
     unfiltered query could span every grade of a subject for Leadership/SME
     and was the main reason the dashboard felt slow even with little data."""
-    teacher_map = _build_teacher_map(db, user_email, role)
+    teacher_map = _build_teacher_map(db, user_email, role, branch)
 
     cards = []
     if teacher_map:
@@ -960,7 +1024,7 @@ def _grouped_chapters(all_chapters: dict, subject: str, grade: int) -> List[mode
     return out
 
 
-def get_lagging_report(db: Session, viewer_email: str, role: str) -> dict:
+def get_lagging_report(db: Session, viewer_email: str, role: str, branch: Optional[str] = None) -> dict:
     """Where is each teacher against the curriculum mapping, right now.
 
     Expected position = every session the planner schedules up to and
@@ -977,7 +1041,7 @@ def get_lagging_report(db: Session, viewer_email: str, role: str) -> dict:
     today = now_ist()
     current_month = today.strftime("%B")
 
-    teacher_map = _build_teacher_map(db, viewer_email, role)
+    teacher_map = _build_teacher_map(db, viewer_email, role, branch)
     if not teacher_map:
         return {"generated_month": current_month, "rows": [], "teachers_without_pows": []}
 
@@ -1052,6 +1116,7 @@ def get_lagging_report(db: Session, viewer_email: str, role: str) -> dict:
         rows.append({
             "teacher_email": email,
             "teacher_name": info.get("name") or email,
+            "branch": info.get("location") or "",
             "subject": subject,
             "grade": str(grade),
             "expected_sessions": expected,
@@ -1097,6 +1162,7 @@ def get_lagging_report(db: Session, viewer_email: str, role: str) -> dict:
                 rows.append({
                     "teacher_email": email,
                     "teacher_name": info.get("name") or email,
+                    "branch": info.get("location") or "",
                     "subject": subject,
                     "grade": str(grade_int),
                     "expected_sessions": expected,
@@ -1120,6 +1186,7 @@ def get_lagging_report(db: Session, viewer_email: str, role: str) -> dict:
     with_pows = {r["teacher_email"] for r in rows if not r["no_pow_yet"]}
     without = [
         {"teacher_email": e, "teacher_name": i.get("name") or e, "subject": i.get("subject") or "",
+         "branch": i.get("location") or "",
          "assigned_classes": len(staff_directory.assignments_for(e)) if directory_available else None}
         for e, i in teacher_map.items()
         if e not in with_pows and not any(p.teacher_email.lower() == e for p in pows)
@@ -1127,6 +1194,7 @@ def get_lagging_report(db: Session, viewer_email: str, role: str) -> dict:
 
     return {
         "generated_month": current_month,
+        "branch": normalize_branch(branch) or "",
         "rows": rows,
         "teachers_without_pows": sorted(without, key=lambda t: t["teacher_name"]),
         # False means class assignments couldn't be read, so the report covers
