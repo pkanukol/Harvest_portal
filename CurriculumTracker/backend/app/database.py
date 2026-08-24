@@ -76,8 +76,28 @@ def run_migrations():
                 with engine.begin() as conn:
                     conn.execute(text(f"ALTER TABLE planner_topics ADD COLUMN {column} VARCHAR"))
 
+    if "pow_entries" in existing_tables:
+        cols = {c["name"] for c in inspector.get_columns("pow_entries")}
+        for section in ("a", "b", "c", "d", "e", "f"):
+            column = f"impl_{section}_date"
+            if column not in cols:
+                with engine.begin() as conn:
+                    conn.execute(text(f"ALTER TABLE pow_entries ADD COLUMN {column} DATE"))
+
+    if "curriculum_backfill_confirmed" in existing_tables:
+        # Confirmations were per teacher; they're per subject+grade now, and the
+        # old unique index would block the new shape.
+        with engine.begin() as conn:
+            conn.execute(text("DROP INDEX IF EXISTS ix_backfill_confirmed_key"))
+            conn.execute(text("DELETE FROM curriculum_backfill_confirmed WHERE teacher_email IS NOT NULL"))
+
     if "curriculum_backfill" in existing_tables:
         cols = {c["name"] for c in inspector.get_columns("curriculum_backfill")}
+        # Marks were per teacher, then per class. Per-teacher rows would double
+        # up now that several teachers share one class, so they're cleared —
+        # nothing has been marked in production yet.
+        with engine.begin() as conn:
+            conn.execute(text("DELETE FROM curriculum_backfill WHERE teacher_email IS NOT NULL"))
         if "teacher_email" not in cols:
             # Marks were per subject+grade in the first cut; they're per teacher
             # now, and an existing row can't be attributed to a teacher after
