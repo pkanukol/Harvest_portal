@@ -11,7 +11,7 @@ import { fmtDate } from "../dateUtils";
  */
 const OPEN_KEY = "lagPanelOpen";
 
-export default function LaggingPanel({ token, onOpenTeacher }) {
+export default function LaggingPanel({ token, branch = "", onOpenTeacher }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
   const [showAll, setShowAll] = useState(false);
@@ -29,10 +29,14 @@ export default function LaggingPanel({ token, onOpenTeacher }) {
 
   // Only fetched when expanded — this report compares every teacher's POWs
   // against the whole planner, so a collapsed panel shouldn't pay for it.
+  // Refetched when the campus filter changes, so the panel and the dashboard
+  // below it always describe the same set of teachers.
+  useEffect(() => { setData(null); }, [branch]);
+
   useEffect(() => {
     if (!open || data) return;
-    api.getLagging(token).then(setData).catch((err) => setError(err.message));
-  }, [token, open, data]);
+    api.getLagging(token, branch).then(setData).catch((err) => setError(err.message));
+  }, [token, open, data, branch]);
 
   if (error) return <div className="form-error">{error}</div>;
 
@@ -103,7 +107,7 @@ export default function LaggingPanel({ token, onOpenTeacher }) {
           <table>
             <thead>
               <tr>
-                <th>Teacher</th><th>Subject</th><th>Grade</th>
+                <th>Teacher</th><th>Branch</th><th>Subject</th><th>Grade</th>
                 <th>Behind by</th><th>Progress</th><th>Last POW</th>
               </tr>
             </thead>
@@ -115,6 +119,7 @@ export default function LaggingPanel({ token, onOpenTeacher }) {
                   onClick={() => onOpenTeacher && onOpenTeacher(r)}
                 >
                   <td>{r.teacher_name}</td>
+                  <td>{r.branch || "—"}</td>
                   <td>{r.subject}</td>
                   <td>{r.grade}</td>
                   <td>
@@ -171,7 +176,7 @@ export default function LaggingPanel({ token, onOpenTeacher }) {
             <div className="lag-missing-list">
               {data.teachers_without_pows.map((t) => (
                 <div key={t.teacher_email} className="pow-card-meta">
-                  • {t.teacher_name}{t.subject ? ` · ${t.subject}` : ""}
+                  • {t.teacher_name}{t.subject ? ` · ${t.subject}` : ""}{t.branch ? ` · ${t.branch}` : ""}
                 </div>
               ))}
             </div>
