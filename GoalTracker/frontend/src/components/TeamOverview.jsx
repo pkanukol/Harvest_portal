@@ -1,29 +1,21 @@
-import { useState } from "react";
-import { api } from "../api";
+import ProgressBar from "./ProgressBar";
 
-function midTermCell(flags) {
-  if (flags.mid_term_set) return "Set";
-  if (flags.mid_term_missing) return (<span><span className="flag-dot" /> Missing</span>);
-  return <span className="hint-text">Not due yet</span>;
+const STATUS_LABEL = {
+  not_set: "Not set",
+  pending: "Pending",
+  approved: "Approved",
+};
+
+function statusCell(status, progress) {
+  return (
+    <div className="status-cell">
+      <span>{status === "pending" ? <><span className="flag-dot" /> Pending</> : (STATUS_LABEL[status] || status)}</span>
+      {progress.total > 0 && <ProgressBar completed={progress.completed} total={progress.total} />}
+    </div>
+  );
 }
 
-export default function TeamOverview({ team, token, onSelectMember, onChanged }) {
-  const [ackingId, setAckingId] = useState(null);
-  const [error, setError] = useState("");
-
-  async function submitUpperAck(goalId, actionId) {
-    setAckingId(actionId);
-    setError("");
-    try {
-      await api.upperAck(token, goalId, actionId);
-      onChanged && onChanged();
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setAckingId(null);
-    }
-  }
-
+export default function TeamOverview({ team, onSelectMember }) {
   return (
     <>
       <div className="section-title">People whose goals you review</div>
@@ -35,8 +27,8 @@ export default function TeamOverview({ team, token, onSelectMember, onChanged })
             <tr>
               <th>Name</th>
               <th>Designation</th>
-              <th>Mid Term goal</th>
-              <th>Annual goal</th>
+              <th>Role goal</th>
+              <th>Organisation goal</th>
             </tr>
           </thead>
           <tbody>
@@ -44,35 +36,12 @@ export default function TeamOverview({ team, token, onSelectMember, onChanged })
               <tr className="team-row" key={m.email} onClick={() => onSelectMember(m.email, m.name)}>
                 <td>{m.name}</td>
                 <td>{m.designation}</td>
-                <td>{midTermCell(m.flags)}</td>
-                <td>{m.flags.annual_set ? "Set" : (<span><span className="flag-dot" /> Missing</span>)}</td>
+                <td>{statusCell(m.mid_term_status, m.mid_term_progress)}</td>
+                <td>{statusCell(m.annual_status, m.annual_progress)}</td>
               </tr>
             ))}
           </tbody>
         </table>
-      )}
-
-      <div className="section-title">Reviews pending your acknowledgment</div>
-      {error && <div className="form-error">{error}</div>}
-      {team.pending_acknowledgments.length === 0 ? (
-        <div className="empty-msg">Nothing pending your acknowledgment.</div>
-      ) : (
-        team.pending_acknowledgments.map((p) => (
-          <div className="card" style={{ padding: 14, marginBottom: 12 }} key={p.action.id}>
-            <div style={{ fontWeight: 700, marginBottom: 4 }}>{p.goal.title}</div>
-            <div className="hint-text" style={{ marginBottom: 6 }}>
-              Owner: {p.owner_name} — reviewed by {p.reviewed_by_name} — action: {p.action.action_type}
-            </div>
-            {p.action.reason && <div className="hint-text" style={{ marginBottom: 6 }}>Reason: {p.action.reason}</div>}
-            <button
-              className="btn btn-primary btn-sm"
-              disabled={ackingId === p.action.id}
-              onClick={() => submitUpperAck(p.goal.id, p.action.id)}
-            >
-              Acknowledge
-            </button>
-          </div>
-        ))
       )}
     </>
   );
