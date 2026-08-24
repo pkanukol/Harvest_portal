@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import Chart from "chart.js/auto";
 import { api } from "../api";
 import { fmtDate } from "../dateUtils";
@@ -15,6 +15,9 @@ export default function Progress({ token, user, isReadOnlyViewer, branch = "", o
   const [subjectGroups, setSubjectGroups] = useState({ curriculum: [], other: [] });
   // Which chapters have their POW detail expanded.
   const [openChapters, setOpenChapters] = useState({});
+  // Science splits into Biology/Chemistry/Physics from Grade 5 up, and each has
+  // its own SME — so progress is read one discipline at a time.
+  const [discipline, setDiscipline] = useState("");
 
   function toggleChapter(name) {
     setOpenChapters((prev) => ({ ...prev, [name]: !prev[name] }));
@@ -64,14 +67,14 @@ export default function Progress({ token, user, isReadOnlyViewer, branch = "", o
     if (!subject || !grade) { setChartData(null); setSummary(null); return; }
     setError("");
 
-    api.getProgressSummary(token, subject, grade, isReadOnlyViewer ? "" : user.email)
+    api.getProgressSummary(token, subject, grade, isReadOnlyViewer ? "" : user.email, discipline)
       .then(setSummary)
       .catch((err) => setError(err.message));
 
     api.getProgressChart(token, subject, grade)
       .then(setChartData)
       .catch((err) => setError(err.message));
-  }, [token, subject, grade, isReadOnlyViewer, user.email]);
+  }, [token, subject, grade, isReadOnlyViewer, user.email, discipline]);
 
   useEffect(() => {
     if (!chartData || !chartData.labels?.length || !canvasRef.current) return;
@@ -172,86 +175,86 @@ export default function Progress({ token, user, isReadOnlyViewer, branch = "", o
             ))}
           </div>
 
-          <table>
-            <thead>
-              <tr><th>Chapter</th><th>Topic/Sub Topic</th><th>Sessions / Chapter</th><th>Done</th><th>Left</th><th>Progress</th><th>Status</th></tr>
-            </thead>
-            <tbody>
-              {summary.topic_rows.map((t, i) => (
-                <tr key={i}>
-                  <td>{t.topic}</td>
-                  <td>{t.subtopic || "—"}</td>
-                  <td>{t.sessions_planned}</td>
-                  <td>{t.sessions_done}</td>
-                  <td>{t.sessions_left}</td>
-                  <td>
-                    <div className="progress-bar-track"><div className="progress-bar-fill" style={{ width: `${t.pct}%` }} /></div>
-                  </td>
-                  <td>{t.status}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-
-          {summary.chapter_detail?.length > 0 && (
-            <>
-              <div className="section-title">What was recorded this month</div>
-              <div className="hint-text">
-                Straight from the POWs: the sub-topics each week covered, and when each section finished
-                them, with the teacher&apos;s remark.
-              </div>
-              {summary.chapter_detail.map((c) => (
-                <div className="card chapter-detail" key={c.chapter}>
-                  <button className="lag-toggle chapter-detail-head" onClick={() => toggleChapter(c.chapter)}>
-                    <span className={`lag-caret ${openChapters[c.chapter] ? "lag-caret-open" : ""}`}>▸</span>
-                    <span className="chapter-detail-name">{c.chapter}</span>
-                    <span className="lag-summary">
-                      {c.entries.length === 0
-                        ? "nothing recorded yet"
-                        : `${c.entries.length} POW${c.entries.length === 1 ? "" : "s"} · ${c.sessions_planned} sessions planned`}
-                    </span>
-                  </button>
-
-                  {openChapters[c.chapter] && c.entries.length > 0 && (
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>Week</th><th>Topic / Sub topic</th><th>Sessions</th>
-                          <th>Section completion &amp; remarks</th><th>Status</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {c.entries.map((e) => (
-                          <tr key={e.pow_id}>
-                            <td>{e.week_start ? fmtDate(e.week_start) : "—"}</td>
-                            <td>{e.subtopic || "—"}</td>
-                            <td>
-                              {e.sessions_marked || "—"}
-                              <div className="hint-text">{e.sessions_completed} done</div>
-                            </td>
-                            <td>
-                              {e.sections.length === 0 ? (
-                                <span className="hint-text">not filled in yet</span>
-                              ) : (
-                                e.sections.map((sec) => (
-                                  <div className="impl-detail" key={sec.section}>
-                                    <strong>Section {sec.section}</strong>
-                                    {sec.completed_on ? ` · completed ${fmtDate(sec.completed_on)}` : " · no date"}
-                                    {sec.remark ? <div className="impl-detail-remark">{sec.remark}</div> : null}
-                                  </div>
-                                ))
-                              )}
-                            </td>
-                            <td>{e.status}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  )}
-                </div>
-              ))}
-            </>
+          {(summary.disciplines || []).length > 1 && (
+            <div className="form-group discipline-filter">
+              <label className="form-label">Discipline</label>
+              <select className="form-control" value={discipline} onChange={(e) => setDiscipline(e.target.value)}>
+                <option value="">All disciplines</option>
+                {summary.disciplines.map((d) => <option key={d} value={d}>{d}</option>)}
+              </select>
+            </div>
           )}
+
+          <div className="card upload-preview-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>Chapter</th>
+                  {(summary.disciplines || []).length > 1 && <th>Discipline</th>}
+                  <th>Sessions</th><th>Done</th><th>Left</th><th>Progress</th><th>Status</th><th>Counted from</th><th />
+                </tr>
+              </thead>
+              <tbody>
+                {summary.chapter_rows.map((c) => (
+                  <Fragment key={c.chapter}>
+                    <tr>
+                      <td>{c.chapter}</td>
+                      {(summary.disciplines || []).length > 1 && <td>{c.discipline || "—"}</td>}
+                      <td>{c.sessions_planned}</td>
+                      <td>{c.sessions_done}</td>
+                      <td>{c.sessions_left}</td>
+                      <td>
+                        <div className="progress-bar-track">
+                          <div
+                            className="progress-bar-fill"
+                            style={{ width: `${c.pct}%`, background: c.status === "done" ? "var(--green)" : "var(--warn)" }}
+                          />
+                        </div>
+                      </td>
+                      <td>
+                        <span className={`badge ${c.status === "done" ? "badge-approved" : c.status === "in_progress" ? "badge-pending" : "badge-created"}`}>
+                          {c.status === "in_progress" ? "in progress" : c.status}
+                        </span>
+                      </td>
+                      <td className="hint-text">{c.counted_from || "—"}</td>
+                      <td>
+                        {c.entries.length > 0 && (
+                          <button className="btn btn-ghost btn-sm" onClick={() => toggleChapter(c.chapter)}>
+                            {openChapters[c.chapter] ? "Hide" : `${c.entries.length} POW${c.entries.length === 1 ? "" : "s"}`}
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                    {openChapters[c.chapter] && c.entries.map((e) => (
+                      <tr key={e.pow_id}>
+                        <td colSpan={(summary.disciplines || []).length > 1 ? 9 : 8} className="grade-detail-cell">
+                          <div className="pow-detail-head">
+                            Week of {e.week_start ? fmtDate(e.week_start) : "—"} · sessions {e.sessions_marked || "—"}
+                            {" "}({e.sessions_completed} done) · {e.status}
+                            {e.subtopic ? ` · ${e.subtopic}` : ""}
+                          </div>
+                          {e.sections.length === 0 ? (
+                            <div className="hint-text">No section implementation filled in yet.</div>
+                          ) : (
+                            e.sections.map((sec) => (
+                              <div className="impl-detail" key={sec.section}>
+                                <strong>Section {sec.section}</strong>
+                                {sec.completed_on ? ` · completed ${fmtDate(sec.completed_on)}` : " · no completion date"}
+                                {sec.remark ? <div className="impl-detail-remark">{sec.remark}</div> : null}
+                              </div>
+                            ))
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </Fragment>
+                ))}
+                {summary.chapter_rows.length === 0 && (
+                  <tr><td colSpan={9} className="empty-msg">No chapters planned for {summary.month} here.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
 
           {summary.extra_topics?.length > 0 && (
             <div className="hint-text" style={{ marginTop: 12 }}>
