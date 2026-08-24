@@ -107,12 +107,8 @@ export const api = {
   getLagging: (token, branch = "") =>
     request(`/progress/lagging?branch=${encodeURIComponent(branch)}`, { token }),
 
-  getBackfill: (token, subject, grade, teacherEmail) =>
-    request(
-      `/backfill?subject=${encodeURIComponent(subject)}&grade=${encodeURIComponent(grade)}` +
-        `&teacher_email=${encodeURIComponent(teacherEmail)}`,
-      { token },
-    ),
+  getBackfill: (token, subject, grade) =>
+    request(`/backfill?subject=${encodeURIComponent(subject)}&grade=${encodeURIComponent(grade)}`, { token }),
 
   saveBackfill: (token, payload) => request("/backfill", { method: "POST", token, body: payload }),
 
@@ -152,8 +148,12 @@ export const api = {
   saveSmeReview: (token, id, payload) =>
     request(`/pow/${id}/review`, { method: "PUT", token, body: payload }),
 
-  getProgressSummary: (token, subject, grade, teacherEmail) =>
-    request(`/progress/summary?subject=${encodeURIComponent(subject)}&grade=${encodeURIComponent(grade)}&teacher_email=${encodeURIComponent(teacherEmail || "")}`, { token }),
+  getProgressSummary: (token, subject, grade, teacherEmail, discipline = "") =>
+    request(
+      `/progress/summary?subject=${encodeURIComponent(subject)}&grade=${encodeURIComponent(grade)}` +
+        `&teacher_email=${encodeURIComponent(teacherEmail || "")}&discipline=${encodeURIComponent(discipline)}`,
+      { token },
+    ),
 
   getProgressChart: (token, subject, grade) =>
     request(`/progress/chart?subject=${encodeURIComponent(subject)}&grade=${encodeURIComponent(grade)}`, { token }),
