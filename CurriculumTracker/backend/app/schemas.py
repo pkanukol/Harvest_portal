@@ -201,6 +201,13 @@ class PowImplementationRequest(BaseModel):
     impl_d: Optional[str] = None
     impl_e: Optional[str] = None
     impl_f: Optional[str] = None
+    # ISO dates, or "" to clear. Same not-sent-means-untouched rule as above.
+    impl_a_date: Optional[str] = None
+    impl_b_date: Optional[str] = None
+    impl_c_date: Optional[str] = None
+    impl_d_date: Optional[str] = None
+    impl_e_date: Optional[str] = None
+    impl_f_date: Optional[str] = None
     tbs_mom: Optional[str] = None
     correction_done: Optional[str] = None
     instructions: Optional[str] = None
@@ -228,7 +235,6 @@ class BackfillMark(BaseModel):
 class BackfillSaveRequest(BaseModel):
     subject: str
     grade: int
-    teacher_email: str
     marks: List[BackfillMark] = []
 
 
@@ -249,16 +255,14 @@ class BackfillChapter(BaseModel):
 class BackfillConfirmRequest(BaseModel):
     subject: str
     grade: int
-    teacher_email: str
 
 
 class BackfillResponse(BaseModel):
     subject: str
     grade: int
-    teacher_email: str
     confirmed_by: Optional[str] = None
     confirmed_at: Optional[str] = None
-    months: List[str]            # months already past — the only ones markable
+    months: List[str]            # April up to and including the current month
     chapters: List[BackfillChapter]
     locked: bool                 # confirmed complete by an SME — POWs do not lock it
     pow_count: int
