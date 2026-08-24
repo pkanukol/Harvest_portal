@@ -68,6 +68,9 @@ export const api = {
 
   // Leadership preview: one person's whole dashboard (goals + tasks) resolved
   // against their own visibility. Read-only - mints no token for them.
+  // Flat roster for the "view as" picker - cheap, unlike getGoalsOverview.
+  getOrgPeople: (token) => request("/admin/people", { token }),
+
   viewAs: (token, email) => request(`/admin/view-as/${encodeURIComponent(email)}`, { token }),
 
   // Switch into someone's account (write-capable). Restricted server-side to
