@@ -78,6 +78,22 @@ export default function App() {
   // single resolved role.
   const canCreatePow = Boolean(user?.can_create_pow) || user?.role === "Teacher";
 
+  // One campus selection for the whole app, remembered between visits. Blank
+  // means "all campuses I'm allowed to see".
+  const myBranches = user?.branches || [];
+  const [branch, setBranch] = useState(() => localStorage.getItem("branch") || "");
+
+  function chooseBranch(value) {
+    setBranch(value);
+    localStorage.setItem("branch", value);
+  }
+
+  // Drop a remembered campus this account may no longer view (e.g. after a
+  // View as switch to someone on the other campus).
+  useEffect(() => {
+    if (branch && myBranches.length && !myBranches.includes(branch)) chooseBranch("");
+  }, [user?.email, myBranches.join("|")]);
+
   const goDashboard = () => { setView("dashboard"); setLoadError(""); };
 
   const goNewPow = () => { setView("new-pow"); };
@@ -118,6 +134,9 @@ export default function App() {
           token={token}
           view={view}
           onDashboard={goDashboard}
+          branch={branch}
+          branches={myBranches}
+          onBranchChange={chooseBranch}
           onViewAs={(res) => { viewAs(res); setView("dashboard"); }}
           onResetToMe={() => { resetToMe(); setView("dashboard"); }}
         />
@@ -146,6 +165,7 @@ export default function App() {
                 isLeadership={isLeadership}
                 canUploadCurriculum={canUploadCurriculum}
                 canCreatePow={canCreatePow}
+                branch={branch}
                 onNewPow={goNewPow}
                 onProgress={goProgress}
                 onPlannerUpload={goPlannerUpload}
@@ -170,7 +190,7 @@ export default function App() {
             )}
 
             {view === "progress" && (
-              <Progress key={user.email} token={token} user={user} isReadOnlyViewer={isReadOnlyViewer} onBack={goDashboard} />
+              <Progress key={user.email} token={token} user={user} isReadOnlyViewer={isReadOnlyViewer} branch={branch} onBack={goDashboard} />
             )}
           </>
         )}
