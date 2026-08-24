@@ -455,6 +455,8 @@ def _card_dict(p: models.PowEntry, teacher_map: dict) -> dict:
         "id": p.id,
         "teacher_email": temail,
         "teacher_name": teacher_map.get(temail, {}).get("name") or temail,
+        # Campus, so a both-branch view can label whose card is whose.
+        "branch": teacher_map.get(temail, {}).get("location") or "",
         "subject": p.subject,
         "grade": p.grade,
         "week_start": p.week_start.isoformat(),
