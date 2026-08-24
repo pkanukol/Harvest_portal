@@ -47,6 +47,27 @@ def _first_session_num(raw: Optional[str]) -> int:
     return int(m.group(1)) if m else 0
 
 
+def _sessions_completed(raw: Optional[str], week_start, status: str) -> int:
+    """How many of a chapter's sessions are DONE, from the session numbers a
+    teacher ticked.
+
+    A POW is written for the week ahead, so ticking 4 and 5 means 1-3 are
+    already behind them and 4-5 are what's coming: while that week is still
+    ahead, 3 sessions are complete. Once the week has started (or the teacher
+    has done their final save) the ticked ones count too, so it's 5.
+    """
+    nums = [int(n) for n in re.findall(r"\d+", raw or "")]
+    nums = [n for n in nums if n > 0]
+    if not nums:
+        return 0
+    if status in FINALISED_STATUSES:
+        return max(nums)
+    today = now_ist().date()
+    if week_start and week_start <= today:
+        return max(nums)
+    return min(nums) - 1        # the week is still ahead: only what precedes it
+
+
 def _max_session_num(raw: Optional[str]) -> int:
     """max() over every number found, matching Code.gs's getProgressSummary:
     `lpStr.split(/[,\\s]+/).map(Number).filter(n=>!isNaN(n)&&n>0)`, default 1
@@ -565,6 +586,7 @@ def get_pow(db: Session, pow_id: int) -> Optional[models.PowEntry]:
 
 IMPLEMENTATION_FIELDS = ("impl_a", "impl_b", "impl_c", "impl_d", "impl_e", "impl_f",
                          "tbs_mom", "correction_done", "instructions", "teacher_remarks")
+IMPLEMENTATION_DATE_FIELDS = tuple(f"impl_{s}_date" for s in "abcdef")
 
 
 def update_pow_implementation(db: Session, pow_entry: models.PowEntry, data) -> models.PowEntry:
@@ -580,6 +602,11 @@ def update_pow_implementation(db: Session, pow_entry: models.PowEntry, data) -> 
         value = getattr(data, field, None)
         if value is not None:
             setattr(pow_entry, field, value)
+    for field in IMPLEMENTATION_DATE_FIELDS:
+        value = getattr(data, field, None)
+        if value is None:
+            continue
+        setattr(pow_entry, field, datetime.date.fromisoformat(value) if value else None)
     if data.final_save:
         pow_entry.status = "final"
     db.commit()
@@ -634,14 +661,18 @@ def get_progress_summary(db: Session, subject: str, grade: int, teacher_email: O
     planned_chapters = [c for c in chapters if (c.month or "").lower() == month.lower()]
     total_sessions_planned = sum(c.sessions or 0 for c in planned_chapters)
 
+    # Drafts count too: a POW filed for the week ahead is precisely what says
+    # the sessions before it are done (see _sessions_completed), and its
+    # implementation text and per-section dates are worth showing as they are
+    # filled in rather than only after the final save.
     q = db.query(models.PowEntry).filter(
         _subject_group_filter(subject),
         models.PowEntry.grade == str(grade),
-        models.PowEntry.status.in_(("approved", "final")),
     )
     if teacher_email:
         q = q.filter(func.lower(models.PowEntry.teacher_email) == teacher_email.lower())
 
+    month_pows = []
     topic_session_map = {}
     for p in q.all():
         if p.week_start and p.week_start.strftime("%B") != month:
@@ -649,9 +680,12 @@ def get_progress_summary(db: Session, subject: str, grade: int, teacher_email: O
         topic = (p.topic or "").strip()
         if not topic:
             continue
-        max_sess = _max_session_num(p.lp_session_num)
-        if topic not in topic_session_map or max_sess > topic_session_map[topic]:
-            topic_session_map[topic] = max_sess
+        month_pows.append(p)
+        # Sessions ticked for a week still ahead mean the ones BEFORE them are
+        # done — see _sessions_completed.
+        done_here = _sessions_completed(p.lp_session_num, p.week_start, p.status)
+        if topic not in topic_session_map or done_here > topic_session_map[topic]:
+            topic_session_map[topic] = done_here
 
     covered_topics = list(topic_session_map.keys())
     sessions_done = sum(topic_session_map[t] for t in covered_topics)
@@ -674,6 +708,43 @@ def get_progress_summary(db: Session, subject: str, grade: int, teacher_email: O
     planned_names = {c.chapter_name for c in planned_chapters}
     extra_topics = [t for t in covered_topics if t not in planned_names]
 
+    # The "what actually happened" half of the progress screen: for each
+    # chapter planned this month, what the POWs recorded — sub-topics covered,
+    # and each section's completion date with its remark.
+    chapter_detail = []
+    for c in planned_chapters:
+        entries = []
+        for p in month_pows:
+            if (p.topic or "").strip() != c.chapter_name:
+                continue
+            sections = []
+            for letter in "ABCDEF":
+                remark = (getattr(p, "impl_" + letter.lower(), None) or "").strip()
+                completed_on = getattr(p, "impl_" + letter.lower() + "_date", None)
+                if not remark and not completed_on:
+                    continue
+                sections.append({
+                    "section": letter,
+                    "completed_on": completed_on.isoformat() if completed_on else None,
+                    "remark": remark,
+                })
+            entries.append({
+                "pow_id": p.id,
+                "teacher_email": p.teacher_email,
+                "week_start": p.week_start.isoformat() if p.week_start else None,
+                "subtopic": p.subtopic or "",
+                "sessions_marked": p.lp_session_num or "",
+                "sessions_completed": _sessions_completed(p.lp_session_num, p.week_start, p.status),
+                "status": STATUS_LABELS.get(p.status, p.status),
+                "sections": sections,
+            })
+        entries.sort(key=lambda e: e["week_start"] or "")
+        chapter_detail.append({
+            "chapter": c.chapter_name,
+            "sessions_planned": c.sessions or 0,
+            "entries": entries,
+        })
+
     sessions_left = max(0, total_sessions_planned - sessions_done)
     weeks_left = days_left / 5
     sess_per_week = int(-(-sessions_left // weeks_left)) if weeks_left > 0 else sessions_left  # ceil
@@ -691,6 +762,7 @@ def get_progress_summary(db: Session, subject: str, grade: int, teacher_email: O
         "sess_per_week_needed": sess_per_week,
         "topic_rows": topic_rows,
         "extra_topics": extra_topics,
+        "chapter_detail": chapter_detail,
     }
 
 
@@ -777,27 +849,28 @@ def get_pow_notification_recipients(db: Session, teacher_email: str, subject: st
 
 # ─── Backfill: curriculum covered before POWs began ─────────────────────────
 
-def months_before_now() -> List[str]:
-    """Academic months strictly earlier than the current one — the only months
-    a backfill mark makes sense for. In August that's April to July."""
+def months_to_date() -> List[str]:
+    """Academic months up to and INCLUDING the current one — everything that
+    could already have been taught. In August: April to August."""
     current = now_ist().strftime("%B")
     cutoff = MONTH_INDEX.get(current)
     if cutoff is None:
         return []
-    return [m for m in ACADEMIC_MONTHS if MONTH_INDEX[m] < cutoff]
+    return [m for m in ACADEMIC_MONTHS if MONTH_INDEX[m] <= cutoff]
 
 
-def get_backfill_view(db: Session, subject: str, grade: int, teacher_email: str) -> dict:
+def get_backfill_view(db: Session, subject: str, grade: int) -> dict:
     """The marking sheet: every planner chapter in a month already past, with
     its sub-topics and what's ticked so far.
 
     `locked` is the one-time rule — once a POW exists for this subject+grade,
     progress comes from POWs and the marking is closed for good."""
     rows = get_planner_rows(db, subject, grade)
-    past = set(months_before_now())
+    past = set(months_to_date())
 
+    # Grade-wise: the curriculum was covered (or not) for the class, so the
+    # marks belong to the subject+grade rather than to each teacher of it.
     marks = db.query(models.CurriculumBackfill).filter(
-        func.lower(models.CurriculumBackfill.teacher_email) == teacher_email.lower(),
         func.lower(models.CurriculumBackfill.subject) == subject.lower(),
         models.CurriculumBackfill.grade == int(grade),
     ).all()
@@ -829,14 +902,13 @@ def get_backfill_view(db: Session, subject: str, grade: int, teacher_email: str)
     # coverage after teachers have started filing. Only their explicit
     # confirmation closes it. The POW count is still reported, as context.
     pow_count = db.query(func.count(models.PowEntry.id)).filter(
-        func.lower(models.PowEntry.teacher_email) == teacher_email.lower(),
         _subject_group_filter(subject), models.PowEntry.grade == str(grade)
     ).scalar()
-    confirmation = _backfill_confirmation(db, subject, grade, teacher_email)
+    confirmation = _backfill_confirmation(db, subject, grade)
 
     return {
-        "subject": subject, "grade": int(grade), "teacher_email": teacher_email,
-        "months": months_before_now(),
+        "subject": subject, "grade": int(grade),
+        "months": months_to_date(),
         "chapters": out,
         "locked": confirmation is not None,
         "confirmed_by": confirmation.confirmed_by if confirmation else None,
@@ -846,34 +918,30 @@ def get_backfill_view(db: Session, subject: str, grade: int, teacher_email: str)
     }
 
 
-def _backfill_confirmation(db: Session, subject: str, grade: int, teacher_email: str):
+def _backfill_confirmation(db: Session, subject: str, grade: int):
     return (
         db.query(models.BackfillConfirmation)
-        .filter(func.lower(models.BackfillConfirmation.teacher_email) == teacher_email.lower(),
-                func.lower(models.BackfillConfirmation.subject) == subject.lower(),
+        .filter(func.lower(models.BackfillConfirmation.subject) == subject.lower(),
                 models.BackfillConfirmation.grade == int(grade))
         .first()
     )
 
 
-def confirm_backfill(db: Session, subject: str, grade: int, teacher_email: str, email: str) -> dict:
-    """Closes the marking for this teacher+subject+grade."""
-    existing = _backfill_confirmation(db, subject, grade, teacher_email)
+def confirm_backfill(db: Session, subject: str, grade: int, email: str) -> dict:
+    """Closes the marking for this subject+grade."""
+    existing = _backfill_confirmation(db, subject, grade)
     if existing:
         return {"already_confirmed": True, "confirmed_by": existing.confirmed_by}
-    db.add(models.BackfillConfirmation(
-        teacher_email=teacher_email.lower(), subject=subject, grade=int(grade), confirmed_by=email,
-    ))
+    db.add(models.BackfillConfirmation(subject=subject, grade=int(grade), confirmed_by=email))
     db.commit()
     return {"already_confirmed": False, "confirmed_by": email}
 
 
-def reopen_backfill(db: Session, subject: str, grade: int, teacher_email: str) -> dict:
+def reopen_backfill(db: Session, subject: str, grade: int) -> dict:
     """Undoes a confirmation — the marks themselves are untouched."""
     deleted = (
         db.query(models.BackfillConfirmation)
-        .filter(func.lower(models.BackfillConfirmation.teacher_email) == teacher_email.lower(),
-                func.lower(models.BackfillConfirmation.subject) == subject.lower(),
+        .filter(func.lower(models.BackfillConfirmation.subject) == subject.lower(),
                 models.BackfillConfirmation.grade == int(grade))
         .delete(synchronize_session=False)
     )
@@ -881,12 +949,10 @@ def reopen_backfill(db: Session, subject: str, grade: int, teacher_email: str) -
     return {"reopened": bool(deleted)}
 
 
-def save_backfill(db: Session, subject: str, grade: int, teacher_email: str,
-                  marks: list, email: str) -> dict:
+def save_backfill(db: Session, subject: str, grade: int, marks: list, email: str) -> dict:
     """Replaces the marks for this subject+grade. A tick is a row; unticking
     removes it, so the table only ever states what WAS covered."""
     db.query(models.CurriculumBackfill).filter(
-        func.lower(models.CurriculumBackfill.teacher_email) == teacher_email.lower(),
         func.lower(models.CurriculumBackfill.subject) == subject.lower(),
         models.CurriculumBackfill.grade == int(grade),
     ).delete(synchronize_session=False)
@@ -896,7 +962,7 @@ def save_backfill(db: Session, subject: str, grade: int, teacher_email: str,
         if not m.done:
             continue
         db.add(models.CurriculumBackfill(
-            teacher_email=teacher_email.lower(), subject=subject, grade=int(grade),
+            subject=subject, grade=int(grade),
             month=m.month, chapter_name=m.chapter_name,
             subtopic=m.subtopic or None, marked_by=email,
         ))
@@ -1062,13 +1128,12 @@ def get_lagging_report(db: Session, viewer_email: str, role: str, branch: Option
     # one query, grouped by (subject, grade).
     backfill_by_key = {}
     for m in db.query(models.CurriculumBackfill).all():
-        key = ((m.teacher_email or "").lower(), m.subject.lower(), m.grade)
-        backfill_by_key.setdefault(key, []).append(m)
+        backfill_by_key.setdefault((m.subject.lower(), m.grade), []).append(m)
 
-    def credited(teacher, subject_name, grade_num, chapters):
+    def credited(subject_name, grade_num, chapters):
         marks, items = [], {}
         for member in subjects_in_group(subject_name):
-            marks.extend(backfill_by_key.get((teacher.lower(), member.lower(), int(grade_num)), []))
+            marks.extend(backfill_by_key.get((member.lower(), int(grade_num)), []))
             items.update(all_item_counts.get((member.lower(), int(grade_num)), {}))
         return backfill_credit(marks, chapters, items) if marks else 0
     rows = []
@@ -1101,7 +1166,8 @@ def get_lagging_report(db: Session, viewer_email: str, role: str, branch: Option
             if not p.week_start:
                 continue
             key = ((p.topic or "").strip(), p.week_start.strftime("%B"))
-            reached = cum_before.get(key, 0) + _max_session_num(p.lp_session_num) if key in cum_before else 0
+            reached = cum_before.get(key, 0) + _sessions_completed(p.lp_session_num, p.week_start, p.status) \
+                if key in cum_before else 0
             if reached > done:
                 done = reached
             if last is None or p.week_start > last.week_start:
@@ -1110,7 +1176,7 @@ def get_lagging_report(db: Session, viewer_email: str, role: str, branch: Option
         # Backfill is a floor, not an addition: it states where the class had
         # already reached before POWs started, so progress is whichever is
         # further along.
-        done = max(done, credited(email, subject, grade_int, chapters))
+        done = max(done, credited(subject, grade_int, chapters))
         behind = max(0, expected - done)
         info = teacher_map.get(email, {})
         weeks_since = ((today.date() - last.week_start).days // 7) if last and last.week_start else None
@@ -1160,7 +1226,7 @@ def get_lagging_report(db: Session, viewer_email: str, role: str, branch: Option
                     continue
 
                 covered.add((email, subject.lower(), str(grade_int)))
-                done_from_backfill = credited(email, subject, grade_int, chapters)
+                done_from_backfill = credited(subject, grade_int, chapters)
                 rows.append({
                     "teacher_email": email,
                     "teacher_name": info.get("name") or email,
