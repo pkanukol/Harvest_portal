@@ -4,8 +4,6 @@ import GoalPanels from "./GoalPanels";
 import TeamOverview from "./TeamOverview";
 import TaskTracker from "./TaskTracker";
 
-const STATUS_LABEL = { not_set: "Not set", pending: "Pending", approved: "Approved" };
-
 // Leadership preview of someone else's page, for checking the flow actually
 // works for a given role. It redraws the real dashboard - same tabs, same
 // flag banner, same goal panels, same weekly task view with carried-over
@@ -34,7 +32,7 @@ export default function ViewAsPerson({ token, canActAs, onEnterAs, onClose }) {
   useEffect(() => {
     (async () => {
       try {
-        setPeople((await api.getGoalsOverview(token)).people);
+        setPeople(await api.getOrgPeople(token));
       } catch (err) {
         setError(err.message);
       } finally {
@@ -125,9 +123,7 @@ export default function ViewAsPerson({ token, canActAs, onEnterAs, onClose }) {
                     <div className="viewas-row" key={p.email}>
                       <span className="viewas-name">{p.name}</span>
                       <span className="viewas-desig">{p.designation}</span>
-                      <span className="viewas-status">
-                        Role: {STATUS_LABEL[p.mid_term_status]} · Org: {STATUS_LABEL[p.annual_status]}
-                      </span>
+                      <span className="viewas-status">{p.location || ""}</span>
                       <span className="viewas-row-actions">
                         {/* Preview = look only. Enter as = actually become them,
                             so it stays a separate, deliberate click. */}
