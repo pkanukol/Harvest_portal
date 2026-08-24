@@ -97,13 +97,15 @@ export const api = {
 
   getMe: (token) => request("/me", { token }),
 
-  getTeachers: (token) => request("/teachers", { token }),
+  getTeachers: (token, branch = "") =>
+    request(`/teachers?branch=${encodeURIComponent(branch)}`, { token }),
 
   searchStaff: (token, q) => request(`/staff/search?q=${encodeURIComponent(q)}`, { token }),
 
   viewAs: (token, email) => request("/auth/view-as", { method: "POST", token, body: { email } }),
 
-  getLagging: (token) => request("/progress/lagging", { token }),
+  getLagging: (token, branch = "") =>
+    request(`/progress/lagging?branch=${encodeURIComponent(branch)}`, { token }),
 
   getBackfill: (token, subject, grade, teacherEmail) =>
     request(
@@ -131,8 +133,12 @@ export const api = {
       fields: { subject, commit: commit ? "true" : "false" },
     }),
 
-  getPowCards: (token, subject, grade) =>
-    request(`/pow/cards?subject=${encodeURIComponent(subject)}&grade=${encodeURIComponent(grade)}`, { token }),
+  getPowCards: (token, subject, grade, branch = "") =>
+    request(
+      `/pow/cards?subject=${encodeURIComponent(subject)}&grade=${encodeURIComponent(grade)}` +
+        `&branch=${encodeURIComponent(branch)}`,
+      { token },
+    ),
 
   getTbsMomAlerts: (token) => request("/pow/tbs-mom-alerts", { token }),
 
