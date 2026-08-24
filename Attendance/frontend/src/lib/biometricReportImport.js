@@ -2,6 +2,33 @@ import * as XLSX from "xlsx";
 
 const MONTH_ABBR = { Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5, Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11 };
 
+// A re-link fires ~one recompute request per staff member (hundreds, sequential).
+// A single transient network hiccup ("TypeError: Failed to fetch") or a gateway
+// idle-timeout on one slow recompute would otherwise abort the whole run. Retry
+// only fetch-level/transient failures (never real Postgres/permission errors,
+// which come back with a message) with exponential backoff.
+function isTransient(err) {
+  const msg = String(err?.message || err || "");
+  return /failed to fetch|networkerror|network error|fetch failed|timeout|timed out|ECONN|502|503|504/i.test(msg);
+}
+
+async function withRetry(fn, { tries = 4, baseMs = 600, label = "" } = {}) {
+  let lastErr;
+  for (let attempt = 0; attempt < tries; attempt++) {
+    try {
+      return await fn();
+    } catch (e) {
+      lastErr = e;
+      if (!isTransient(e) || attempt === tries - 1) break;
+      await new Promise((r) => setTimeout(r, baseMs * 2 ** attempt));
+    }
+  }
+  if (label && isTransient(lastErr)) {
+    throw new Error(`Network error while ${label} (the server didn't respond after ${tries} tries). Check your connection and retry — already-processed days are saved, so re-running resumes safely.`);
+  }
+  throw lastErr;
+}
+
 function cellText(v) {
   if (v === undefined || v === null) return "";
   return String(v).trim();
@@ -168,11 +195,21 @@ export async function matchAgainstStaffMaster(client, employeeCodes) {
 }
 
 export async function importBiometricRecords(client, records) {
+  // Collapse duplicate (employee_id, attendance_date) rows the parse can produce
+  // when an employee's block appears twice in the report - otherwise a single
+  // upsert batch with the same conflict key twice fails with
+  // "ON CONFLICT DO UPDATE command cannot affect row a second time". Last wins.
+  const byKey = new Map();
+  for (const r of records) byKey.set(`${r.employee_id}|${r.attendance_date}`, r);
+  const deduped = [...byKey.values()];
+
   const CHUNK = 500;
-  for (let i = 0; i < records.length; i += CHUNK) {
-    const chunk = records.slice(i, i + CHUNK);
-    const { error } = await client.from("employee_daily_attendance").upsert(chunk, { onConflict: "employee_id,attendance_date" });
-    if (error) throw error;
+  for (let i = 0; i < deduped.length; i += CHUNK) {
+    const chunk = deduped.slice(i, i + CHUNK);
+    await withRetry(async () => {
+      const { error } = await client.from("employee_daily_attendance").upsert(chunk, { onConflict: "employee_id,attendance_date" });
+      if (error) throw error;
+    }, { label: "saving the imported rows" });
   }
 }
 
@@ -201,17 +238,20 @@ export async function bridgeToAttendancePipeline(client, employeeIds, fromDate, 
 
   const dailyRows = [];
   for (let offset = 0; ; offset += PAGE) {
-    let q = client
-      .from("employee_daily_attendance")
-      .select("employee_id, attendance_date, in_time, out_time")
-      .gte("attendance_date", fromDate)
-      .lte("attendance_date", toDate)
-      .order("employee_id", { ascending: true })
-      .order("attendance_date", { ascending: true })
-      .range(offset, offset + PAGE - 1);
-    if (employeeIds && employeeIds.length) q = q.in("employee_id", employeeIds);
-    const { data, error } = await q;
-    if (error) throw error;
+    const data = await withRetry(async () => {
+      let q = client
+        .from("employee_daily_attendance")
+        .select("employee_id, attendance_date, in_time, out_time")
+        .gte("attendance_date", fromDate)
+        .lte("attendance_date", toDate)
+        .order("employee_id", { ascending: true })
+        .order("attendance_date", { ascending: true })
+        .range(offset, offset + PAGE - 1);
+      if (employeeIds && employeeIds.length) q = q.in("employee_id", employeeIds);
+      const { data, error } = await q;
+      if (error) throw error;
+      return data;
+    }, { label: "reading imported attendance" });
     dailyRows.push(...(data ?? []));
     if (!data || data.length < PAGE) break;
   }
@@ -220,12 +260,15 @@ export async function bridgeToAttendancePipeline(client, employeeIds, fromDate, 
   // whose employee_id exists in staff_master, and use employee_id as staff_id.
   const knownEmployeeIds = new Set();
   for (let offset = 0; ; offset += PAGE) {
-    const { data, error } = await client
-      .from("staff_master")
-      .select("employee_id")
-      .order("employee_id", { ascending: true })
-      .range(offset, offset + PAGE - 1);
-    if (error) throw error;
+    const data = await withRetry(async () => {
+      const { data, error } = await client
+        .from("staff_master")
+        .select("employee_id")
+        .order("employee_id", { ascending: true })
+        .range(offset, offset + PAGE - 1);
+      if (error) throw error;
+      return data;
+    }, { label: "reading the staff list" });
     (data ?? []).forEach((r) => r.employee_id && knownEmployeeIds.add(r.employee_id));
     if (!data || data.length < PAGE) break;
   }
@@ -253,20 +296,25 @@ export async function bridgeToAttendancePipeline(client, employeeIds, fromDate, 
   }
 
   const CHUNK = 500;
-  for (const { rows } of byStaffId.values()) {
+  for (const { staffId, rows } of byStaffId.values()) {
     for (let i = 0; i < rows.length; i += CHUNK) {
-      const { error } = await client
-        .from("punch_record_daily")
-        .upsert(rows.slice(i, i + CHUNK), { onConflict: "staff_id,attendance_date" });
-      if (error) throw error;
+      const slice = rows.slice(i, i + CHUNK);
+      await withRetry(async () => {
+        const { error } = await client
+          .from("punch_record_daily")
+          .upsert(slice, { onConflict: "staff_id,attendance_date" });
+        if (error) throw error;
+      }, { label: `saving punches for ${staffId}` });
     }
   }
 
   for (const { staffId, dates } of byStaffId.values()) {
     const minDate = dates.reduce((a, b) => (a < b ? a : b));
     const maxDate = dates.reduce((a, b) => (a > b ? a : b));
-    const { error } = await client.rpc("recompute_attendance_range", { p_staff_id: staffId, p_from: minDate, p_to: maxDate });
-    if (error) throw error;
+    await withRetry(async () => {
+      const { error } = await client.rpc("recompute_attendance_range", { p_staff_id: staffId, p_from: minDate, p_to: maxDate });
+      if (error) throw error;
+    }, { label: `recomputing the calendar for ${staffId}` });
   }
 
   return {
