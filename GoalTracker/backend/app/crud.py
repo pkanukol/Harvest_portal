@@ -1,7 +1,7 @@
 import datetime
 from typing import List, Optional
 import httpx
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from .config import settings
 from . import models, schemas
 
@@ -182,6 +182,71 @@ def goal_progress(db: Session, owner_email: str, cadence: str, period_key: str) 
         .all()
     )
     return {"completed": sum(1 for g in goals if g.is_completed), "total": len(goals)}
+
+
+def overview_goal_map(db: Session, period_key: str) -> dict:
+    """Status + progress for EVERY person and cadence in one pass.
+
+    goal_slot_status/goal_progress are per-person, so the org-wide overview
+    was running four queries per person plus a lazy load of each goal's
+    review actions - 700+ round trips for 139 people, which is slow locally
+    and painful against Supabase where every one is a network hop. This does
+    the same work with two queries and a group-by in Python.
+
+    Returns {(owner_email_lower, cadence): {"status", "completed", "total"}}.
+    """
+    goals = (
+        db.query(models.Goal)
+        .options(selectinload(models.Goal.review_actions))
+        .filter(models.Goal.period_key == period_key, models.Goal.status != "deleted")
+        .order_by(models.Goal.id)
+        .all()
+    )
+    grouped: dict = {}
+    for g in goals:
+        grouped.setdefault((g.owner_email.lower(), g.cadence), []).append(g)
+
+    out = {}
+    for key, gs in grouped.items():
+        # Same rule as goal_slot_status, applied to the first goal in the
+        # slot (that function used .first() with no ordering; ordering by id
+        # here at least makes it deterministic).
+        first = gs[0]
+        if not first.review_actions:
+            status = "pending"          # created, nobody has reviewed it yet
+        elif first.status in ("modified_pending_ack", "struck_off_pending_ack"):
+            status = "pending"          # owner hasn't acknowledged the review
+        else:
+            status = "approved"
+        out[key] = {
+            "status": status,
+            "completed": sum(1 for g in gs if g.is_completed),
+            "total": len(gs),
+        }
+    return out
+
+
+def overview_slot(goal_map: dict, email: str, cadence: str) -> dict:
+    """One person's slot out of overview_goal_map, defaulting to 'not set'."""
+    return goal_map.get((email.lower(), cadence)) or {"status": "not_set", "completed": 0, "total": 0}
+
+
+def observation_average_map(db: Session) -> dict:
+    """{user_id: average score} for every teacher in one query - the overview
+    was fetching every observation row per teacher, one teacher at a time."""
+    rows = (
+        db.query(models.Observation.teacher_id, models.Observation.overall_score)
+        .filter(models.Observation.is_draft.is_(False))
+        .all()
+    )
+    totals: dict = {}
+    for teacher_id, score in rows:
+        if score is None:
+            continue
+        acc = totals.setdefault(teacher_id, [0.0, 0])
+        acc[0] += score
+        acc[1] += 1
+    return {tid: round(total / count, 1) for tid, (total, count) in totals.items() if count}
 
 
 def set_goal_completion(db: Session, goal: models.Goal, is_completed: bool) -> models.Goal:
