@@ -2,12 +2,56 @@ import { createContext, useContext, useMemo, useState } from "react";
 
 const AuthContext = createContext(null);
 
+// Every permission flag the current build reads off `user`. A session saved
+// by an older build predates whichever flags were added since, so those read
+// as `undefined` - falsy - and the buttons they gate silently vanish. That is
+// not a permissions problem but it looks exactly like one, and with Logout
+// owned by the portal there is no way for someone to clear it themselves.
+//
+// So: a stored session missing ANY of these is treated as stale and dropped,
+// which sends the user back through SSO and re-mints it complete. Add new
+// flags to this list when you add them to the login response.
+const REQUIRED_USER_FIELDS = [
+  "is_admin",
+  "can_manage_reviewers",
+  "can_view_observations",
+  "can_view_overview",
+  "can_view_as",
+  "can_act_as",
+];
+
+function clearStoredSession() {
+  localStorage.removeItem("token");
+  localStorage.removeItem("user");
+  localStorage.removeItem("own_token");
+  localStorage.removeItem("own_user");
+}
+
+function readStoredSession() {
+  const rawUser = localStorage.getItem("user");
+  const token = localStorage.getItem("token");
+  if (!rawUser || !token) {
+    if (rawUser || token) clearStoredSession();  // half a session is no session
+    return { token: null, user: null };
+  }
+  try {
+    const user = JSON.parse(rawUser);
+    if (REQUIRED_USER_FIELDS.some((f) => user[f] === undefined)) {
+      console.warn("[GoalTracker] stored session is from an older build - signing out to refresh it");
+      clearStoredSession();
+      return { token: null, user: null };
+    }
+    return { token, user };
+  } catch {
+    clearStoredSession();
+    return { token: null, user: null };
+  }
+}
+
 export function AuthProvider({ children }) {
-  const [token, setToken] = useState(() => localStorage.getItem("token"));
-  const [user, setUser] = useState(() => {
-    const stored = localStorage.getItem("user");
-    return stored ? JSON.parse(stored) : null;
-  });
+  const initial = readStoredSession();
+  const [token, setToken] = useState(initial.token);
+  const [user, setUser] = useState(initial.user);
 
   const toUser = (ssoResponse) => ({
     name: ssoResponse.name,
@@ -17,6 +61,7 @@ export function AuthProvider({ children }) {
     can_manage_reviewers: ssoResponse.can_manage_reviewers,
     can_view_observations: ssoResponse.can_view_observations,
     can_view_overview: ssoResponse.can_view_overview,
+    can_view_as: ssoResponse.can_view_as,
     location: ssoResponse.location,
     can_act_as: ssoResponse.can_act_as,
     impersonated_by: ssoResponse.impersonated_by,
@@ -59,11 +104,7 @@ export function AuthProvider({ children }) {
   const logout = () => {
     setToken(null);
     setUser(null);
-    localStorage.removeItem("token");
-    localStorage.removeItem("user");
-    // Never leave a parked session behind for the next person at this browser.
-    localStorage.removeItem("own_token");
-    localStorage.removeItem("own_user");
+    clearStoredSession();
   };
 
   const value = useMemo(
