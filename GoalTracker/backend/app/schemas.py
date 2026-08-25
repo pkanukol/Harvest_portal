@@ -339,6 +339,11 @@ class ViewAsPersonOut(BaseModel):
     is_admin: bool
     can_manage_reviewers: bool
     can_view_observations: bool
+    # The preview draws their header from these, so they must be the same
+    # flags the real header gates on - is_admin alone is now too coarse and
+    # would show buttons the person does not actually get.
+    can_view_overview: bool = False
+    can_view_as: bool = False
     reviewee_count: int
 
 
