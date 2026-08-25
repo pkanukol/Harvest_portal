@@ -60,7 +60,12 @@ export const api = {
 
   getMemberGoals: (token, email) => request(`/team/${encodeURIComponent(email)}/goals`, { token }),
 
-  getGoalsOverview: (token) => request("/admin/goals-overview", { token }),
+  // Counts per group only - cheap. People are fetched per group on demand,
+  // because sending all 139 rows up front was the slow part.
+  getOverviewSummary: (token) => request("/admin/overview-summary", { token }),
+
+  getOverviewPeople: (token, group) =>
+    request(`/admin/overview-people?group=${encodeURIComponent(group)}`, { token }),
 
   // Manual stand-in for the daily flag-check cron (paid-tier only on Render).
   // Idempotent - the server's renotify window stops a second click re-emailing.
@@ -68,7 +73,7 @@ export const api = {
 
   // Leadership preview: one person's whole dashboard (goals + tasks) resolved
   // against their own visibility. Read-only - mints no token for them.
-  // Flat roster for the "view as" picker - cheap, unlike getGoalsOverview.
+  // Flat roster for the "view as" picker - names only, no goal status.
   getOrgPeople: (token) => request("/admin/people", { token }),
 
   viewAs: (token, email) => request(`/admin/view-as/${encodeURIComponent(email)}`, { token }),
