@@ -5,14 +5,14 @@ export default function Header({ user, onAdmin, onHeatmap, onViewAs }) {
     <div className="hdr">
       <div className="hdr-inner">
         <div className="hdr-left">
-          <div className="hdr-title">🎯 GoalTracker</div>
+          <div className="hdr-title">🎯 Goal Tracker</div>
         </div>
         <div className="hdr-right">
           <div className="user-badge">{user.name} ({user.designation})</div>
-          {user.is_admin && (
+          {user.can_view_overview && (
             <button className="btn btn-ghost" onClick={onHeatmap}>Goals overview</button>
           )}
-          {user.is_admin && (
+          {user.can_view_as && (
             <button className="btn btn-ghost" onClick={onViewAs}>View as…</button>
           )}
           {user.can_manage_reviewers && (
