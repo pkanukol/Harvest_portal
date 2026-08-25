@@ -90,6 +90,12 @@ def run_migrations():
         with engine.begin() as conn:
             conn.execute(text("DROP INDEX IF EXISTS ix_backfill_confirmed_key"))
             conn.execute(text("DELETE FROM curriculum_backfill_confirmed WHERE teacher_email IS NOT NULL"))
+            # The column itself was still NOT NULL from the per-teacher design,
+            # so every grade-wise confirmation failed on insert. The model has
+            # it nullable; this is the DB catching up.
+            conn.execute(text(
+                "ALTER TABLE curriculum_backfill_confirmed ALTER COLUMN teacher_email DROP NOT NULL"
+            ))
 
     if "curriculum_backfill" in existing_tables:
         cols = {c["name"] for c in inspector.get_columns("curriculum_backfill")}
