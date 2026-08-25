@@ -42,11 +42,22 @@ def designation_can_view_observations(designation: str) -> bool:
 
 
 # The org-wide Goals overview is narrower than `is_admin`: it exposes every
-# person's goal status at once, so it is the MD, the branch principals, and
-# the owner - not every leadership designation (Coordinator, IT Manager,
-# Vice Principal, Chairman, ... all classify as is_admin but do not get it).
+# person's goal status at once. Named designations only - Coordinator, IT
+# Manager and Vice Principal all classify as is_admin but do not get it.
 # Exact-match, so "Principal" does not also let "Vice Principal" through.
-OVERVIEW_DESIGNATIONS = {"managing director", "principal"}
+OVERVIEW_DESIGNATIONS = {
+    "managing director", "chairman", "principal", "curriculum head", "dlp manager",
+}
+
+# Reading someone else's whole page. Wider than the owner alone, but far
+# narrower than the overview: this exposes an individual's goals AND tasks.
+# Note this is the READ-ONLY preview - actually switching into an account
+# (act-as) stays restricted to settings.ACT_AS_ADMIN_EMAIL.
+VIEW_AS_DESIGNATIONS = {"managing director", "chairman", "dlp manager"}
+
+
+def designation_can_view_as(designation: str) -> bool:
+    return (designation or "").strip().lower() in VIEW_AS_DESIGNATIONS
 
 
 def designation_can_view_overview(designation: str) -> bool:
@@ -87,7 +98,7 @@ class CurrentUser:
 
     def __init__(self, email: str, name: str, designation: str, is_admin: bool, can_manage_reviewers: bool,
                  can_view_observations: bool, impersonated_by: Optional[str] = None,
-                 can_view_overview: bool = False):
+                 can_view_overview: bool = False, can_view_as: bool = False):
         self.email = email
         self.name = name
         self.designation = designation
@@ -95,6 +106,7 @@ class CurrentUser:
         self.can_manage_reviewers = can_manage_reviewers
         self.can_view_observations = can_view_observations
         self.can_view_overview = can_view_overview
+        self.can_view_as = can_view_as
         # Set when this session came from the "act as" switch: the real person
         # who started it. Kept on the token (not just the login response) so a
         # switched session stays identifiable across reloads and cannot be
@@ -133,6 +145,7 @@ def get_current_user(token: str = Depends(oauth2_scheme)) -> CurrentUser:
         can_view_observations=bool(payload.get("can_view_observations", False)),
         impersonated_by=payload.get("impersonated_by"),
         can_view_overview=bool(payload.get("can_view_overview", False)),
+        can_view_as=bool(payload.get("can_view_as", False)),
     )
 
 
@@ -147,6 +160,13 @@ def require_overview_access(current_user: CurrentUser = Depends(get_current_user
     OVERVIEW_DESIGNATIONS."""
     if not current_user.can_view_overview:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to view the org-wide goals overview")
+    return current_user
+
+
+def require_view_as(current_user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
+    """Reading another person's page (goals + tasks). See VIEW_AS_DESIGNATIONS."""
+    if not current_user.can_view_as:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to view other people's pages")
     return current_user
 
 
