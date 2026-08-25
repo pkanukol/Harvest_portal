@@ -88,6 +88,34 @@ async function upload(path, { token, file, fields = {} }) {
   return data;
 }
 
+// File downloads: same auth and 401 handling as request(), but the body is a
+// binary blob rather than JSON, and the filename comes from the server's
+// Content-Disposition so the backend stays the one naming the report.
+async function download(path, { token }) {
+  const response = await fetch(`${API_BASE}${path}`, { headers: authHeaders(token) });
+
+  if (response.status === 401) {
+    recoverFromExpiredSession(path);
+    throw new Error("Your session has expired — sending you back to the portal to sign in again.");
+  }
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.detail || "Download failed");
+  }
+
+  const disposition = response.headers.get("Content-Disposition") || "";
+  const match = disposition.match(/filename="?([^"]+)"?/);
+  return { blob: await response.blob(), filename: match ? match[1] : "download.xlsx" };
+}
+
+// /api/teachers is the heaviest read on the app (for Leadership it walks every
+// staff row and the staff_roles directory) and three screens ask for the same
+// answer - the dashboard, Progress Check and Curriculum Overview. Cached per
+// session per branch, so navigating between them costs nothing after the first
+// look. Keyed by token as well as branch, so a "View as" switch misses the
+// cache and re-reads the scope for whoever is being previewed.
+const teacherCache = new Map();
+
 export const api = {
   ssoLogin: (supabaseToken) =>
     request("/auth/sso", { method: "POST", body: { supabase_token: supabaseToken } }),
@@ -97,8 +125,19 @@ export const api = {
 
   getMe: (token) => request("/me", { token }),
 
-  getTeachers: (token, branch = "") =>
-    request(`/teachers?branch=${encodeURIComponent(branch)}`, { token }),
+  getTeachers: (token, branch = "") => {
+    const key = `${token}|${branch}`;
+    if (!teacherCache.has(key)) {
+      // The promise is cached, not just the result, so two screens mounting at
+      // once share one request instead of racing.
+      teacherCache.set(
+        key,
+        request(`/teachers?branch=${encodeURIComponent(branch)}`, { token })
+          .catch((err) => { teacherCache.delete(key); throw err; }),
+      );
+    }
+    return teacherCache.get(key);
+  },
 
   searchStaff: (token, q) => request(`/staff/search?q=${encodeURIComponent(q)}`, { token }),
 
@@ -138,6 +177,20 @@ export const api = {
 
   getTbsMomAlerts: (token) => request("/pow/tbs-mom-alerts", { token }),
 
+  downloadCurriculumOverview: (token, subject, grade, branch = "") =>
+    download(
+      `/pow/overview.xlsx?subject=${encodeURIComponent(subject)}&grade=${encodeURIComponent(grade)}` +
+        `&branch=${encodeURIComponent(branch)}`,
+      { token },
+    ),
+
+  getCurriculumOverview: (token, subject, grade, branch = "") =>
+    request(
+      `/pow/overview?subject=${encodeURIComponent(subject)}&grade=${encodeURIComponent(grade)}` +
+        `&branch=${encodeURIComponent(branch)}`,
+      { token },
+    ),
+
   getPow: (token, id) => request(`/pow/${id}`, { token }),
 
   createPow: (token, payload) => request("/pow", { method: "POST", token, body: payload }),
@@ -155,6 +208,26 @@ export const api = {
       { token },
     ),
 
-  getProgressChart: (token, subject, grade) =>
-    request(`/progress/chart?subject=${encodeURIComponent(subject)}&grade=${encodeURIComponent(grade)}`, { token }),
+  getAnnualProgress: (token, subject, grade, discipline = "") =>
+    request(
+      `/progress/annual?subject=${encodeURIComponent(subject)}&grade=${encodeURIComponent(grade)}` +
+        `&discipline=${encodeURIComponent(discipline)}`,
+      { token },
+    ),
+
+  // Cumulative year-to-date, month by month — the Full year tab.
+  getProgressChart: (token, subject, grade, discipline = "") =>
+    request(
+      `/progress/chart?subject=${encodeURIComponent(subject)}&grade=${encodeURIComponent(grade)}` +
+        `&discipline=${encodeURIComponent(discipline)}`,
+      { token },
+    ),
+
+  // This month, week by week — the This month tab.
+  getMonthChart: (token, subject, grade, discipline = "") =>
+    request(
+      `/progress/month-chart?subject=${encodeURIComponent(subject)}&grade=${encodeURIComponent(grade)}` +
+        `&discipline=${encodeURIComponent(discipline)}`,
+      { token },
+    ),
 };
