@@ -452,6 +452,10 @@ def view_as(
             "is_admin": is_admin,
             "can_manage_reviewers": user.email.strip().lower() == settings.REVIEWER_ASSIGNMENTS_ADMIN_EMAIL.lower(),
             "can_view_observations": auth.designation_can_view_observations(user.designation),
+            "can_view_overview": auth.designation_can_view_overview(user.designation)
+                or user.email.strip().lower() == settings.REVIEWER_ASSIGNMENTS_ADMIN_EMAIL.lower(),
+            "can_view_as": auth.designation_can_view_as(user.designation)
+                or user.email.strip().lower() == settings.REVIEWER_ASSIGNMENTS_ADMIN_EMAIL.lower(),
             "reviewee_count": len(crud.get_reviewees(db, user.email)),
         },
         "goals": crud.list_goals(db, user.email),
