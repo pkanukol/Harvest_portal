@@ -95,10 +95,64 @@ SUBJECT_GROUPS = {
 }
 
 
+# Reverse index over SUBJECT_GROUPS, so membership works in BOTH directions.
+# Asking for "Science" always returned the streams; asking for "Biology"
+# returned only itself - and since every workbook and every POW is stored under
+# "Science" with the stream in the Discipline column, choosing Biology found
+# nothing at all.
+_GROUP_BY_MEMBER = {
+    member.lower(): (head, members)
+    for head, members in SUBJECT_GROUPS.items()
+    for member in members
+}
+
+
 def subjects_in_group(subject: str) -> List[str]:
-    """The planner subjects a teacher of `subject` should see. Identity for
-    everything outside SUBJECT_GROUPS."""
-    return SUBJECT_GROUPS.get((subject or "").strip().lower(), [subject])
+    """The planner subjects a teacher of `subject` should see. Any member of a
+    group resolves to the whole group; identity for everything else."""
+    entry = _GROUP_BY_MEMBER.get((subject or "").strip().lower())
+    return list(entry[1]) if entry else [subject]
+
+
+def group_head(subject: str) -> str:
+    """The name a grouped subject's own rows are stored under. Biology,
+    Physics and Chemistry all belong to Science, and the curriculum, the POWs
+    and the backfill marks are all recorded as "Science" - so anything this app
+    WRITES for a stream is written under the head, and reads match the whole
+    group."""
+    entry = _GROUP_BY_MEMBER.get((subject or "").strip().lower())
+    return entry[0].title() if entry else subject
+
+
+def _backfill_subject_filter(subject: str):
+    """Backfill marks belong to the subject GROUP, for the same reason POWs do
+    (see _subject_group_filter): they are stored as "Science" while a Biology
+    SME asks for "Biology". Without this, marks made under one name were
+    invisible under the other - the year view read zero while the month view
+    showed seven chapters covered."""
+    group = [x.lower() for x in subjects_in_group(subject)]
+    return func.lower(models.CurriculumBackfill.subject).in_(group)
+
+
+def _backfill_confirmation_filter(subject: str):
+    group = [x.lower() for x in subjects_in_group(subject)]
+    return func.lower(models.BackfillConfirmation.subject).in_(group)
+
+
+def stream_discipline(subject: str) -> Optional[str]:
+    """The Discipline this subject names, when it names a stream rather than a
+    whole group: "Biology" -> Biology, "Science" -> None. Bhuvana R is recorded
+    as Biology in staff_roles but the curriculum is one Science workbook with a
+    Discipline column, so picking Biology has to mean "Science, Biology only"
+    rather than a subject of its own."""
+    key = (subject or "").strip().lower()
+    entry = _GROUP_BY_MEMBER.get(key)
+    if not entry:
+        return None
+    head, members = entry
+    if key == head.lower():
+        return None                       # the group itself, not one stream
+    return next((m for m in members if m.lower() == key), None)
 
 
 def _subject_group_filter(subject: str):
@@ -518,6 +572,116 @@ def get_pow_cards(db: Session, user_email: str, role: str, subject: str, grade: 
     return cards
 
 
+# ─── Curriculum Overview ────────────────────────────────────────────────────
+
+SECTION_LETTERS = "ABCDEF"
+
+# Separator for fields the form keeps apart and this report merges.
+NEWLINE = chr(10)
+
+
+def _joined(*parts) -> str:
+    """Fields the POW form keeps apart but the overview reports as one column
+    (Class Work + Binder). Blank parts drop out, so a cell never opens with a
+    stray separator."""
+    return NEWLINE.join(p.strip() for p in parts if p and str(p).strip())
+
+
+def _overview_cct(p) -> str:
+    """CCT/Class test as one cell: the topic when there is one, otherwise the
+    plain Yes/No the teacher ticked."""
+    text = (p.cct_topic_text or "").strip()
+    yn = (p.cct_topic_yn or "").strip()
+    if text:
+        return f"{yn}: {text}" if yn else text
+    return yn
+
+
+def get_curriculum_overview(db: Session, user_email: str, role: str, subject: str,
+                            grade: str, branch: Optional[str] = None) -> dict:
+    """Every POW filed for one subject+grade, as one week-by-week table — the
+    view an SME or Curriculum Head reads across a whole grade rather than card
+    by card.
+
+    Implementation is reported per SECTION, one column each ("Implementation
+    Date - 8 A", "8 B"...). Only sections that actually carry something are
+    returned: a grade with two sections must not show four empty columns, and
+    the app has no separate record of how many sections a grade runs.
+
+    Scoped through the same teacher_map as the dashboard, so an SME sees their
+    mapped teachers and a Curriculum Head sees the campus.
+    """
+    teacher_map = _build_teacher_map(db, user_email, role, branch)
+    if not teacher_map:
+        return {"subject": subject, "grade": grade, "sections": [], "rows": []}
+
+    pows = (
+        db.query(models.PowEntry)
+        .filter(
+            func.lower(models.PowEntry.teacher_email).in_(teacher_map.keys()),
+            _subject_group_filter(subject),
+            models.PowEntry.grade == str(grade),
+        )
+        .order_by(models.PowEntry.week_start.asc(), models.PowEntry.id.asc())
+        .all()
+    )
+
+    # Asked for one stream of a grouped subject: keep the POWs whose chapter
+    # belongs to that Discipline in the mapping. A chapter the mapping no longer
+    # names is kept rather than dropped - an unattributable POW is better shown
+    # than silently lost.
+    stream = stream_discipline(subject)
+    if stream:
+        disc_of = {}
+        for r in get_planner_rows(db, subject, int(grade)):
+            d = r.strands_of_language or r.discipline
+            if d and r.chapter_name not in disc_of:
+                disc_of[r.chapter_name] = d
+        pows = [
+            p for p in pows
+            if disc_of.get((p.topic or "").strip(), stream).lower() == stream.lower()
+        ]
+
+    def impl(p, letter):
+        return (
+            (getattr(p, "impl_" + letter.lower(), None) or "").strip(),
+            getattr(p, "impl_" + letter.lower() + "_date", None),
+        )
+
+    sections = [l for l in SECTION_LETTERS if any(any(impl(p, l)) for p in pows)]
+
+    rows = []
+    for p in pows:
+        temail = p.teacher_email.lower()
+        rows.append({
+            "id": p.id,
+            "teacher_name": teacher_map.get(temail, {}).get("name") or temail,
+            "branch": teacher_map.get(temail, {}).get("location") or "",
+            "week_start": p.week_start.isoformat() if p.week_start else None,
+            "week_end": p.week_end.isoformat() if p.week_end else None,
+            "lp_session_num": p.lp_session_num or "",
+            "topic": p.topic or "",
+            "subtopic": p.subtopic or "",
+            # Class Work and Binder are two boxes on the form, one column here.
+            "classwork": _joined(p.cw, p.binder),
+            "activity": (p.activity or "").strip(),
+            "homework": (p.homework or "").strip(),
+            "cct": _overview_cct(p),
+            "sections": {
+                l: {"date": (d.isoformat() if d else None), "text": t}
+                for l in sections
+                for t, d in [impl(p, l)]
+            },
+            "correction_done": (p.correction_done or "").strip(),
+            "remarks": (p.teacher_remarks or "").strip(),
+            "instructions": (p.instructions or "").strip(),
+            "tbs_mom": (p.tbs_mom or "").strip(),
+            "status": STATUS_LABELS.get(p.status, p.status),
+        })
+
+    return {"subject": subject, "grade": grade, "sections": sections, "rows": rows}
+
+
 def get_tbs_mom_alerts(db: Session, user_email: str, role: str) -> list:
     """Independent of whatever subject/grade filter is currently selected on
     the dashboard — a teacher shouldn't miss the "you forgot TBS MOM" nag
@@ -816,13 +980,16 @@ def get_progress_summary(db: Session, subject: str, grade: int, teacher_email: O
             implied_complete.update(c.chapter_name for c in track[:max(started)])
 
     marks = db.query(models.CurriculumBackfill).filter(
-        func.lower(models.CurriculumBackfill.subject) == subject.lower(),
+        _backfill_subject_filter(subject),
         models.CurriculumBackfill.grade == int(grade),
     ).all()
-    marked_full = {m.chapter_name for m in marks if not m.subtopic}
+    # Scoped to THIS month. A chapter spanning July and August, marked covered
+    # for July, is not covered for August - crediting the mark to both months
+    # read "11 of 11 done" in August while the POW said session 9.
+    marked_full = {m.chapter_name for m in marks if not m.subtopic and m.month == month}
     marked_items = {}
     for m in marks:
-        if m.subtopic:
+        if m.subtopic and m.month == month:
             marked_items.setdefault(m.chapter_name, set()).add(m.subtopic)
     item_counts = planner_item_counts(rows)
     items_by_chapter = {}
@@ -928,6 +1095,370 @@ def get_progress_summary(db: Session, subject: str, grade: int, teacher_email: O
     }
 
 
+# ─── Annual progress (leadership) ───────────────────────
+
+# What a teacher's chosen Topic/Sub Topic is joined with on the POW form
+# (POWForm.jsx: [topic, subtopic].join(" — ")), and therefore what splits it
+# back apart here.
+PICK_SEPARATOR = " — "
+
+
+def annual_planner_tree(rows) -> list:
+    """The year's curriculum for one subject+grade as chapter -> topic ->
+    sub-topic, in sheet order.
+
+    Sessions are counted ONCE PER UNIQUE CHAPTER - the figure the sheet states
+    for it, not a sum of its rows. The mapping repeats a chapter's total on
+    every row it occupies, including across months: English Grade 4's "Wit &
+    Humour" reads 34 in May, June and July for one 34-session chapter. Summing
+    those made it 102 and the Grade 4 year total 330 instead of 122.
+
+    Where a chapter's months disagree (Science Grade 6 has "Temperature and its
+    measurement" as 3 in October and 5 in November) the larger figure wins, so
+    the plan is never under-stated, and the disagreement is reported in
+    `session_conflicts` for someone to settle in the sheet.
+
+    Chapters with no chapter name are already the promoted Topic - see
+    excel_import.WORK_UNIT_FIELDS - so "unique chapter" covers the
+    topic-planned sheets too.
+    """
+    chapters = {}
+    order = []
+    seen_month_sessions = set()
+
+    for r in rows:
+        name = r.chapter_name
+        if name not in chapters:
+            chapters[name] = {
+                "chapter": name,
+                "discipline": r.strands_of_language or r.discipline or "",
+                "months": [],
+                # {month: the figure the sheet states there}; the chapter's own
+                # total is the largest of them, and is shared back across the
+                # months for month-by-month views.
+                "month_sessions": {},
+                "topics": {},
+                "topic_order": [],
+            }
+            order.append(name)
+        c = chapters[name]
+
+        if r.month and r.month not in c["months"]:
+            c["months"].append(r.month)
+        key = (name, r.month)
+        if key not in seen_month_sessions:
+            seen_month_sessions.add(key)
+            # What the sheet states for this chapter in this month. The
+            # chapter's own total is resolved from these below, not accumulated
+            # here.
+            c["month_sessions"][r.month] = r.sessions or 0
+
+        topic = (r.topic or "").strip()
+        if topic not in c["topics"]:
+            c["topics"][topic] = []
+            c["topic_order"].append(topic)
+        sub = (r.subtopic or "").strip()
+        if sub and sub not in c["topics"][topic]:
+            c["topics"][topic].append(sub)
+
+    out = []
+    for name in order:
+        c = chapters[name]
+        stated = [v for v in c["month_sessions"].values() if v]
+        total = max(stated) if stated else 0
+        conflict = len(set(stated)) > 1
+
+        # The chapter's one total, spread over the months it occupies so a
+        # month-by-month view (the year chart, and crediting a month an SME
+        # marked) still adds back up to it. Remainders go to the earliest
+        # months, which is the order the sessions are taught in.
+        months = [m for m in c["months"] if m]
+        share = {}
+        if months and total:
+            base, extra = divmod(total, len(months))
+            for i, m in enumerate(sorted(months, key=lambda x: MONTH_INDEX.get(x, 99))):
+                share[m] = base + (1 if i < extra else 0)
+
+        out.append({
+            "chapter": c["chapter"],
+            "discipline": c["discipline"],
+            "months": c["months"],
+            "sessions": total,
+            "month_sessions": share,
+            "session_conflict": conflict,
+            "stated_sessions": c["month_sessions"],
+            "topics": [{"topic": t, "subtopics": list(c["topics"][t])} for t in c["topic_order"]],
+        })
+    return out
+
+
+def _leaf_keys(chapter: dict) -> list:
+    """The finest unit a tick can be placed on. A chapter planned down to
+    sub-topics is complete only when its sub-topics are; one planned only to
+    topics is judged on topics; one with neither is its own leaf."""
+    leaves = []
+    for t in chapter["topics"]:
+        if t["subtopics"]:
+            leaves.extend((t["topic"], sub) for sub in t["subtopics"])
+        else:
+            leaves.append((t["topic"], ""))
+    return leaves or [("", "")]
+
+
+def _pow_targets(p, chapter: dict) -> list:
+    """Which leaves of a chapter one POW speaks for. The form stores the pick
+    as "Topic — Sub Topic", or just the one it offered when the sheet has no
+    real topics, so a single value is matched against both levels before being
+    discarded."""
+    raw = (p.subtopic or "").strip()
+    parts = [x.strip() for x in raw.split(PICK_SEPARATOR) if x.strip()] if raw else []
+    leaves = _leaf_keys(chapter)
+
+    if len(parts) >= 2:
+        topic, sub = parts[0], parts[1]
+        hit = [l for l in leaves if l == (topic, sub)]
+        if hit:
+            return hit
+        parts = [sub]          # fall through: the sub-topic alone may still match
+
+    if len(parts) == 1:
+        value = parts[0]
+        hit = [l for l in leaves if l[1] == value]
+        if hit:
+            return hit
+        hit = [l for l in leaves if l[0] == value]
+        if hit:
+            return hit
+
+    # No usable pick (or one that no longer exists in a re-uploaded sheet):
+    # the POW is evidence for the chapter as a whole.
+    return leaves
+
+
+def get_annual_progress(db: Session, subject: str, grade: int, discipline: Optional[str] = None) -> dict:
+    """Whole-year progress for one subject+grade, per SECTION - the leadership
+    view, as opposed to the month-at-a-time SME view in get_progress_summary.
+
+    A section ticks a leaf when it wrote implementation for it: the
+    implementation box is filled in after the lesson happens, so it is the
+    record that the section actually covered that ground. Sections come from
+    the POWs themselves (impl_a..impl_f), since nothing in the app records how
+    many sections a grade runs.
+
+    Headline numbers are AVERAGED across sections: with 8A finished and 8B
+    halfway, the grade is three-quarters through, not finished.
+    """
+    rows = get_planner_rows(db, subject, int(grade))
+    wanted = (discipline or "").strip().lower()
+    if wanted:
+        rows = [r for r in rows if (r.strands_of_language or r.discipline or "").lower() == wanted]
+
+    chapters = annual_planner_tree(rows)
+    disciplines = planner_disciplines(db, subject, int(grade))
+
+    pows = db.query(models.PowEntry).filter(
+        _subject_group_filter(subject),
+        models.PowEntry.grade == str(grade),
+    ).order_by(models.PowEntry.week_start.asc()).all()
+
+    sections = [
+        l for l in SECTION_LETTERS
+        if any((getattr(p, "impl_" + l.lower(), None) or "").strip()
+               or getattr(p, "impl_" + l.lower() + "_date", None) for p in pows)
+    ]
+    # No section has written implementation yet, but the class may still have
+    # covered ground an SME marked or a POW records. One column stands for the
+    # class so that evidence has somewhere to show.
+    section_labels = [f"{grade}{l}" for l in sections]
+    if not sections:
+        sections = ["*"]
+        section_labels = ["Whole class"]
+
+    by_chapter = {c["chapter"]: c for c in chapters}
+    ticked = {}          # (section, chapter) -> leaves that section implemented
+
+    for p in pows:
+        chapter = by_chapter.get((p.topic or "").strip())
+        if not chapter:
+            continue                      # a chapter no longer in the mapping
+        targets = _pow_targets(p, chapter)
+        for l in sections:
+            if not ((getattr(p, "impl_" + l.lower(), None) or "").strip()
+                    or getattr(p, "impl_" + l.lower() + "_date", None)):
+                continue
+            ticked.setdefault((l, chapter["chapter"]), set()).update(targets)
+
+    # ── Evidence that is about the CLASS, not one section ───────────────────
+    # Implementation is written per section; these three are not, so each of
+    # them ticks every section. Without them the year view contradicted the
+    # month view: an SME could mark seven chapters covered and file a POW for
+    # the eighth, and the year still read zero.
+    marks = db.query(models.CurriculumBackfill).filter(
+        _backfill_subject_filter(subject),
+        models.CurriculumBackfill.grade == int(grade),
+    ).all()
+    # Marks are per (month, chapter). A chapter taught across two months and
+    # marked for only one is partly covered, so the months are kept and the
+    # chapter counts as fully covered only when every month it appears in is
+    # marked.
+    marked_months = {}
+    for m in marks:
+        if not m.subtopic:
+            marked_months.setdefault(m.chapter_name, set()).add(m.month)
+    marked_labels = {}
+    for m in marks:
+        if m.subtopic:
+            marked_labels.setdefault(m.chapter_name, set()).add(m.subtopic)
+    marked_full = {
+        c["chapter"] for c in chapters
+        if c["months"] and set(c["months"]) <= marked_months.get(c["chapter"], set())
+    }
+
+    # A later chapter in the same discipline being under way means the earlier
+    # ones are behind us — same rule as the monthly view, computed per
+    # discipline so Biology says nothing about Physics.
+    pows_by_chapter = {}
+    for p in pows:
+        pows_by_chapter.setdefault((p.topic or "").strip(), []).append(p)
+
+    implied_complete = set()
+    for disc in (disciplines or [None]):
+        track = [c for c in chapters if (c["discipline"] or None) == disc] if disc else list(chapters)
+        started = [i for i, c in enumerate(track) if pows_by_chapter.get(c["chapter"])]
+        if started:
+            implied_complete.update(c["chapter"] for c in track[:max(started)])
+
+    def leaf_label(leaf):
+        """How the backfill sheet names this leaf (BackfillPanel items use
+        `subtopic or topic`), so a tick there lines up with a leaf here."""
+        return leaf[1] or leaf[0]
+
+    # Filled in once the session counts are known, just below: sessions are
+    # taught in sheet order, so "9 of 11 sessions done" says the first 9/11 of
+    # the chapter's topics and sub-topics are behind us, whether or not anyone
+    # ticked them individually.
+    implied_leaves = {}
+
+    def covered(chapter_name, leaf, section):
+        if chapter_name in marked_full or chapter_name in implied_complete:
+            return True
+        if leaf_label(leaf) in marked_labels.get(chapter_name, ()):
+            return True
+        if leaf in implied_leaves.get(chapter_name, ()):
+            return True
+        return leaf in ticked.get((section, chapter_name), set())
+
+    # Sessions are recorded on the POW for the chapter, not per section
+    # (lp_session_num is one field for the class), so session progress is
+    # grade-wide by nature.
+    grade_sessions = {}
+    for c in chapters:
+        name, planned = c["chapter"], c["sessions"]
+        done = 0
+        for p in pows_by_chapter.get(name, []):
+            done = max(done, _sessions_completed(p.lp_session_num, p.week_start, p.status))
+        if name in marked_full or name in implied_complete:
+            done = max(done, planned)
+        else:
+            # Credit the sessions of the months that WERE marked. Session
+            # numbers on a POW count the chapter, not the month, so this is a
+            # max rather than a sum - the two are different readings of the
+            # same chapter, not two separate stretches of work.
+            marked = marked_months.get(name, set())
+            if marked:
+                done = max(done, sum(v for m, v in c["month_sessions"].items() if m in marked))
+            if name in marked_labels:
+                leaves = _leaf_keys(c)
+                if leaves:
+                    done = max(done, round(planned * len(marked_labels[name]) / len(leaves)))
+        grade_sessions[name] = min(done, planned) if planned else done
+
+    # Sessions -> leaves. The proportion of the chapter's sessions that are
+    # done, applied to its topics/sub-topics in sheet order. Rounded DOWN, so a
+    # part-finished item is never shown as complete.
+    for c in chapters:
+        planned = c["sessions"] or 0
+        done = grade_sessions.get(c["chapter"], 0)
+        leaves = _leaf_keys(c)
+        if planned and leaves and done:
+            n = int(len(leaves) * done / planned)
+            if n:
+                implied_leaves[c["chapter"]] = set(leaves[:n])
+
+    # Which sections have covered each node, for the drill-down table.
+    for c in chapters:
+        name = c["chapter"]
+        leaves = _leaf_keys(c)
+        c["done_sections"] = [l for l in sections if all(covered(name, leaf, l) for leaf in leaves)]
+        c["sessions_done"] = grade_sessions.get(name, 0)
+        for t in c["topics"]:
+            t_leaves = [(t["topic"], sub) for sub in t["subtopics"]] or [(t["topic"], "")]
+            t["done_sections"] = [l for l in sections if all(covered(name, leaf, l) for leaf in t_leaves)]
+            t["subtopic_rows"] = [
+                {
+                    "subtopic": sub,
+                    "done_sections": [l for l in sections if covered(name, (t["topic"], sub), l)],
+                }
+                for sub in t["subtopics"]
+            ]
+
+    total_chapters = len(chapters)
+    total_sessions = sum(c["sessions"] for c in chapters)
+    grade_sessions_done = sum(grade_sessions.values())
+
+    per_section = []
+    for l in sections:
+        per_section.append({
+            "section": l,
+            "chapters_done": sum(1 for c in chapters if l in c["done_sections"]),
+            "sessions_done": grade_sessions_done,
+        })
+
+    n = len(per_section) or 1
+    avg_chapters_done = round(sum(x["chapters_done"] for x in per_section) / n, 1)
+    avg_sessions_done = round(sum(x["sessions_done"] for x in per_section) / n, 1)
+
+    chapters_left = max(0, round(total_chapters - avg_chapters_done, 1))
+    sessions_left = max(0, round(total_sessions - avg_sessions_done, 1))
+    chapters_pct_left = round(chapters_left * 100 / total_chapters) if total_chapters else 0
+    sessions_pct_left = round(sessions_left * 100 / total_sessions) if total_sessions else 0
+
+    # "More than 50% left by August end" - raised from August onward, since
+    # before that a large remainder is simply the year being young.
+    today = now_ist()
+    past_august = MONTH_INDEX.get(today.strftime("%B"), 0) >= MONTH_INDEX.get("August", 0)
+    behind = past_august and (chapters_pct_left > 50 or sessions_pct_left > 50)
+    reasons = []
+    if behind and chapters_pct_left > 50:
+        reasons.append("%s%% of chapters" % chapters_pct_left)
+    if behind and sessions_pct_left > 50:
+        reasons.append("%s%% of sessions" % sessions_pct_left)
+
+    return {
+        "subject": subject,
+        "grade": grade,
+        "month": today.strftime("%B"),
+        "sections": sections,
+        "section_labels": section_labels,
+        "disciplines": disciplines,
+        "discipline": discipline or "",
+        "totals": {
+            "chapters": total_chapters,
+            "chapters_done": avg_chapters_done,
+            "chapters_left": chapters_left,
+            "chapters_pct_left": chapters_pct_left,
+            "sessions": total_sessions,
+            "sessions_done": avg_sessions_done,
+            "sessions_left": sessions_left,
+            "sessions_pct_left": sessions_pct_left,
+            "behind": behind,
+            "behind_reason": " and ".join(reasons),
+        },
+        "per_section": per_section,
+        "chapters": chapters,
+    }
+
+
 # ─── Backfill: curriculum covered before POWs began ─────────────────────────
 
 def months_to_date() -> List[str]:
@@ -952,7 +1483,7 @@ def get_backfill_view(db: Session, subject: str, grade: int) -> dict:
     # Grade-wise: the curriculum was covered (or not) for the class, so the
     # marks belong to the subject+grade rather than to each teacher of it.
     marks = db.query(models.CurriculumBackfill).filter(
-        func.lower(models.CurriculumBackfill.subject) == subject.lower(),
+        _backfill_subject_filter(subject),
         models.CurriculumBackfill.grade == int(grade),
     ).all()
     chapter_marks = {(m.month, m.chapter_name) for m in marks if not m.subtopic}
@@ -1002,7 +1533,7 @@ def get_backfill_view(db: Session, subject: str, grade: int) -> dict:
 def _backfill_confirmation(db: Session, subject: str, grade: int):
     return (
         db.query(models.BackfillConfirmation)
-        .filter(func.lower(models.BackfillConfirmation.subject) == subject.lower(),
+        .filter(_backfill_confirmation_filter(subject),
                 models.BackfillConfirmation.grade == int(grade))
         .first()
     )
@@ -1013,7 +1544,7 @@ def confirm_backfill(db: Session, subject: str, grade: int, email: str) -> dict:
     existing = _backfill_confirmation(db, subject, grade)
     if existing:
         return {"already_confirmed": True, "confirmed_by": existing.confirmed_by}
-    db.add(models.BackfillConfirmation(subject=subject, grade=int(grade), confirmed_by=email))
+    db.add(models.BackfillConfirmation(subject=group_head(subject), grade=int(grade), confirmed_by=email))
     db.commit()
     return {"already_confirmed": False, "confirmed_by": email}
 
@@ -1022,7 +1553,7 @@ def reopen_backfill(db: Session, subject: str, grade: int) -> dict:
     """Undoes a confirmation — the marks themselves are untouched."""
     deleted = (
         db.query(models.BackfillConfirmation)
-        .filter(func.lower(models.BackfillConfirmation.subject) == subject.lower(),
+        .filter(_backfill_confirmation_filter(subject),
                 models.BackfillConfirmation.grade == int(grade))
         .delete(synchronize_session=False)
     )
@@ -1034,7 +1565,7 @@ def save_backfill(db: Session, subject: str, grade: int, marks: list, email: str
     """Replaces the marks for this subject+grade. A tick is a row; unticking
     removes it, so the table only ever states what WAS covered."""
     db.query(models.CurriculumBackfill).filter(
-        func.lower(models.CurriculumBackfill.subject) == subject.lower(),
+        _backfill_subject_filter(subject),
         models.CurriculumBackfill.grade == int(grade),
     ).delete(synchronize_session=False)
 
@@ -1043,7 +1574,7 @@ def save_backfill(db: Session, subject: str, grade: int, marks: list, email: str
         if not m.done:
             continue
         db.add(models.CurriculumBackfill(
-            subject=subject, grade=int(grade),
+            subject=group_head(subject), grade=int(grade),
             month=m.month, chapter_name=m.chapter_name,
             subtopic=m.subtopic or None, marked_by=email,
         ))
@@ -1354,111 +1885,180 @@ def get_lagging_report(db: Session, viewer_email: str, role: str, branch: Option
 
 # ─── Progress chart (cumulative planned vs. actual) ─────────────────────────
 
-def get_progress_chart(db: Session, subject: str, grade: int):
-    """Fixes two real bugs found in Code.gs's getProgressData(subject):
-    (1) it referenced an undeclared `grade` variable — this endpoint requires
-    grade as a real param; (2) it built monthOrder/cumBefore from EVERY grade's
-    planner rows for the subject at once, so same-named topics/chapters in
-    different grades silently collided in the cumulative-session math — this
-    scopes everything to the single (subject, grade) pair throughout."""
-    chapters = get_planner_chapters(db, subject, grade)
-    empty = {"success": True, "labels": [], "planned": [], "actual": [], "verdict": "No planner data",
-             "total_planned": 0, "current_actual": 0, "analysis": []}
-    if not chapters:
-        return empty
+def month_weeks(year: int, month: int) -> list:
+    """The Mondays of a calendar month, plus the Monday of the week the 1st
+    falls in - a week that starts in the previous month still teaches this
+    month's sessions."""
+    first = datetime.date(year, month, 1)
+    monday = first - datetime.timedelta(days=first.weekday())
+    last_day = calendar.monthrange(year, month)[1]
+    end = datetime.date(year, month, last_day)
+    out = []
+    while monday <= end:
+        out.append(monday)
+        monday += datetime.timedelta(days=7)
+    return out
 
-    month_order = []
-    for c in chapters:
-        if c.month and c.month not in month_order:
-            month_order.append(c.month)
 
-    # Keyed by (chapter_name, month) — NOT chapter_name alone — since a
-    # chapter can legitimately recur across multiple months with a
-    # different position/session-count each time (see get_planner_chapters).
-    cum_before = {}
-    cum_total = 0
-    for c in chapters:
-        cum_before[(c.chapter_name, c.month)] = cum_total
-        cum_total += c.sessions or 0
-    total_planned = cum_total
+def get_month_chart(db: Session, subject: str, grade: int, discipline: Optional[str] = None) -> dict:
+    """This month, week by week: how far through the month's planned sessions
+    the class should be, against how far the POWs say it is.
 
-    month_cum = {}
-    running = 0
-    for m in month_order:
-        running += sum(c.sessions or 0 for c in chapters if c.month == m)
-        month_cum[m] = running
+    The cumulative year-to-date picture is a different question and lives in
+    get_progress_chart, on the Full year tab. Here the x axis is the weeks of
+    the current month and both lines reset at the start of it.
 
-    chapters_by_key = {(c.chapter_name, c.month): c for c in chapters}
+    The planned line is spread evenly across the month's weeks because that is
+    all the mapping supports - it states a session count per chapter per MONTH,
+    never per week. It is a pace line, not a claim about which week a chapter
+    is taught in.
+    """
+    today = now_ist()
+    month = today.strftime("%B")
+    summary = get_progress_summary(db, subject, int(grade), None, discipline)
+    rows = summary["chapter_rows"]
+    planned_total = sum(r["sessions_planned"] for r in rows)
+
+    weeks = month_weeks(today.year, today.month)
+    if not weeks or not planned_total:
+        return {
+            "success": True, "month": month, "labels": [], "planned": [], "actual": [],
+            "planned_total": planned_total, "done_total": summary["sessions_done"],
+            "verdict": "No sessions planned for " + month if not planned_total else "No weeks",
+        }
 
     pows = db.query(models.PowEntry).filter(
         _subject_group_filter(subject),
         models.PowEntry.grade == str(grade),
-    ).order_by(models.PowEntry.week_start.asc()).all()
+    ).all()
+    wanted_chapters = {r["chapter"] for r in rows}
+    planned_by_chapter = {r["chapter"]: r["sessions_planned"] for r in rows}
 
-    week_map = {}
-    for p in pows:
-        if not p.week_start:
-            continue
-        wk = p.week_start.isoformat()
-        pow_month = p.week_start.strftime("%B")
-        topic = (p.topic or "").strip()
-        lp_session = _first_session_num(p.lp_session_num)
-        # A POW's own week/month disambiguates WHICH occurrence of a
-        # recurring chapter it refers to — match against that specific
-        # (chapter, month) planner entry, not just the chapter name.
-        key = (topic, pow_month)
-        cum_actual = cum_before.get(key, 0) + lp_session if key in cum_before else 0
-        if wk not in week_map or cum_actual > week_map[wk]["cum_actual"]:
-            week_map[wk] = {"pow_month": pow_month, "topic": topic, "lp_session": lp_session, "cum_actual": cum_actual}
+    labels, planned, actual = [], [], []
+    for i, monday in enumerate(weeks):
+        week_end = monday + datetime.timedelta(days=6)
+        labels.append(monday.strftime("%d %b"))
+        # even pace across the month, rounded so the last week lands exactly on
+        # the month's total
+        planned.append(round(planned_total * (i + 1) / len(weeks)))
 
-    weeks = sorted(week_map.keys())
-    if not weeks:
-        return {**empty, "verdict": "No POWs submitted yet"}
+        done = 0
+        for chapter in wanted_chapters:
+            best = 0
+            for p in pows:
+                if (p.topic or "").strip() != chapter:
+                    continue
+                if not p.week_start or p.week_start > week_end:
+                    continue          # hasn't happened yet as of this week
+                best = max(best, _sessions_completed(p.lp_session_num, p.week_start, p.status))
+            done += min(best, planned_by_chapter.get(chapter, 0))
+        # A week already past also carries whatever the SME marked for the
+        # month; a future week does not.
+        if week_end <= today.date():
+            done = max(done, 0)
+        actual.append(done)
 
-    labels, planned, actual, analysis = [], [], [], []
-    for i, wk in enumerate(weeks):
-        d = week_map[wk]
-        labels.append(f"W{i + 1} ({_fmt_display_date(wk)})")
-        actual.append(d["cum_actual"])
-        planned.append(month_cum.get(d["pow_month"], 0))
-
-        chapter = chapters_by_key.get((d["topic"], d["pow_month"]))
-        planner_month = chapter.month if chapter else None
-        planner_sessions = (chapter.sessions or 0) if chapter else 0
-        pow_midx = month_order.index(d["pow_month"]) if d["pow_month"] in month_order else -1
-        plan_midx = month_order.index(planner_month) if planner_month in month_order else -1
-
-        if not chapter:
-            status, detail = "unknown", "Topic not found in planner"
-        elif d["pow_month"] == planner_month:
-            if d["lp_session"] <= planner_sessions:
-                status, detail = "on_track", f"Session {d['lp_session']}/{planner_sessions} in {d['pow_month']}"
-            else:
-                status, detail = "behind", f"Session {d['lp_session']} exceeds {planner_sessions} planned for {planner_month}"
-        elif pow_midx >= 0 and plan_midx >= 0:
-            status = "ahead" if pow_midx < plan_midx else "behind"
-            detail = (f"Covering {planner_month} topic in {d['pow_month']} (ahead)" if status == "ahead"
-                      else f"Should be in {planner_month}, currently in {d['pow_month']} (behind)")
-        else:
-            status, detail = "unknown", f'Month "{d["pow_month"]}" not in planner sequence'
-
-        analysis.append({
-            "week": _fmt_display_date(wk), "topic": d["topic"],
-            "pow_month": d["pow_month"], "planner_month": planner_month or "—",
-            "lp_session": d["lp_session"], "planner_sessions": planner_sessions,
-            "status": status, "status_detail": detail,
-        })
-
-    latest = analysis[-1]
-    verdict = ("Ahead of plan" if latest["status"] == "ahead"
-               else "Behind plan" if latest["status"] == "behind"
-               else "On track" if latest["status"] == "on_track"
-               else "Unknown")
+    # Where we are now, against where the pace line says we should be.
+    idx = max(0, min(len(weeks) - 1, sum(1 for w in weeks if w <= today.date()) - 1))
+    ahead = actual[idx] - planned[idx]
+    verdict = "On track" if abs(ahead) <= 1 else ("Ahead of plan" if ahead > 0 else "Behind plan")
 
     return {
-        "success": True, "labels": labels, "planned": planned, "actual": actual,
-        "total_planned": total_planned, "current_actual": actual[-1] if actual else 0,
-        "verdict": verdict, "analysis": analysis,
+        "success": True,
+        "month": month,
+        "labels": labels,
+        "planned": planned,
+        "actual": actual,
+        "planned_total": planned_total,
+        "done_total": summary["sessions_done"],
+        "verdict": verdict,
+        "note": "Planned is an even pace across the month's weeks - the curriculum "
+                "mapping gives a session count per month, not per week.",
+    }
+
+
+def get_progress_chart(db: Session, subject: str, grade: int, discipline: Optional[str] = None):
+    """The year, month by month: cumulative sessions planned against
+    cumulative sessions covered.
+
+    Built on get_annual_progress so its totals are the SAME numbers the Full
+    year donuts show. The previous version deduplicated chapters by name and
+    took the largest month's session count, which made the year total read 102
+    for a Science Grade 6 plan of 221, and plotted a POW's first ticked session
+    number on top of a running total - two different units on one line.
+    """
+    annual = get_annual_progress(db, subject, int(grade), discipline)
+    chapters = annual["chapters"]
+    if not chapters:
+        return {"success": True, "labels": [], "planned": [], "actual": [], "verdict": "No planner data",
+                "total_planned": 0, "current_actual": 0, "analysis": []}
+
+    # Academic order (April -> March), only the months this plan actually uses.
+    months = sorted(
+        {m for c in chapters for m in c["month_sessions"]},
+        key=lambda m: MONTH_INDEX.get(m, 99),
+    )
+
+    planned_by_month = {m: 0 for m in months}
+    done_by_month = {m: 0 for m in months}
+    for c in chapters:
+        done_left = c.get("sessions_done", 0)
+        # A chapter's progress is recorded against the CHAPTER, not the month
+        # (one session counter per POW), so it is filled into the chapter's
+        # months in academic order - sessions 1..n are taught in sequence, so
+        # the earliest month gets its share first. Spreading it proportionally
+        # instead pushed part of the work already done into months still ahead,
+        # and the year-to-date line then disagreed with the donut.
+        for m in sorted(c["month_sessions"], key=lambda x: MONTH_INDEX.get(x, 99)):
+            v = c["month_sessions"][m]
+            planned_by_month[m] += v
+            take = min(done_left, v)
+            done_by_month[m] += take
+            done_left -= take
+
+    today = now_ist()
+    this_month_idx = MONTH_INDEX.get(today.strftime("%B"), 99)
+
+    labels, plan_line, act_line, analysis = [], [], [], []
+    cum_planned = cum_done = 0
+    for m in months:
+        cum_planned += planned_by_month[m]
+        cum_done += done_by_month[m]
+        labels.append(m[:3])
+        plan_line.append(cum_planned)
+        # The actual line stops at the current month - drawing it flat across
+        # months not yet taught reads as a collapse in progress.
+        past = MONTH_INDEX.get(m, 99) <= this_month_idx
+        act_line.append(round(cum_done) if past else None)
+
+        gap = round(cum_done - cum_planned)
+        analysis.append({
+            "month": m,
+            "planned": planned_by_month[m],
+            "done": round(done_by_month[m]),
+            "cum_planned": cum_planned,
+            "cum_done": round(cum_done) if past else None,
+            "status": ("—" if not past else
+                       "on_track" if abs(gap) <= 2 else "ahead" if gap > 0 else "behind"),
+            "gap": gap if past else None,
+        })
+
+    to_date = [a for a in analysis if a["cum_done"] is not None]
+    if to_date:
+        gap = to_date[-1]["gap"]
+        verdict = "On track" if abs(gap) <= 2 else ("Ahead of plan" if gap > 0 else "Behind plan")
+    else:
+        verdict = "Not started"
+
+    return {
+        "success": True,
+        "labels": labels,
+        "planned": plan_line,
+        "actual": act_line,
+        "total_planned": cum_planned,
+        "current_actual": to_date[-1]["cum_done"] if to_date else 0,
+        "verdict": verdict,
+        "analysis": analysis,
     }
 
 
