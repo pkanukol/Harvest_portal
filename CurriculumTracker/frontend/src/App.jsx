@@ -8,6 +8,7 @@ import Dashboard from "./components/Dashboard";
 import POWForm from "./components/POWForm";
 import POWView from "./components/POWView";
 import Progress from "./components/Progress";
+import CurriculumOverview from "./components/CurriculumOverview";
 import PlannerUpload from "./components/PlannerUpload";
 
 const LOG = "[CurriculumTracker SSO]";
@@ -73,6 +74,8 @@ export default function App() {
   const isLeadership = user?.role === "Leadership";
   const isReadOnlyViewer = isSME || isLeadership;
   const canUploadCurriculum = Boolean(user?.can_upload_curriculum);
+  // The week-by-week POW table across a grade — SMEs and Curriculum Heads.
+  const canSeeOverview = Boolean(user?.can_see_overview);
   // Reviewing and teaching are not exclusive: Coordinators, HODs and some SMEs
   // teach their own classes, so POW authoring follows this flag rather than the
   // single resolved role.
@@ -99,6 +102,8 @@ export default function App() {
   const goNewPow = () => { setView("new-pow"); };
 
   const goProgress = () => { setView("progress"); };
+
+  const goOverview = () => { setView("overview"); };
 
   const goPlannerUpload = () => { setView("planner-upload"); };
 
@@ -165,9 +170,11 @@ export default function App() {
                 isLeadership={isLeadership}
                 canUploadCurriculum={canUploadCurriculum}
                 canCreatePow={canCreatePow}
+                canSeeOverview={canSeeOverview}
                 branch={branch}
                 onNewPow={goNewPow}
                 onProgress={goProgress}
+                onOverview={goOverview}
                 onPlannerUpload={goPlannerUpload}
                 onOpenPow={openPow}
               />
@@ -189,8 +196,20 @@ export default function App() {
               <PlannerUpload key={user.email} token={token} onBack={goDashboard} />
             )}
 
+            {view === "overview" && canSeeOverview && (
+              <CurriculumOverview key={user.email} token={token} user={user} branch={branch} onBack={goDashboard} />
+            )}
+
             {view === "progress" && (
-              <Progress key={user.email} token={token} user={user} isReadOnlyViewer={isReadOnlyViewer} branch={branch} onBack={goDashboard} />
+              <Progress
+                key={user.email}
+                token={token}
+                user={user}
+                isReadOnlyViewer={isReadOnlyViewer}
+                isLeadership={isLeadership}
+                branch={branch}
+                onBack={goDashboard}
+              />
             )}
           </>
         )}
