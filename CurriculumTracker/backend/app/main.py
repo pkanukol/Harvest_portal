@@ -2,12 +2,13 @@ import logging
 import time
 import httpx
 from fastapi import FastAPI, BackgroundTasks, Depends, HTTPException, Request, status, Query, File, Form, UploadFile
+from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 
 from .config import settings
 from .database import engine, Base, get_db, run_migrations
-from . import models, schemas, crud, auth, excel_import, staff_directory, email_service_resend
+from . import models, schemas, crud, auth, excel_import, overview_export, staff_directory, email_service_resend
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("curriculum_tracker")
@@ -100,6 +101,9 @@ async def sso_login(req: schemas.SSORequest, db: Session = Depends(get_db)):
         "can_create_pow": auth.can_author_pow(
             auth.CurrentUser(user.email, user.name, user.designation, user.subject, app_role)
         ),
+        "can_see_overview": auth.can_see_curriculum_overview(
+            auth.CurrentUser(user.email, user.name, user.designation, user.subject, app_role)
+        ),
         "branches": crud.viewer_branches(user.location) or crud.BRANCHES,
     }
 
@@ -141,6 +145,7 @@ def get_me(
         "can_upload_curriculum": auth.can_upload_curriculum(resolved),
         "can_see_lagging": crud.can_see_lagging(app_role, user.designation),
         "can_create_pow": auth.can_author_pow(resolved),
+        "can_see_overview": auth.can_see_curriculum_overview(resolved),
         # Campuses this account may look at: their own, or both for 'Both'.
         "branches": crud.viewer_branches(user.location) or crud.BRANCHES,
     }
@@ -208,6 +213,9 @@ def view_as(
         ),
         "can_see_lagging": crud.can_see_lagging(app_role, target.designation),
         "can_create_pow": auth.can_author_pow(
+            auth.CurrentUser(target.email, target.name, target.designation, target.subject, app_role)
+        ),
+        "can_see_overview": auth.can_see_curriculum_overview(
             auth.CurrentUser(target.email, target.name, target.designation, target.subject, app_role)
         ),
         "branches": crud.viewer_branches(target.location) or crud.BRANCHES,
@@ -472,6 +480,42 @@ def get_pow_cards(
     return {"cards": crud.get_pow_cards(db, current_user.email, current_user.role, subject, grade, branch)}
 
 
+@app.get("/api/pow/overview")
+def get_curriculum_overview(
+    subject: str = Query(...),
+    grade: str = Query(...),
+    branch: str = Query(""),
+    db: Session = Depends(get_db),
+    current_user: auth.CurrentUser = Depends(auth.require_curriculum_overview),
+):
+    """Week-by-week table of every POW filed for one subject+grade."""
+    return crud.get_curriculum_overview(
+        db, current_user.email, current_user.role, subject, grade, branch
+    )
+
+
+@app.get("/api/pow/overview.xlsx")
+def download_curriculum_overview(
+    subject: str = Query(...),
+    grade: str = Query(...),
+    branch: str = Query(""),
+    db: Session = Depends(get_db),
+    current_user: auth.CurrentUser = Depends(auth.require_curriculum_overview),
+):
+    """The same table as /api/pow/overview, as a workbook — 15 to 19 columns
+    reads better in Excel than in a browser."""
+    data = crud.get_curriculum_overview(
+        db, current_user.email, current_user.role, subject, grade, branch
+    )
+    content = overview_export.build_overview_workbook(data)
+    filename = overview_export.overview_filename(subject, grade)
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @app.get("/api/pow/tbs-mom-alerts", response_model=schemas.PowCardsResponse)
 def get_tbs_mom_alerts(
     db: Session = Depends(get_db),
@@ -626,13 +670,42 @@ def get_progress_summary(
     if not chosen:
         # A discipline SME lands on their own: Bhuvana R is 'Science' in the
         # portal but Biology in staff_roles, Deepak Physics, Francis Joy
-        # Chemistry.
-        chosen = crud.default_discipline_for(
+        # Chemistry. A subject that already names a stream wins over that.
+        chosen = crud.stream_discipline(subject) or crud.default_discipline_for(
             staff_directory.subjects_for(current_user.email), available
         ) or ""
     summary = crud.get_progress_summary(db, subject, int(grade), effective_email, chosen or None)
     summary["discipline_default"] = chosen
     return summary
+
+
+@app.get("/api/progress/annual")
+def get_annual_progress(
+    subject: str = Query(...),
+    grade: str = Query(...),
+    discipline: str = Query(""),
+    db: Session = Depends(get_db),
+    current_user: auth.CurrentUser = Depends(auth.get_current_user),
+):
+    """Whole-year, per-section progress for one subject+grade. The leadership
+    reading of Progress Check; SMEs keep the month-at-a-time view but may
+    switch to this one."""
+    if current_user.role == "Teacher":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="The annual view is for SMEs and the leadership team.",
+        )
+    available = crud.planner_disciplines(db, subject, int(grade))
+    chosen = discipline.strip()
+    if not chosen:
+        # Picking "Biology" already says which discipline; otherwise fall back
+        # to the viewer's own stream from staff_roles.
+        chosen = crud.stream_discipline(subject) or crud.default_discipline_for(
+            staff_directory.subjects_for(current_user.email), available
+        ) or ""
+    result = crud.get_annual_progress(db, subject, int(grade), chosen or None)
+    result["discipline_default"] = chosen
+    return result
 
 
 @app.get("/api/progress/lagging")
@@ -649,11 +722,27 @@ def get_lagging(
     return crud.get_lagging_report(db, current_user.email, current_user.role, branch)
 
 
+@app.get("/api/progress/month-chart")
+def get_month_chart(
+    subject: str = Query(...),
+    grade: str = Query(...),
+    discipline: str = Query(""),
+    db: Session = Depends(get_db),
+    _user: auth.CurrentUser = Depends(auth.get_current_user),
+):
+    """This month week by week. The cumulative year-to-date chart is
+    /api/progress/chart, shown on the Full year tab."""
+    return crud.get_month_chart(db, subject, int(grade), discipline.strip() or None)
+
+
 @app.get("/api/progress/chart")
 def get_progress_chart(
     subject: str = Query(...),
     grade: str = Query(...),
+    discipline: str = Query(""),
     db: Session = Depends(get_db),
     _user: auth.CurrentUser = Depends(auth.get_current_user),
 ):
-    return crud.get_progress_chart(db, subject, int(grade))
+    """Cumulative year-to-date, month by month. Shown on the Full year tab -
+    the month-by-week view is /api/progress/month-chart."""
+    return crud.get_progress_chart(db, subject, int(grade), discipline.strip() or None)
