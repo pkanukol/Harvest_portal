@@ -21,7 +21,7 @@ export default function ViewAsPerson({ token, canActAs, onEnterAs, onClose }) {
   const [viewLoading, setViewLoading] = useState(false);
   const [tab, setTab] = useState("goals");
 
-  // The reviewer queue that opens behind their "Goals I review" button, and
+  // The reviewer queue that opens behind their "Goals to review" button, and
   // the one reviewee drilled into - both read-only.
   const [showQueue, setShowQueue] = useState(false);
   const [queuePerson, setQueuePerson] = useState(null);
@@ -180,7 +180,7 @@ export default function ViewAsPerson({ token, canActAs, onEnterAs, onClose }) {
                         className={`btn btn-sm ${showQueue ? "btn-primary" : "btn-ghost"}`}
                         onClick={() => { setShowQueue(!showQueue); setQueuePerson(null); }}
                       >
-                        Goals I review ({person.reviewee_count}) {showQueue ? "▴" : "▾"}
+                        Goals to review ({person.reviewee_count}) {showQueue ? "▴" : "▾"}
                       </button>
                     )}
                   </div>
@@ -217,8 +217,8 @@ export default function ViewAsPerson({ token, canActAs, onEnterAs, onClose }) {
                   )}
                   <div className="preview-note">
                     {person.reviewee_count > 0
-                      ? `Click "Goals I review" above to see the queue ${person.name} gets. Controls are shown but inert - use "Enter as" to actually approve or modify.`
-                      : `${person.name} reviews nobody, so no "Goals I review" button appears for them.`}
+                      ? `Click "Goals to review" above to see the queue ${person.name} gets. Controls are shown but inert - use "Enter as" to actually approve or modify.`
+                      : `${person.name} reviews nobody, so no "Goals to review" button appears for them.`}
                   </div>
 
                   <div className="section-title" style={{ marginTop: 0 }}>My goals</div>
