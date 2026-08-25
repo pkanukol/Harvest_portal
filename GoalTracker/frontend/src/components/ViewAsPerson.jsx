@@ -143,13 +143,15 @@ export default function ViewAsPerson({ token, canActAs, onEnterAs, onClose }) {
               {/* The header they'd see - which buttons a role actually gets is
                   usually the thing being checked. */}
               <div className="preview-hdr">
-                <span className="hdr-title">🎯 GoalTracker</span>
+                <span className="hdr-title">🎯 Goal Tracker</span>
                 <span className="user-badge">{person.name} ({person.designation})</span>
                 <span className="preview-hdr-btns">
-                  {person.is_admin && <span className="preview-fake-btn">Goals overview</span>}
-                  {person.is_admin && <span className="preview-fake-btn">View as…</span>}
+                  {person.can_view_overview && <span className="preview-fake-btn">Goals overview</span>}
+                  {person.can_view_as && <span className="preview-fake-btn">View as…</span>}
                   {person.can_manage_reviewers && <span className="preview-fake-btn">Reviewer assignments</span>}
-                  <span className="preview-fake-btn">Logout</span>
+                  {!person.can_view_overview && !person.can_view_as && !person.can_manage_reviewers && (
+                    <span className="hint-text" style={{ marginBottom: 0 }}>No admin buttons for this role</span>
+                  )}
                 </span>
               </div>
 
