@@ -30,6 +30,7 @@ import argparse
 import datetime
 from io import BytesIO
 import openpyxl
+from openpyxl.utils import get_column_letter
 
 # Canonical field -> normalized header aliases (matched after collapsing
 # whitespace and lowercasing). Order doesn't matter; first matching column
@@ -116,6 +117,37 @@ def _is_filler_row(cells) -> bool:
     return len(non_empty) >= 3 and len(set(non_empty)) == 1
 
 
+# How many skipped rows to name individually before summarising the rest —
+# enough to fix a sheet by hand, not enough to bury the other warnings.
+MAX_LISTED_ROWS = 15
+
+
+def _row_preview(cells, limit: int = 4) -> str:
+    """The non-empty cells on a row, by Excel column letter, so a warning about
+    a skipped row can be traced straight back to the sheet. A row that looks
+    full in Excel but reads blank here is usually one of: vertically MERGED
+    cells (only the top row of a merge carries the value — the rest read
+    empty), or content sitting in a column whose header this importer doesn't
+    recognise."""
+    parts = []
+    for idx, cell in enumerate(cells):
+        if cell is None or not str(cell).strip():
+            continue
+        text = re.sub(r"\s+", " ", str(cell).strip())
+        parts.append(f"{get_column_letter(idx + 1)}={text[:30]!r}")
+        if len(parts) == limit:
+            parts.append("...")
+            break
+    return ", ".join(parts) if parts else "no readable content"
+
+
+def _describe_rows(entries: list) -> str:
+    listed = "; ".join(f"row {n} ({preview})" for n, preview in entries[:MAX_LISTED_ROWS])
+    if len(entries) > MAX_LISTED_ROWS:
+        listed += f"; and {len(entries) - MAX_LISTED_ROWS} more"
+    return listed
+
+
 def parse_grade_tab(ws, subject: str, grade: int, tab_name: str, warnings: list) -> list:
     tab_label = f"{subject} Grade {grade} ('{tab_name.strip()}')"
     rows_out = []
@@ -125,7 +157,10 @@ def parse_grade_tab(ws, subject: str, grade: int, tab_name: str, warnings: list)
     # Counted per tab rather than warned per row: a sheet planned entirely
     # against topics would otherwise emit one warning for every line.
     promoted = {"topic": 0, "subtopic": 0}
-    skipped_blank = 0
+    # (excel_row_number, what was on the row) — reported so a skipped row can
+    # be found in the sheet instead of hunted for.
+    skipped_blank = []
+    skipped_no_unit = []
     carry = {f: "" for f in CARRY_DOWN_FIELDS}  # carry["sessions"] stored as the raw cell value
 
     def get(cells, field):
@@ -153,7 +188,7 @@ def parse_grade_tab(ws, subject: str, grade: int, tab_name: str, warnings: list)
         # chapter, topic or sub topic adds nothing, and letting carry-down fill
         # in the chapter would invent a duplicate entry in a later month.
         if not any((get(cells, f) or "").strip() for f in WORK_UNIT_FIELDS):
-            skipped_blank += 1
+            skipped_blank.append((row_idx, _row_preview(cells)))
             continue
 
         month = get(cells, "month") or ""
@@ -201,7 +236,7 @@ def parse_grade_tab(ws, subject: str, grade: int, tab_name: str, warnings: list)
             promoted["subtopic"] += 1
 
         if not chapter_name:
-            skipped_blank += 1
+            skipped_no_unit.append((row_idx, _row_preview(cells)))
             continue
 
         sessions, sess_warning = _unwrap_sessions(sessions_raw)
@@ -247,7 +282,14 @@ def parse_grade_tab(ws, subject: str, grade: int, tab_name: str, warnings: list)
         )
     if skipped_blank:
         warnings.append(
-            f"{tab_label}: {skipped_blank} row(s) skipped — no Chapter Name, Topic or Sub Topic on the row."
+            f"{tab_label}: {len(skipped_blank)} row(s) skipped — no Chapter Name, Topic or Sub Topic "
+            f"on the row itself (a value merged down from an earlier row does not count): "
+            f"{_describe_rows(skipped_blank)}."
+        )
+    if skipped_no_unit:
+        warnings.append(
+            f"{tab_label}: {len(skipped_no_unit)} row(s) skipped — nothing left to plan against after "
+            f"carrying values down: {_describe_rows(skipped_no_unit)}."
         )
 
     return rows_out
