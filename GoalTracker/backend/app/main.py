@@ -49,11 +49,13 @@ def _mint_sso_response(user: models.User, impersonated_by: Optional[str] = None)
     # Org-wide overview is narrower than is_admin: the MD, the branch
     # principals, and the owner - not every leadership designation.
     can_view_overview = auth.designation_can_view_overview(user.designation) or can_manage_reviewers
+    can_view_as = auth.designation_can_view_as(user.designation) or can_manage_reviewers
     claims = {
         "sub": user.email, "name": user.name, "designation": user.designation,
         "is_admin": is_admin, "can_manage_reviewers": can_manage_reviewers,
         "can_view_observations": can_view_observations,
         "can_view_overview": can_view_overview,
+        "can_view_as": can_view_as,
     }
     # Carried in the token, not just the response, so a switched session stays
     # identifiable across reloads and the client cannot drop the marker.
@@ -67,6 +69,7 @@ def _mint_sso_response(user: models.User, impersonated_by: Optional[str] = None)
         "is_admin": is_admin, "can_manage_reviewers": can_manage_reviewers,
         "can_view_observations": can_view_observations, "location": user.location,
         "can_view_overview": can_view_overview,
+        "can_view_as": can_view_as,
         "impersonated_by": impersonated_by,
         # Lets the UI show the switcher only to the one person who can use it,
         # and hide it inside an already-switched session.
@@ -281,38 +284,107 @@ def get_member_goals(
 
 # ─── Leadership overview: org-wide goal status heatmap ─────────────────────
 
-@app.get("/api/admin/goals-overview", response_model=schemas.GoalsOverviewResponse)
-def get_goals_overview(
+# The three buckets the overview is grouped into. The MD and the Chairman
+# sit above the org chart and are excluded from Leadership/Admin - they were
+# padding the count of people you might chase about their own goals.
+GROUP_EXCLUDED_DESIGNATIONS = {"managing director", "chairman"}
+
+
+def _group_of(user) -> Optional[str]:
+    role = (user.role or "").strip().lower()
+    if (user.designation or "").strip().lower() in GROUP_EXCLUDED_DESIGNATIONS:
+        return None
+    if role == "teacher":
+        return "teacher"
+    if role == "sme":
+        return "sme"
+    return "auditor"
+
+
+def _person_row(u, goal_map, obs_map, viewer, include_observations: bool) -> dict:
+    mid = crud.overview_slot(goal_map, u.email, "mid_term")
+    ann = crud.overview_slot(goal_map, u.email, "annual")
+    observation_average = None
+    if include_observations and u.role == "teacher" and viewer.can_view_observations:
+        observation_average = obs_map.get(u.id)
+    return {
+        "email": u.email, "name": u.name, "designation": u.designation, "role": u.role,
+        "subject": u.subject, "location": u.location,
+        "mid_term_status": mid["status"], "annual_status": ann["status"],
+        "mid_term_progress": {"completed": mid["completed"], "total": mid["total"]},
+        "annual_progress": {"completed": ann["completed"], "total": ann["total"]},
+        "observation_average": observation_average,
+    }
+
+
+def _reviewee_rows(db: Session, users: List[models.User], period_key: str) -> List[dict]:
+    """Reviewee table rows, batched - one query for every goal in the period
+    rather than four per person."""
+    goal_map = crud.overview_goal_map(db, period_key)
+    rows = []
+    for u in users:
+        mid = crud.overview_slot(goal_map, u.email, "mid_term")
+        ann = crud.overview_slot(goal_map, u.email, "annual")
+        rows.append({
+            "email": u.email, "name": u.name, "designation": u.designation, "role": u.role, "subject": u.subject,
+            "mid_term_status": mid["status"], "annual_status": ann["status"],
+            "mid_term_progress": {"completed": mid["completed"], "total": mid["total"]},
+            "annual_progress": {"completed": ann["completed"], "total": ann["total"]},
+        })
+    return rows
+
+
+@app.get("/api/admin/overview-summary", response_model=schemas.OverviewSummaryResponse)
+def get_overview_summary(
     db: Session = Depends(get_db),
     current_user: auth.CurrentUser = Depends(auth.require_overview_access),
 ):
+    """Counts per group only - no per-person payload. The full overview sent
+    every person's row up front, which is a lot of work and a lot of bytes to
+    answer "how many people still haven't set anything". People are fetched
+    one group at a time from /api/admin/overview-people."""
     period_key = crud.current_academic_year_key()
-    people = []
-    mid_term_counts = {"not_set": 0, "pending": 0, "approved": 0}
-    annual_counts = {"not_set": 0, "pending": 0, "approved": 0}
+    goal_map = crud.overview_goal_map(db, period_key)
+
+    groups = {k: {"key": k, "total": 0,
+                  "mid_term": {"not_set": 0, "pending": 0, "approved": 0},
+                  "annual": {"not_set": 0, "pending": 0, "approved": 0}}
+              for k in ("sme", "auditor", "teacher")}
+
     for u in crud.get_all_org_users(db):
-        mid_term_status = crud.goal_slot_status(db, u.email, "mid_term", period_key)
-        annual_status = crud.goal_slot_status(db, u.email, "annual", period_key)
-        mid_term_counts[mid_term_status] += 1
-        annual_counts[annual_status] += 1
-        observation_average = None
-        if u.role == "teacher" and current_user.can_view_observations:
-            observation_average = crud.get_observation_average(crud.get_observations_for_teacher(db, u.email))
-        people.append({
-            "email": u.email, "name": u.name, "designation": u.designation, "role": u.role, "subject": u.subject,
-            "location": u.location,
-            "mid_term_status": mid_term_status, "annual_status": annual_status,
-            "mid_term_progress": crud.goal_progress(db, u.email, "mid_term", period_key),
-            "annual_progress": crud.goal_progress(db, u.email, "annual", period_key),
-            "observation_average": observation_average,
-        })
-    return {"people": people, "mid_term_summary": mid_term_counts, "annual_summary": annual_counts}
+        group = _group_of(u)
+        if not group:
+            continue
+        g = groups[group]
+        g["total"] += 1
+        g["mid_term"][crud.overview_slot(goal_map, u.email, "mid_term")["status"]] += 1
+        g["annual"][crud.overview_slot(goal_map, u.email, "annual")["status"]] += 1
+
+    return {"period_key": period_key, "groups": [groups[k] for k in ("sme", "auditor", "teacher")]}
+
+
+@app.get("/api/admin/overview-people", response_model=List[schemas.RevieweeOut])
+def get_overview_people(
+    group: str,
+    db: Session = Depends(get_db),
+    current_user: auth.CurrentUser = Depends(auth.require_overview_access),
+):
+    """People in ONE group, fetched when that group is opened."""
+    if group not in ("sme", "auditor", "teacher"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown group")
+    period_key = crud.current_academic_year_key()
+    goal_map = crud.overview_goal_map(db, period_key)
+    obs_map = crud.observation_average_map(db) if group == "teacher" else {}
+    return [
+        _person_row(u, goal_map, obs_map, current_user, include_observations=(group == "teacher"))
+        for u in crud.get_all_org_users(db) if _group_of(u) == group
+    ]
 
 
 @app.get("/api/admin/people", response_model=List[schemas.OrgPersonOut])
 def list_org_people(
     db: Session = Depends(get_db),
-    current_user: auth.CurrentUser = Depends(auth.require_owner),
+    current_user: auth.CurrentUser = Depends(auth.require_view_as),
 ):
     """Flat roster for the "view as" picker. One query, no per-person work -
     goals-overview was being used for this and costs several queries per
@@ -350,7 +422,7 @@ def act_as(
 def view_as(
     email: str,
     db: Session = Depends(get_db),
-    current_user: auth.CurrentUser = Depends(auth.require_owner),
+    current_user: auth.CurrentUser = Depends(auth.require_view_as),
 ):
     """Leadership preview of one person's whole dashboard - goals and tasks -
     resolved against THEIR visibility, so it answers "is the flow right for
@@ -386,16 +458,7 @@ def view_as(
         "flags": crud.compute_flags(db, user.email),
         "period_key": period_key,
         "tasks": roots,
-        "reviewees": [
-            {
-                "email": u.email, "name": u.name, "designation": u.designation, "role": u.role, "subject": u.subject,
-                "mid_term_status": crud.goal_slot_status(db, u.email, "mid_term", period_key),
-                "annual_status": crud.goal_slot_status(db, u.email, "annual", period_key),
-                "mid_term_progress": crud.goal_progress(db, u.email, "mid_term", period_key),
-                "annual_progress": crud.goal_progress(db, u.email, "annual", period_key),
-            }
-            for u in crud.get_reviewees(db, user.email)
-        ],
+        "reviewees": _reviewee_rows(db, crud.get_reviewees(db, user.email), period_key),
     }
 
 
