@@ -209,6 +209,25 @@ def can_upload_curriculum(user: CurrentUser) -> bool:
     return (user.email or "").strip().lower() in settings.curriculum_upload_emails
 
 
+def can_see_curriculum_overview(user: CurrentUser) -> bool:
+    """The week-by-week POW table across a whole grade. Asked for by the APM
+    for SMEs and Curriculum Heads — the two roles that read POWs across a
+    grade rather than write them — plus the DLP Manager and APM, who already
+    administer the curriculum through the same designations."""
+    if user.role == "SME":
+        return True
+    return (user.designation or "").strip().lower() in CURRICULUM_UPLOAD_DESIGNATIONS
+
+
+def require_curriculum_overview(current_user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
+    if not can_see_curriculum_overview(current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Curriculum Overview is available to SMEs and Curriculum Heads.",
+        )
+    return current_user
+
+
 def require_curriculum_uploader(current_user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
     if not can_upload_curriculum(current_user):
         raise HTTPException(
