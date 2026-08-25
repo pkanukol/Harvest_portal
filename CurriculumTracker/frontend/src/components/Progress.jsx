@@ -3,8 +3,10 @@ import Chart from "chart.js/auto";
 import { api } from "../api";
 import { fmtDate } from "../dateUtils";
 import BackfillPanel from "./BackfillPanel";
+import AnnualProgress from "./AnnualProgress";
+import { GRADES } from "../grades";
 
-export default function Progress({ token, user, isReadOnlyViewer, branch = "", onBack }) {
+export default function Progress({ token, user, isReadOnlyViewer, isLeadership = false, branch = "", onBack }) {
   const [teachersList, setTeachersList] = useState([]);
   // Distinguishes "still loading" from "genuinely none" — the dropdown used to
   // read "No subjects available" during the fetch, which looks like a failure,
@@ -18,6 +20,9 @@ export default function Progress({ token, user, isReadOnlyViewer, branch = "", o
   // Science splits into Biology/Chemistry/Physics from Grade 5 up, and each has
   // its own SME — so progress is read one discipline at a time.
   const [discipline, setDiscipline] = useState("");
+  // Leadership reads the year; an SME works a month at a time. Both views stay
+  // reachable from either role - this only decides which one opens first.
+  const [range, setRange] = useState(isLeadership ? "annual" : "month");
 
   function toggleChapter(name) {
     setOpenChapters((prev) => ({ ...prev, [name]: !prev[name] }));
@@ -64,17 +69,19 @@ export default function Progress({ token, user, isReadOnlyViewer, branch = "", o
   }, [isReadOnlyViewer, subject, subjects]);
 
   useEffect(() => {
-    if (!subject || !grade) { setChartData(null); setSummary(null); return; }
+    if (!subject || !grade || range !== "month") { setChartData(null); setSummary(null); return; }
     setError("");
 
     api.getProgressSummary(token, subject, grade, isReadOnlyViewer ? "" : user.email, discipline)
       .then(setSummary)
       .catch((err) => setError(err.message));
 
-    api.getProgressChart(token, subject, grade)
+    // The month tab gets the month's own week-by-week pace; the cumulative
+    // year-to-date chart belongs to the Full year tab and is drawn there.
+    api.getMonthChart(token, subject, grade, discipline)
       .then(setChartData)
       .catch((err) => setError(err.message));
-  }, [token, subject, grade, isReadOnlyViewer, user.email, discipline]);
+  }, [token, subject, grade, isReadOnlyViewer, user.email, discipline, range]);
 
   useEffect(() => {
     if (!chartData || !chartData.labels?.length || !canvasRef.current) return;
@@ -84,16 +91,16 @@ export default function Progress({ token, user, isReadOnlyViewer, branch = "", o
       data: {
         labels: chartData.labels,
         datasets: [
-          { label: "Planned (cumulative)", data: chartData.planned, borderColor: "#2e7d52", backgroundColor: "rgba(46,125,82,.1)", borderWidth: 2, pointRadius: 4, tension: 0.3, fill: true },
-          { label: "Actual (cumulative)", data: chartData.actual, borderColor: "#f0a500", backgroundColor: "rgba(240,165,0,.08)", borderWidth: 2, pointRadius: 4, tension: 0.3, fill: true },
+          { label: `Planned pace (${chartData.month || "month"})`, data: chartData.planned, borderColor: "#5A9E47", backgroundColor: "rgba(90,158,71,.10)", borderWidth: 2, pointRadius: 4, tension: 0.3, fill: true },
+          { label: "Sessions covered", data: chartData.actual, borderColor: "#E5A11E", backgroundColor: "rgba(229,161,30,.08)", borderWidth: 2, pointRadius: 4, tension: 0.3, fill: true },
         ],
       },
       options: {
         responsive: true,
         plugins: { legend: { position: "top" }, tooltip: { mode: "index", intersect: false } },
         scales: {
-          y: { beginAtZero: true, title: { display: true, text: "Cumulative Sessions" } },
-          x: { title: { display: true, text: "Week" } },
+          y: { beginAtZero: true, title: { display: true, text: "Sessions this month" } },
+          x: { title: { display: true, text: "Week beginning" } },
         },
       },
     });
@@ -107,6 +114,22 @@ export default function Progress({ token, user, isReadOnlyViewer, branch = "", o
       <button className="back-link" onClick={onBack}>← Back</button>
       <div className="section-title">Progress Check</div>
 
+      <div className="range-tabs">
+        <button
+          className={`range-tab${range === "annual" ? " range-tab-active" : ""}`}
+          onClick={() => setRange("annual")}
+        >
+          Full year
+        </button>
+        <button
+          className={`range-tab${range === "month" ? " range-tab-active" : ""}`}
+          onClick={() => setRange("month")}
+        >
+          This month
+        </button>
+      </div>
+
+      <div className="filter-bar">
       <div className="form-row">
         <div className="form-group">
           <label className="form-label">Subject</label>
@@ -138,12 +161,26 @@ export default function Progress({ token, user, isReadOnlyViewer, branch = "", o
         </div>
         <div className="form-group">
           <label className="form-label">Grade</label>
-          <input className="form-control" value={grade} onChange={(e) => setGrade(e.target.value)} placeholder="e.g. 6" />
+          <select className="form-control" value={grade} onChange={(e) => setGrade(e.target.value)}>
+            <option value="">Select a grade…</option>
+            {GRADES.map((g) => <option key={g} value={g}>Grade {g}</option>)}
+          </select>
         </div>
+      </div>
       </div>
 
 
-      {user.can_upload_curriculum && (
+      {range === "annual" && (
+        <AnnualProgress
+          token={token}
+          subject={subject}
+          grade={grade}
+          discipline={discipline}
+          onDisciplineChange={setDiscipline}
+        />
+      )}
+
+      {range === "month" && user.can_upload_curriculum && (
         <BackfillPanel
           token={token}
           subject={subject}
@@ -158,21 +195,24 @@ export default function Progress({ token, user, isReadOnlyViewer, branch = "", o
       {summary && (
         <>
           <div className="section-title">{summary.month} — Grade {summary.grade} Progress</div>
-          <div className="stat-grid">
-            {[
-              ["Chapters Planned", summary.topics_planned],
-              ["Chapters Covered", summary.topics_covered],
-              ["Sessions Planned", summary.total_sessions_planned],
-              ["Sessions Done", summary.sessions_done],
-              ["Sessions Left", summary.sessions_left],
-              ["Sessions/Week Needed", summary.sess_per_week_needed],
-              ["Days Left", summary.days_left],
-            ].map(([label, value]) => (
-              <div className="stat-tile" key={label}>
-                <div className="stat-label">{label}</div>
-                <div className="stat-value">{value}</div>
-              </div>
-            ))}
+          {/* One line rather than a tile per number: the chapter table below
+              carries the same planned/done/left figures per chapter, so a tile
+              grid above it just said everything twice. What is kept here is the
+              month total and the pacing, neither of which the table shows. */}
+          <div className="progress-headline">
+            <span>
+              <strong>{summary.topics_covered}</strong> of <strong>{summary.topics_planned}</strong>{" "}
+              {summary.topics_planned === 1 ? "chapter" : "chapters"} covered
+            </span>
+            <span>
+              <strong>{summary.sessions_done}</strong> of <strong>{summary.total_sessions_planned}</strong>{" "}
+              sessions done, <strong>{summary.sessions_left}</strong> left
+            </span>
+            <span className="hint-text">
+              {summary.sessions_left > 0
+                ? `${summary.sess_per_week_needed}/week to finish in the ${summary.days_left} days remaining`
+                : `${summary.days_left} days remaining in the month`}
+            </span>
           </div>
 
           {(summary.disciplines || []).length > 1 && (
@@ -264,29 +304,17 @@ export default function Progress({ token, user, isReadOnlyViewer, branch = "", o
         </>
       )}
 
-      {chartData && chartData.labels?.length > 0 && (
+      {range === "month" && chartData && chartData.labels?.length > 0 && (
         <div className="chart-card" style={{ marginTop: 24 }}>
           <span className={`verdict-badge ${verdictClass}`}>{chartData.verdict}</span>
+          <div className="section-title" style={{ marginTop: 0 }}>
+            {chartData.month} — pace through the month
+          </div>
           <canvas ref={canvasRef} height="100" />
-
-          <table style={{ marginTop: 16 }}>
-            <thead>
-              <tr><th>Week</th><th>Topic</th><th>Actual Month</th><th>Planned Month</th><th>Session</th><th>Status</th><th>Detail</th></tr>
-            </thead>
-            <tbody>
-              {chartData.analysis.map((a, i) => (
-                <tr key={i}>
-                  <td>{a.week}</td>
-                  <td>{a.topic}</td>
-                  <td>{a.pow_month}</td>
-                  <td>{a.planner_month}</td>
-                  <td>{a.lp_session} / {a.planner_sessions}</td>
-                  <td>{a.status}</td>
-                  <td>{a.status_detail}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <p className="hint-text" style={{ marginTop: 8 }}>
+            {chartData.done_total} of {chartData.planned_total} sessions covered.{" "}
+            {chartData.note}
+          </p>
         </div>
       )}
     </div>
