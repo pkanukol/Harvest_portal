@@ -9,22 +9,20 @@ import { fmtDate } from "../dateUtils";
  * month than the teacher's POWs have reached. Scoped to whoever the viewer
  * already oversees: an SME sees their mapped teachers, leadership the school.
  */
-const OPEN_KEY = "lagPanelOpen";
-
 export default function LaggingPanel({ token, branch = "", onOpenTeacher }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
   const [showAll, setShowAll] = useState(false);
   const [showMissing, setShowMissing] = useState(false);
-  // Collapsed state persists — this sits above the dashboard on every visit,
-  // so whoever prefers it shut shouldn't have to close it each time.
-  const [open, setOpen] = useState(() => localStorage.getItem(OPEN_KEY) !== "false");
+  // Starts collapsed on every page load, whatever it was left as. This report
+  // is the heaviest read in the app — it compares every teacher's POWs against
+  // the whole planner — and an expanded panel used to fire it during the
+  // initial mount, which was most of the dashboard's load time. One click
+  // fetches it. The remembered preference still decides whether the panel is
+  const [open, setOpen] = useState(false);
 
   function toggleOpen() {
-    setOpen((prev) => {
-      localStorage.setItem(OPEN_KEY, String(!prev));
-      return !prev;
-    });
+    setOpen((prev) => !prev);
   }
 
   // Only fetched when expanded — this report compares every teacher's POWs
