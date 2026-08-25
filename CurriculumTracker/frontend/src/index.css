@@ -16,11 +16,12 @@
   --warn: #E5A11E;  --warn-bg: #FBF1D5;
 
   /* Neutrals */
-  --bg: #F5F6FA;
-  --bg-soft: #F8FAFC;
-  --card: #FFFFFF;
-  --border: #ECEEF3;
-  --line-2: #E2E5EC;
+  --page: #FFFFFF;   /* the page itself */
+  --card: #EFF4FA;   /* every box that sits on it */
+  --bg: #DEE8F3;     /* bands and hover states INSIDE a box */
+  --bg-soft: #F5F8FC;
+  --border: #DCE4EE;
+  --line-2: #CFDAE7;
   --ink: #1E293B;
   --muted: #5B6472;
   --ink-faint: #93A0B4;
@@ -35,7 +36,7 @@
 body {
   font-family: "Segoe UI", -apple-system, sans-serif;
   font-size: 14px;
-  background: var(--bg);
+  background: var(--page);
   color: var(--ink);
   min-height: 100vh;
 }
@@ -43,7 +44,8 @@ body {
 .app-container { max-width: 1000px; margin: 0 auto; padding: 24px 20px 60px; }
 
 /* Header */
-.hdr { background: var(--card); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 10; }
+/* The top bar spans the page, so it takes the page's colour, not a box's. */
+.hdr { background: var(--page); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 10; }
 .hdr-inner { max-width: 1000px; margin: 0 auto; padding: 14px 20px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .hdr-left { display: flex; align-items: center; gap: 12px; }
 .hdr-title { font-size: 16px; font-weight: 700; color: var(--brand-700); }
@@ -56,7 +58,7 @@ body {
 .btn:disabled { opacity: 0.55; cursor: not-allowed; }
 .btn-primary { background: var(--grad); color: #fff; }
 .btn-primary:hover:not(:disabled) { background: var(--brand-700); }
-.btn-ghost { background: var(--card); color: var(--ink); border: 1.5px solid var(--border); }
+.btn-ghost { background: var(--page); color: var(--ink); border: 1.5px solid var(--border); }
 .btn-ghost:hover { border-color: var(--brand); }
 .btn-warning { background: var(--warn); color: #fff; }
 .btn-block { display: flex; width: 100%; }
@@ -64,7 +66,7 @@ body {
 
 /* Login */
 .login-container { display: flex; align-items: center; justify-content: center; min-height: 80vh; }
-.login-card { background: var(--card); border-radius: var(--radius); padding: 40px; max-width: 380px; width: 100%; text-align: center; box-shadow: var(--shadow-lg); }
+.login-card { background: var(--page); border-radius: var(--radius); padding: 40px; max-width: 380px; width: 100%; text-align: center; box-shadow: var(--shadow-lg); }
 .brand-title { font-size: 19px; font-weight: 800; color: var(--brand-700); margin-bottom: 6px; }
 .brand-tagline { font-size: 12px; color: var(--muted); margin-bottom: 24px; }
 .login-copy { font-size: 13px; color: var(--muted); margin-bottom: 20px; }
@@ -86,7 +88,7 @@ body {
 
 /* Modal popup */
 .modal-overlay { position: fixed; inset: 0; background: rgba(30,41,59,0.45); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 20px; }
-.modal-box { background: var(--card); border-radius: var(--radius); padding: 24px; max-width: 480px; width: 100%; max-height: 80vh; overflow-y: auto; box-shadow: var(--shadow-lg); }
+.modal-box { background: var(--page); border-radius: var(--radius); padding: 24px; max-width: 480px; width: 100%; max-height: 80vh; overflow-y: auto; box-shadow: var(--shadow-lg); }
 
 .badge { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 10px; font-weight: 700; }
 .badge-created { background: var(--bg-soft); color: var(--muted); }
@@ -104,7 +106,9 @@ body {
 /* Forms */
 .form-group { margin-bottom: 16px; }
 .form-label { display: block; font-size: 12px; font-weight: 600; margin-bottom: 6px; }
-.form-control { width: 100%; padding: 9px 12px; border: 1.5px solid var(--border); border-radius: 8px; font-size: 13px; font-family: inherit; color: var(--ink); }
+/* Fields stay white so they read as something to type in, whether they sit on
+   the page or inside a blue box. */
+.form-control { width: 100%; padding: 9px 12px; background: var(--page); border: 1.5px solid var(--border); border-radius: 8px; font-size: 13px; font-family: inherit; color: var(--ink); }
 .form-control:focus { outline: none; border-color: var(--brand); }
 .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .checkbox-list { display: flex; flex-direction: column; gap: 6px; }
@@ -119,14 +123,16 @@ textarea.form-control { min-height: 70px; resize: vertical; }
 
 /* Progress */
 .stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; margin-bottom: 20px; }
-.stat-tile { border: 1px solid var(--border); border-radius: 8px; padding: 10px; text-align: center; }
+.stat-tile { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 10px; text-align: center; }
 .stat-label { font-size: 10px; color: var(--muted); }
 .stat-value { font-size: 18px; font-weight: 700; color: var(--ink); }
 .progress-bar-track { background: var(--bg-soft); border-radius: 6px; height: 8px; overflow: hidden; }
 .progress-bar-fill { background: var(--green); height: 100%; }
 table { width: 100%; border-collapse: collapse; font-size: 12px; }
 th, td { padding: 8px 10px; border-bottom: 1px solid var(--border); text-align: left; }
-th { color: var(--muted); font-weight: 600; font-size: 11px; }
+/* On light blue cards a header row needs its own band, or it blends into
+   the card behind it. */
+th { background: var(--bg); color: var(--muted); font-weight: 600; font-size: 11px; }
 .verdict-badge { display: inline-block; padding: 6px 16px; border-radius: 20px; font-weight: 700; font-size: 12px; margin-bottom: 16px; }
 .verdict-ahead { background: var(--green-bg); color: #3d6e30; }
 .verdict-behind { background: var(--red-bg); color: var(--red); }
@@ -149,7 +155,7 @@ th { color: var(--muted); font-weight: 600; font-size: 11px; }
 /* View as (preview the app as another staff member) */
 .view-as { position: relative; }
 .view-as-input { width: 210px; padding: 6px 10px; font-size: 12px; }
-.view-as-menu { position: absolute; top: calc(100% + 6px); right: 0; width: 300px; max-height: 320px; overflow-y: auto; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-sm); box-shadow: var(--shadow-lg); z-index: 50; }
+.view-as-menu { position: absolute; top: calc(100% + 6px); right: 0; width: 300px; max-height: 320px; overflow-y: auto; background: var(--page); border: 1px solid var(--border); border-radius: var(--radius-sm); box-shadow: var(--shadow-lg); z-index: 50; }
 .view-as-item { display: block; width: 100%; text-align: left; background: none; border: none; border-bottom: 1px solid var(--border); padding: 8px 12px; cursor: pointer; font-family: inherit; }
 .view-as-item:hover { background: var(--bg-soft); }
 .view-as-item-name { font-size: 12px; font-weight: 600; color: var(--ink); }
@@ -218,3 +224,86 @@ th { color: var(--muted); font-weight: 600; font-size: 11px; }
 .backfill-current { font-weight: 600; }
 .discipline-filter { max-width: 260px; margin-bottom: 12px; }
 .pow-detail-head { font-size: 11px; font-weight: 600; margin-bottom: 6px; }
+
+/* ── Curriculum Overview ─────────────────────────────────────────────────── */
+/* Grade 8 with two sections is already 13 columns, and a grade with six
+   sections is 17 — the table scrolls sideways inside its own box rather than
+   pushing the page wider, and the week column stays pinned while it does. */
+.overview-scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); }
+.overview-table { border-collapse: collapse; width: max-content; min-width: 100%; font-size: 12px; }
+.overview-table th, .overview-table td { border-bottom: 1px solid var(--border); border-right: 1px solid var(--border); padding: 8px 10px; text-align: left; vertical-align: top; }
+.overview-table th { background: var(--bg); font-weight: 700; color: var(--brand-700); white-space: nowrap; position: sticky; top: 0; z-index: 2; }
+.overview-table tbody tr:hover { background: var(--bg); }
+.overview-week { white-space: nowrap; font-weight: 600; position: sticky; left: 0; background: var(--card); z-index: 1; border-right: 2px solid var(--border); }
+.overview-table tbody tr:hover .overview-week { background: var(--bg); }
+.overview-cell { max-width: 260px; }
+.overview-clamp { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; white-space: pre-wrap; cursor: pointer; }
+.overview-full { white-space: pre-wrap; cursor: pointer; }
+.overview-more { color: var(--brand-700); font-size: 11px; cursor: pointer; }
+.overview-empty { color: var(--muted); }
+.overview-impl-text { white-space: pre-wrap; color: var(--muted); margin-top: 4px; }
+.overview-actions { display: flex; gap: 8px; align-items: center; margin: 12px 0; flex-wrap: wrap; }
+
+/* ── Annual progress (leadership Progress Check) ──────────────────────────── */
+.range-tabs { display: inline-flex; gap: 2px; background: var(--bg); border: 1px solid var(--border); border-radius: 999px; padding: 3px; margin-bottom: 16px; }
+.range-tab { border: 0; background: transparent; padding: 6px 16px; border-radius: 999px; font-size: 12px; font-weight: 600; color: var(--muted); cursor: pointer; }
+.range-tab-active { background: var(--page); color: var(--brand-700); box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+
+.annual-alert { border: 1px solid var(--red); background: var(--red-bg); color: var(--red); border-radius: var(--radius); padding: 12px 14px; font-size: 13px; margin-bottom: 16px; }
+
+.annual-donuts { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+.annual-donut { border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); padding: 16px; cursor: pointer; transition: border-color .15s, box-shadow .15s; }
+.annual-donut:hover { border-color: var(--brand-700); }
+.annual-donut-active { border-color: var(--brand-700); box-shadow: 0 0 0 2px rgba(42,123,173,.12); }
+.annual-donut-title { font-size: 13px; font-weight: 700; color: var(--brand-700); text-align: center; margin-bottom: 8px; }
+.annual-donut-canvas { position: relative; height: 190px; }
+.annual-donut-centre { position: absolute; inset: 0; bottom: 34px; display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: none; }
+.annual-donut-centre strong { font-size: 22px; color: var(--ink); line-height: 1; }
+.annual-donut-centre span { font-size: 11px; color: var(--muted); }
+.annual-donut-figures { display: flex; justify-content: center; gap: 14px; font-size: 12px; margin-top: 6px; flex-wrap: wrap; }
+.annual-behind-text { color: var(--red); }
+.annual-section-note { margin: 12px 0 0; }
+.annual-toggle { margin: 12px 0; }
+
+.annual-table table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.annual-table th, .annual-table td { border-bottom: 1px solid var(--border); padding: 8px 10px; text-align: left; vertical-align: top; }
+.annual-chapter-row, .annual-topic-row { cursor: pointer; }
+.annual-chapter-row:hover, .annual-topic-row:hover { background: var(--bg); }
+.annual-topic-row td { color: var(--ink); }
+.annual-sub-row td { color: var(--muted); }
+.annual-caret { display: inline-block; width: 14px; color: var(--muted); }
+.annual-indent-1 { padding-left: 34px !important; }
+.annual-indent-2 { padding-left: 58px !important; }
+.annual-disc { margin-left: 8px; }
+.annual-tick-cell { text-align: center !important; width: 52px; }
+.annual-tick { color: var(--green); font-weight: 700; }
+.annual-untick { color: var(--ink-faint); }
+.progress-headline { display: flex; flex-wrap: wrap; gap: 6px 20px; align-items: baseline; font-size: 13px; margin: 0 0 14px; padding: 10px 14px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.progress-headline strong { color: var(--brand-700); font-size: 15px; }
+.annual-table-head { padding: 10px 14px; border-bottom: 1px solid var(--border); font-size: 12px; color: var(--muted); background: var(--bg-soft); }
+.annual-year-line { margin-top: 16px; }
+
+/* Two-column label/value tables (POW details). With `table-layout: auto` the
+   browser split the width between the two cells, which pushed short values
+   into the middle of the row and read as right-aligned. A fixed label column
+   puts every value on the same left edge, next to its label. */
+.kv-table { table-layout: fixed; }
+.kv-table th { width: 190px; }
+.kv-table td { text-align: left; white-space: pre-wrap; }
+@media (max-width: 560px) { .kv-table th { width: 130px; } }
+.annual-conflict { display: inline-block; margin-left: 6px; width: 15px; height: 15px; line-height: 15px; text-align: center; border-radius: 50%; background: var(--warn-bg); color: #8a5a10; font-size: 10px; font-weight: 700; cursor: help; }
+
+/* On a white page the groupings need a box of their own, or the controls float
+   loose. These are the two the dashboard is built from - the lag panel and the
+   subject/grade filter bar - given the same light blue treatment as .card.
+   The lag panel's own inner table keeps its .card, one shade apart via the
+   header band, so a box inside a box still reads as two things. */
+.lag-panel, .filter-bar {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+}
+.filter-bar { margin-bottom: 16px; }
+.filter-bar .form-row { margin-bottom: 0; }
+.lag-panel .card { background: var(--page); }
