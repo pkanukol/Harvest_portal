@@ -153,7 +153,7 @@ export default function POWView({ token, user, powId, onBack, onDone }) {
       <div className="section-title">Plan of Work — Details</div>
       {error && <div className="form-error">{error}</div>}
 
-      <table>
+      <table className="kv-table">
         <tbody>
           <tr><th>Week</th><td>{fmtDate(pow.week_start)} – {fmtDate(pow.week_end)}</td></tr>
           <tr><th>Subject</th><td>{pow.subject}</td></tr>
@@ -165,7 +165,7 @@ export default function POWView({ token, user, powId, onBack, onDone }) {
         </tbody>
       </table>
 
-      <table>
+      <table className="kv-table">
         <tbody>
           <tr><th>LP Session #</th><td>{pow.lp_session_num || "—"}</td></tr>
           <tr><th>Class Work</th><td>{pow.cw || "—"}</td></tr>
