@@ -21,6 +21,7 @@ class SSOResponse(BaseModel):
     can_manage_reviewers: bool
     can_view_observations: bool
     can_view_overview: bool = False
+    can_view_as: bool = False
     location: Optional[str] = None
     # Set only on a leadership "act as" switch: the admin who started it.
     # Present so the UI can show a permanent banner and a way back, and so
@@ -207,6 +208,19 @@ class StatusCountsOut(BaseModel):
     not_set: int
     pending: int
     approved: int
+
+
+class OverviewGroupOut(BaseModel):
+    key: str            # sme | auditor | teacher
+    total: int
+    mid_term: StatusCountsOut
+    annual: StatusCountsOut
+
+
+class OverviewSummaryResponse(BaseModel):
+    """Counts only - people come from /api/admin/overview-people per group."""
+    period_key: str
+    groups: List[OverviewGroupOut]
 
 
 class GoalsOverviewResponse(BaseModel):
