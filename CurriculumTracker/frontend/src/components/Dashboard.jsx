@@ -3,8 +3,9 @@ import { api } from "../api";
 import POWCard from "./POWCard";
 import LaggingPanel from "./LaggingPanel";
 import { fmtDate } from "../dateUtils";
+import { GRADES } from "../grades";
 
-export default function Dashboard({ token, user, isReadOnlyViewer, isLeadership, canUploadCurriculum, canCreatePow, branch = "", onNewPow, onProgress, onPlannerUpload, onOpenPow }) {
+export default function Dashboard({ token, user, isReadOnlyViewer, isLeadership, canUploadCurriculum, canCreatePow, canSeeOverview, branch = "", onNewPow, onProgress, onOverview, onPlannerUpload, onOpenPow }) {
   const [teachersList, setTeachersList] = useState([]);
   const mySubjects = (user.subjects && user.subjects.length ? user.subjects : [user.subject]).filter(Boolean);
   const [subject, setSubject] = useState(isReadOnlyViewer ? "" : (user.subject || mySubjects[0] || ""));
@@ -19,17 +20,30 @@ export default function Dashboard({ token, user, isReadOnlyViewer, isLeadership,
 
   // Subject filter options for SME/Leadership — cheap (no pow_entries touched),
   // so this is safe to fetch on mount even though the cards fetch itself is deferred.
-  useEffect(() => {
-    if (!isReadOnlyViewer) return;
+  // The subject list is fetched when the picker is first touched, not on
+  // mount: the dashboard should paint immediately, and someone heading
+  // straight for Progress Check or Curriculum Overview never needs it here.
+  const [subjectsLoaded, setSubjectsLoaded] = useState(false);
+
+  function loadSubjects() {
+    if (!isReadOnlyViewer || subjectsLoaded || subjectsLoading) return;
     setSubjectsLoading(true);
     api.getTeachers(token, branch)
       .then((res) => {
         setTeachersList(res.teachers || []);
         if (res.subjects) setSubjectGroups(res.subjects);
+        setSubjectsLoaded(true);
       })
       .catch((err) => setError(err.message))
       .finally(() => setSubjectsLoading(false));
-  }, [token, isReadOnlyViewer, branch]);
+  }
+
+  // A branch change invalidates what was loaded for the previous one.
+  useEffect(() => {
+    setSubjectsLoaded(false);
+    setTeachersList([]);
+    setSubjectGroups({ curriculum: [], other: [] });
+  }, [branch]);
 
   // Grouped list when the API provides one; the flat list derived from the
   // teachers is the fallback so an older backend still works.
@@ -43,8 +57,10 @@ export default function Dashboard({ token, user, isReadOnlyViewer, isLeadership,
   }, [teachersList, subjectGroups]);
 
   useEffect(() => {
-    if (isReadOnlyViewer && !subject && subjectOptions.length > 0) setSubject(subjectOptions[0]);
-  }, [isReadOnlyViewer, subject, subjectOptions]);
+    if (isReadOnlyViewer && subjectsLoaded && !subject && subjectOptions.length > 0) {
+      setSubject(subjectOptions[0]);
+    }
+  }, [isReadOnlyViewer, subjectsLoaded, subject, subjectOptions]);
 
   // Nag popup for missing TBS MOM — deliberately independent of the subject/grade
   // filter below (a separate, lightweight, filter-independent query), so a teacher
@@ -53,9 +69,14 @@ export default function Dashboard({ token, user, isReadOnlyViewer, isLeadership,
   // reminder as much as a plain teacher does.
   useEffect(() => {
     if (!canCreatePow) return;
-    api.getTbsMomAlerts(token)
-      .then((res) => { if ((res.cards || []).length > 0) setMissingTbsMomPopup(res.cards); })
-      .catch(() => {});
+    // Deferred past the first paint: the reminder matters, but not before the
+    // page is on screen.
+    const timer = setTimeout(() => {
+      api.getTbsMomAlerts(token)
+        .then((res) => { if ((res.cards || []).length > 0) setMissingTbsMomPopup(res.cards); })
+        .catch(() => {});
+    }, 400);
+    return () => clearTimeout(timer);
   }, [token, canCreatePow]);
 
   // POW cards only fetch once both Subject and Grade are picked — no data
@@ -118,15 +139,25 @@ export default function Dashboard({ token, user, isReadOnlyViewer, isLeadership,
         {canCreatePow && <button className="btn btn-primary" onClick={onNewPow}>+ New POW</button>}
         {canUploadCurriculum && <button className="btn btn-ghost btn-sm" onClick={onPlannerUpload}>📄 Curriculum Upload</button>}
         {isReadOnlyViewer && <button className="btn btn-primary btn-sm" onClick={onProgress}>Progress Check</button>}
+        {canSeeOverview && <button className="btn btn-primary btn-sm" onClick={onOverview}>Curriculum Overview</button>}
       </div>
 
+      <div className="filter-bar">
       <div className="form-row">
         <div className="form-group">
           <label className="form-label">Subject</label>
           {isReadOnlyViewer ? (
-            <select className="form-control" value={subject} onChange={(e) => { setSubject(e.target.value); setGrade(""); setCards(null); }}>
+            <select
+              className="form-control"
+              value={subject}
+              onFocus={loadSubjects}
+              onMouseDown={loadSubjects}
+              onChange={(e) => { setSubject(e.target.value); setGrade(""); setCards(null); }}
+            >
               {subjectOptions.length === 0 && (
-                <option value="">{subjectsLoading ? "Loading subjects…" : "No subjects available"}</option>
+                <option value="">
+                  {subjectsLoading ? "Loading subjects…" : subjectsLoaded ? "No subjects available" : "Select a subject…"}
+                </option>
               )}
               {(subjectGroups.curriculum || []).length > 0 ? (
                 <>
@@ -153,8 +184,12 @@ export default function Dashboard({ token, user, isReadOnlyViewer, isLeadership,
         </div>
         <div className="form-group">
           <label className="form-label">Grade</label>
-          <input className="form-control" value={grade} onChange={(e) => setGrade(e.target.value)} placeholder="e.g. 5" />
+          <select className="form-control" value={grade} onChange={(e) => setGrade(e.target.value)}>
+            <option value="">Select a grade…</option>
+            {GRADES.map((g) => <option key={g} value={g}>Grade {g}</option>)}
+          </select>
         </div>
+      </div>
       </div>
 
 
