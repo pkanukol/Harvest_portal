@@ -41,7 +41,7 @@ export default function LoginView({ error }) {
     <div className="login-container">
       <div className="login-card">
         <div className="brand-section">
-          <div className="brand-title">🎯 GoalTracker</div>
+          <div className="brand-title">🎯 Goal Tracker</div>
           <div className="brand-tagline">Harvest International School</div>
         </div>
         <p className="login-copy">Please sign in through the school portal to access GoalTracker.</p>
