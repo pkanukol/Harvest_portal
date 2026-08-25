@@ -47,13 +47,16 @@ function SummaryRow({ label, counts }) {
 }
 
 export default function GoalsHeatmap({ token, user, onClose }) {
+  // Counts land immediately; a group's people are fetched only when opened.
+  // Sending all 139 rows (with per-person status and observation averages)
+  // up front was what made this screen take so long.
+  const [summary, setSummary] = useState(null);
   const [people, setPeople] = useState([]);
-  const [midTermSummary, setMidTermSummary] = useState({ not_set: 0, pending: 0, approved: 0 });
-  const [annualSummary, setAnnualSummary] = useState({ not_set: 0, pending: 0, approved: 0 });
   const [loading, setLoading] = useState(true);
+  const [peopleLoading, setPeopleLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const [activeGroup, setActiveGroup] = useState("sme");
+  const [activeGroup, setActiveGroup] = useState(null);
   const [subjectFilter, setSubjectFilter] = useState("all");
   const [locationFilter, setLocationFilter] = useState("all");
   const [nameFilter, setNameFilter] = useState("");
@@ -80,10 +83,7 @@ export default function GoalsHeatmap({ token, user, onClose }) {
       setLoading(true);
       setError("");
       try {
-        const data = await api.getGoalsOverview(token);
-        setPeople(data.people);
-        setMidTermSummary(data.mid_term_summary);
-        setAnnualSummary(data.annual_summary);
+        setSummary(await api.getOverviewSummary(token));
       } catch (err) {
         setError(err.message);
       } finally {
@@ -114,6 +114,25 @@ export default function GoalsHeatmap({ token, user, onClose }) {
     }
   }
 
+  async function openGroup(key) {
+    setActiveGroup(key);
+    setSubjectFilter("all");
+    setNameFilter("");
+    setDesignationFilter("");
+    setMidTermFilter("all");
+    setAnnualFilter("all");
+    if (key === null) return;
+    setPeopleLoading(true);
+    setError("");
+    try {
+      setPeople(await api.getOverviewPeople(token, key));
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setPeopleLoading(false);
+    }
+  }
+
   async function openPerson(person) {
     setSelectedPerson(person);
     setPersonLoading(true);
@@ -128,7 +147,7 @@ export default function GoalsHeatmap({ token, user, onClose }) {
     }
   }
 
-  const groupPeople = people.filter((p) => p.role === activeGroup);
+  const groupPeople = people;
   const isTeacherGroup = activeGroup === "teacher";
   const subjects = isTeacherGroup
     ? [...new Set(groupPeople.map((p) => p.subject).filter(Boolean))].sort()
@@ -153,69 +172,43 @@ export default function GoalsHeatmap({ token, user, onClose }) {
           <div className="loading-spinner">Loading…</div>
         ) : (
           <>
-            <SummaryRow label="Role" counts={midTermSummary} />
-            <SummaryRow label="Organisation" counts={annualSummary} />
-
-            <div className="nudge-bar">
-              {!nudgeConfirming && !nudgeSending && (
-                <button className="btn btn-ghost" onClick={() => { setNudgeConfirming(true); setNudgeResult(null); setNudgeError(""); }}>
-                  ✉️ Email everyone flagged
-                </button>
-              )}
-              {nudgeConfirming && (
-                <>
-                  <span className="hint-text">
-                    Emails a reminder to everyone whose Role or Organisation goal is still missing
-                    past its cutoff. Anyone already reminded in the last week is skipped.
-                  </span>
-                  <button className="btn btn-primary" onClick={sendNudges}>Send reminders</button>
-                  <button className="btn btn-ghost" onClick={() => setNudgeConfirming(false)}>Cancel</button>
-                </>
-              )}
-              {nudgeSending && <span className="hint-text">Sending reminders…</span>}
+            <div className="group-cards">
+              {GROUPS.map((g) => {
+                const row = (summary?.groups || []).find((x) => x.key === g.key);
+                if (!row) return null;
+                const open = activeGroup === g.key;
+                return (
+                  <button
+                    key={g.key}
+                    className={`group-card ${open ? "is-open" : ""}`}
+                    onClick={() => openGroup(open ? null : g.key)}
+                  >
+                    <span className="group-card-label">{g.label}</span>
+                    <span className="group-card-total">{row.total}</span>
+                    <span className="group-card-counts">
+                      <span className="status-not_set-text">{row.mid_term.not_set} no role goal</span>
+                      <span className="status-not_set-text">{row.annual.not_set} no org goal</span>
+                    </span>
+                    <span className="group-card-counts">
+                      <span className="status-pending-text">{row.mid_term.pending + row.annual.pending} pending</span>
+                      <span className="status-approved-text">{row.mid_term.approved + row.annual.approved} approved</span>
+                    </span>
+                    <span className="group-card-cta">{open ? "▴ Hide people" : "▾ Show people"}</span>
+                  </button>
+                );
+              })}
             </div>
 
-            {nudgeError && <div className="form-error">{nudgeError}</div>}
-
-            {nudgeResult && (
-              <div className="nudge-result">
-                <div>
-                  <strong>{nudgeResult.sent}</strong> reminder{nudgeResult.sent === 1 ? "" : "s"} sent
-                  {" "}· {nudgeResult.checked} people checked
-                  {nudgeResult.skipped_recent > 0 && (
-                    <> · {nudgeResult.skipped_recent} skipped (already reminded within {nudgeResult.renotify_days} days)</>
-                  )}
-                  {nudgeResult.failed > 0 && <> · <span className="status-not_set-text">{nudgeResult.failed} failed to send</span></>}
-                </div>
-                {nudgeResult.recipients.length > 0 && (
-                  <ul className="nudge-recipients">
-                    {nudgeResult.recipients.map((r) => (
-                      <li key={`${r.email}-${r.flag_type}`}>{r.name} <span className="hint-text">— {r.flag_label}</span></li>
-                    ))}
-                  </ul>
-                )}
+            {!activeGroup && (
+              <div className="hint-text" style={{ marginTop: 14 }}>
+                Pick a group to load its people.
               </div>
             )}
 
-            <div className="cadence-tabs" style={{ marginTop: 16 }}>
-              {GROUPS.map((g) => (
-                <button
-                  key={g.key}
-                  className={`cadence-tab ${activeGroup === g.key ? "active" : ""}`}
-                  onClick={() => {
-                    setActiveGroup(g.key);
-                    setSubjectFilter("all");
-                    setNameFilter("");
-                    setDesignationFilter("");
-                    setMidTermFilter("all");
-                    setAnnualFilter("all");
-                  }}
-                >
-                  {g.label}
-                </button>
-              ))}
-            </div>
+            {activeGroup && peopleLoading && <div className="loading-spinner">Loading people…</div>}
 
+            {activeGroup && !peopleLoading && (
+            <>
             <div className="form-group" style={{ maxWidth: 200, marginTop: 10 }}>
               <select className="form-control" value={locationFilter} onChange={(e) => setLocationFilter(e.target.value)}>
                 <option value="all">All locations</option>
@@ -290,6 +283,8 @@ export default function GoalsHeatmap({ token, user, onClose }) {
                 </tbody>
               </table>
             </div>
+            </>
+            )}
           </>
         )}
         <div className="form-actions" style={{ justifyContent: "flex-end" }}>
