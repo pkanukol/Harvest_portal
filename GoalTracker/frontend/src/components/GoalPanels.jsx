@@ -148,7 +148,9 @@ export default function GoalPanels({
                     })}
                   </ul>
                   {isOwner && onAddGoal && (
-                    <button className="goal-panel-add" onClick={() => onAddGoal(panel.key)}>+ Add another</button>
+                    <div className="goal-panel-add-row">
+                      <button className="btn btn-ghost btn-sm" onClick={() => onAddGoal(panel.key)}>+ Add</button>
+                    </div>
                   )}
                 </>
               )}
