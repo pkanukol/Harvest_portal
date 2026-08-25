@@ -141,14 +141,13 @@ export default function Dashboard({ token, user }) {
         </div>
       )}
 
-      <div className="dashboard-actions">
-        <button className="btn btn-primary" onClick={() => { setEditingGoal(null); setShowForm(true); }}>+ Add goal</button>
-        {team.reviewees.length > 0 && (
+      {team.reviewees.length > 0 && (
+        <div className="dashboard-actions">
           <button className="btn btn-ghost" onClick={() => setShowReview(true)}>
-            Goals I review ({team.reviewees.length})
+            Goals to review ({team.reviewees.length})
           </button>
-        )}
-      </div>
+        </div>
+      )}
 
       <div className="section-title" style={{ marginTop: 0 }}>My goals</div>
 
@@ -184,7 +183,7 @@ export default function Dashboard({ token, user }) {
       {showReview && (
         <div className="modal-overlay" onClick={() => setShowReview(false)}>
           <div className="modal-box" style={{ maxWidth: 700 }} onClick={(e) => e.stopPropagation()}>
-            <div className="section-title" style={{ marginTop: 0 }}>Goals I review</div>
+            <div className="section-title" style={{ marginTop: 0 }}>Goals to review</div>
             {teamLoading ? (
               <div className="loading-spinner">Loading…</div>
             ) : team.reviewees.length > 0 ? (
