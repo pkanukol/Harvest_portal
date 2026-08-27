@@ -4,7 +4,6 @@ import { api } from "../api";
 import { fmtDate } from "../dateUtils";
 import BackfillPanel from "./BackfillPanel";
 import AnnualProgress from "./AnnualProgress";
-import BranchCompare from "./BranchCompare";
 import { GRADES } from "../grades";
 
 export default function Progress({ token, user, isReadOnlyViewer, isLeadership = false, branch = "", onBack }) {
@@ -128,14 +127,6 @@ export default function Progress({ token, user, isReadOnlyViewer, isLeadership =
         >
           This month
         </button>
-        {/* Both campuses side by side. Every other view is scoped to one of
-            them by the header selector; this one deliberately is not. */}
-        <button
-          className={`range-tab${range === "compare" ? " range-tab-active" : ""}`}
-          onClick={() => setRange("compare")}
-        >
-          Compare campuses
-        </button>
       </div>
 
       <div className="filter-bar">
@@ -168,7 +159,7 @@ export default function Progress({ token, user, isReadOnlyViewer, isLeadership =
             <input className="form-control readonly-field" value={subject} readOnly />
           )}
         </div>
-        <div className="form-group" style={{ display: range === "compare" ? "none" : undefined }}>
+        <div className="form-group">
           <label className="form-label">Grade</label>
           <select className="form-control" value={grade} onChange={(e) => setGrade(e.target.value)}>
             <option value="">Select a grade…</option>
@@ -178,10 +169,6 @@ export default function Progress({ token, user, isReadOnlyViewer, isLeadership =
       </div>
       </div>
 
-
-      {range === "compare" && (
-        <BranchCompare token={token} subject={subject} discipline={discipline} />
-      )}
 
       {range === "annual" && (
         <AnnualProgress
