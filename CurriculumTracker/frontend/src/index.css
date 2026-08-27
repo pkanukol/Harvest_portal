@@ -307,3 +307,87 @@ th { background: var(--bg); color: var(--muted); font-weight: 600; font-size: 11
 .filter-bar { margin-bottom: 16px; }
 .filter-bar .form-row { margin-bottom: 0; }
 .lag-panel .card { background: var(--page); }
+
+/* A session's or a section's own block within the POW form and view. Grouped
+   so several of them read as a list rather than one long run of fields. */
+.session-block { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 14px; margin-bottom: 12px; background: var(--card); }
+.session-block-head { font-size: 12px; font-weight: 700; color: var(--brand-700); margin-bottom: 10px; }
+.session-remove { float: right; font-weight: 400; }
+
+/* Compact toggles for picking sections. A row of pills reads in one line where
+   a column of checkboxes ran down the page, and the same control does duty for
+   "which sections exist" and "which are elsewhere". */
+.pill-field { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+.pill-label { font-size: 11px; font-weight: 700; color: var(--muted); min-width: 150px; }
+.pill-row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.pill { border: 1.5px solid var(--border); background: var(--page); color: var(--muted); border-radius: 999px; padding: 5px 14px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit; }
+.pill:hover { border-color: var(--brand); }
+.pill-on { background: var(--brand-700); border-color: var(--brand-700); color: #fff; }
+.pill-warn { background: var(--warn); border-color: var(--warn); color: #fff; }
+
+/* One line per section that is elsewhere: its tag, then its three pickers. */
+.section-override { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+.section-override .form-control { flex: 1 1 180px; width: auto; }
+.section-override-tag { background: var(--warn); color: #fff; border-radius: 999px; padding: 4px 12px; font-size: 11px; font-weight: 700; }
+.pill-sublabel { display: block; font-weight: 400; font-size: 10px; color: var(--ink-faint); margin-top: 1px; }
+.pill-dashed { border-style: dashed; }
+.pill-dashed:hover { border-style: solid; background: var(--warn-bg); color: #8a5a10; }
+.section-check { display: inline-flex; align-items: center; gap: 6px; border: 1.5px solid var(--border); background: var(--page); border-radius: 8px; padding: 5px 12px; font-size: 12px; font-weight: 600; cursor: pointer; }
+.section-check:hover { border-color: var(--warn); }
+.section-check input { cursor: pointer; }
+.section-check:has(input:checked) { border-color: var(--warn); background: var(--warn-bg); color: #8a5a10; }
+.section-check-hint { font-weight: 400; font-size: 10px; color: var(--muted); max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.section-override-lead { margin: 4px 0 8px; }
+
+/* A plan: the sections it covers, and their sessions in full. Boxed so several
+   plans in one week read as separate things rather than one long form. */
+.plan-card { border: 1px solid var(--line-2); border-radius: var(--radius); background: var(--card); padding: 14px 16px; margin-bottom: 16px; }
+.plan-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.plan-title { font-size: 13px; font-weight: 700; color: var(--brand-700); }
+.plan-card .session-block { background: var(--page); }
+/* A section already on another plan: still clickable, to move it here. */
+.pill-taken { border-style: dashed; color: var(--ink-faint); }
+.plan-add { margin-bottom: 20px; }
+
+/* A section's plan and its implementation in one block, so the teacher reads
+   what was planned and records what happened without scrolling between them. */
+.impl-section { border: 1px solid var(--line-2); border-radius: var(--radius-sm); background: var(--card); padding: 12px 14px; margin-bottom: 14px; }
+.impl-section-head { font-size: 12px; font-weight: 700; color: var(--brand-700); margin-bottom: 8px; display: flex; gap: 10px; flex-wrap: wrap; align-items: baseline; }
+.impl-section-plan { font-weight: 500; color: var(--muted); font-size: 11px; }
+.impl-plan-table { margin-bottom: 10px; background: var(--page); border-radius: var(--radius-sm); }
+.impl-plan-table th { width: 130px; }
+.impl-plan-fields { display: flex; flex-direction: column; gap: 3px; font-size: 11px; }
+.impl-plan-fields strong { color: var(--brand-700); }
+
+/* Implementation as a session x section grid: sections sharing a plan sit in
+   one box, and each session inside it is recorded per section, because
+   sections finish the same session on different days. */
+.impl-session { border-top: 1px solid var(--border); padding-top: 10px; margin-top: 10px; }
+.impl-session:first-of-type { border-top: 0; padding-top: 0; margin-top: 0; }
+.impl-session-head { font-size: 12px; font-weight: 700; color: var(--ink); margin-bottom: 6px; }
+.impl-grid { width: 100%; border-collapse: collapse; margin-top: 8px; }
+.impl-grid th, .impl-grid td { padding: 5px 6px; vertical-align: top; border-bottom: 1px solid var(--border); }
+.impl-grid thead th { font-size: 10px; text-transform: uppercase; letter-spacing: .03em; background: var(--bg); color: var(--muted); }
+.impl-grid-section { width: 58px; background: var(--bg); color: var(--brand-700); font-weight: 700; font-size: 12px; }
+.impl-grid td:nth-child(3), .impl-grid td:nth-child(4) { width: 150px; }
+.impl-grid textarea.form-control { min-height: 46px; }
+.overview-sections { white-space: nowrap; font-weight: 600; color: var(--brand-700); }
+/* A continuation row of the same POW: same week, a different plan. */
+.overview-row-cont td:first-child { border-left: 3px solid var(--brand-200); }
+
+/* Both campuses side by side, grade by grade. */
+.compare-note, .compare-legend { margin: 0 0 12px; }
+.compare-legend { margin-top: 10px; }
+.compare-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.compare-table th, .compare-table td { padding: 7px 9px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: middle; }
+.compare-table thead th { background: var(--bg); color: var(--brand-700); font-size: 10px; text-transform: uppercase; letter-spacing: .03em; text-align: center; }
+.compare-table thead th:first-child, .compare-table thead th:nth-child(2) { text-align: left; }
+.compare-grade { white-space: nowrap; font-weight: 700; color: var(--brand-700); }
+.compare-sections { white-space: nowrap; font-size: 11px; color: var(--muted); }
+.compare-bar { height: 5px; border-radius: 3px; background: var(--bg); overflow: hidden; margin-bottom: 3px; min-width: 70px; }
+.compare-bar-fill { height: 100%; background: var(--green); }
+.compare-figure { font-size: 11px; white-space: nowrap; }
+.compare-gap { text-align: center; font-weight: 700; white-space: nowrap; }
+.gap-k { color: var(--brand-700); }
+.gap-a { color: var(--warn); }
+.compare-idle td, .compare-idle th { opacity: .55; }
