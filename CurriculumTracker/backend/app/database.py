@@ -84,18 +84,55 @@ def run_migrations():
                 with engine.begin() as conn:
                     conn.execute(text(f"ALTER TABLE pow_entries ADD COLUMN {column} DATE"))
 
+    if "pow_entries" in existing_tables:
+        cols = {c["name"] for c in inspector.get_columns("pow_entries")}
+        # Correction Done became a date per section (see models.PowEntry).
+        for section in ("a", "b", "c", "d", "e", "f"):
+            column = f"correction_{section}_date"
+            if column not in cols:
+                with engine.begin() as conn:
+                    conn.execute(text(f"ALTER TABLE pow_entries ADD COLUMN {column} DATE"))
+
+    if "pow_sessions" in existing_tables:
+        cols = {c["name"] for c in inspector.get_columns("pow_sessions")}
+        # A session carries its own chapter/topic/sub-topic (a week can cross a
+        # chapter boundary) plus its lesson-plan link and learning outcomes.
+        for column, coltype in (
+            ("chapter", "VARCHAR"), ("topic", "VARCHAR"), ("subtopic", "TEXT"),
+            ("lp_link", "TEXT"), ("learning_outcomes", "TEXT"),
+            ("sections", "VARCHAR"),
+        ):
+            if column not in cols:
+                with engine.begin() as conn:
+                    conn.execute(text(f"ALTER TABLE pow_sessions ADD COLUMN {column} {coltype}"))
+
     if "curriculum_backfill_confirmed" in existing_tables:
         # Confirmations were per teacher; they're per subject+grade now, and the
         # old unique index would block the new shape.
         with engine.begin() as conn:
             conn.execute(text("DROP INDEX IF EXISTS ix_backfill_confirmed_key"))
             conn.execute(text("DELETE FROM curriculum_backfill_confirmed WHERE teacher_email IS NOT NULL"))
-            # The column itself was still NOT NULL from the per-teacher design,
-            # so every grade-wise confirmation failed on insert. The model has
-            # it nullable; this is the DB catching up.
-            conn.execute(text(
-                "ALTER TABLE curriculum_backfill_confirmed ALTER COLUMN teacher_email DROP NOT NULL"
-            ))
+        # The column itself was still NOT NULL from the per-teacher design, so
+        # every grade-wise confirmation failed on insert. Guarded on the current
+        # state rather than run every startup: ALTER TABLE takes an exclusive
+        # lock, and two instances booting together (Render and a local one)
+        # deadlocked on each other trying to make the same change.
+        still_not_null = any(
+            c["name"] == "teacher_email" and not c["nullable"]
+            for c in inspector.get_columns("curriculum_backfill_confirmed")
+        )
+        if still_not_null:
+            with engine.begin() as conn:
+                conn.execute(text(
+                    "ALTER TABLE curriculum_backfill_confirmed ALTER COLUMN teacher_email DROP NOT NULL"
+                ))
+
+    for table in ("curriculum_backfill", "curriculum_backfill_confirmed"):
+        if table in existing_tables:
+            cols = {c["name"] for c in inspector.get_columns(table)}
+            if "branch" not in cols:
+                with engine.begin() as conn:
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN branch VARCHAR"))
 
     if "curriculum_backfill" in existing_tables:
         cols = {c["name"] for c in inspector.get_columns("curriculum_backfill")}
