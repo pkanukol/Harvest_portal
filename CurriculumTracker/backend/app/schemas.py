@@ -172,6 +172,33 @@ class PlannerImportResponse(BaseModel):
     total_rows: int
 
 
+class PowSessionIn(BaseModel):
+    """One session of the week, with its own plan. See models.PowSession."""
+    session_no: Optional[str] = ""
+    # The sections this session is for. Empty means the whole grade.
+    sections: List[str] = []
+    # Defaults to the POW's chapter on the form; sent per session because a
+    # week can finish one chapter and start the next.
+    chapter: Optional[str] = ""
+    topic: Optional[str] = ""
+    subtopic: Optional[str] = ""
+    cw: Optional[str] = ""
+    binder: Optional[str] = ""
+    activity: Optional[str] = ""
+    homework: Optional[str] = ""
+    lp_link: Optional[str] = ""
+    learning_outcomes: Optional[str] = ""
+
+
+class PowSectionPlanIn(BaseModel):
+    """What one section is working on. Sections drift apart, so this is per
+    section rather than once for the grade - see models.PowSectionPlan."""
+    section: str
+    chapter: Optional[str] = ""
+    topic: Optional[str] = ""
+    subtopic: Optional[str] = ""
+
+
 class PowCreateRequest(BaseModel):
     subject: str
     grade: str
@@ -189,8 +216,21 @@ class PowCreateRequest(BaseModel):
     cct_dashboard_updated: Optional[bool] = False
     tbs_mom: Optional[str] = ""
     correction_done: Optional[str] = ""
-    instructions: Optional[str] = ""
-    teacher_remarks: Optional[str] = ""
+    instructions: Optional[str] = ""          # labelled "Events / Holidays" in the UI
+    teacher_remarks: Optional[str] = ""       # retired; kept so an older client still posts cleanly
+    # Per session, and per section. cw/binder/activity/homework above stay for
+    # older clients; when sessions are sent they are what counts.
+    sessions: List[PowSessionIn] = []
+    section_plans: List[PowSectionPlanIn] = []
+
+
+class SessionImplIn(BaseModel):
+    """One section's record of one session. See models.PowSessionImpl."""
+    session_id: int
+    section: str
+    remarks: Optional[str] = None
+    completed_on: Optional[str] = None      # ISO date, or "" to clear
+    correction_on: Optional[str] = None
 
 
 class PowImplementationRequest(BaseModel):
@@ -210,10 +250,21 @@ class PowImplementationRequest(BaseModel):
     impl_d_date: Optional[str] = None
     impl_e_date: Optional[str] = None
     impl_f_date: Optional[str] = None
+    # Correction Done is now a date per section, saved beside that section's
+    # completion date. Same not-sent-means-untouched rule.
+    correction_a_date: Optional[str] = None
+    correction_b_date: Optional[str] = None
+    correction_c_date: Optional[str] = None
+    correction_d_date: Optional[str] = None
+    correction_e_date: Optional[str] = None
+    correction_f_date: Optional[str] = None
     tbs_mom: Optional[str] = None
     correction_done: Optional[str] = None
     instructions: Optional[str] = None
     teacher_remarks: Optional[str] = None
+    # Per (session, section). Only the rows sent are touched, so one section's
+    # teacher saving theirs never disturbs another's.
+    session_impl: List[SessionImplIn] = []
     final_save: bool = False
 
 
@@ -237,6 +288,7 @@ class BackfillMark(BaseModel):
 class BackfillSaveRequest(BaseModel):
     subject: str
     grade: int
+    branch: Optional[str] = ""      # coverage is marked per campus
     marks: List[BackfillMark] = []
 
 
@@ -257,6 +309,7 @@ class BackfillChapter(BaseModel):
 class BackfillConfirmRequest(BaseModel):
     subject: str
     grade: int
+    branch: Optional[str] = ""
 
 
 class BackfillResponse(BaseModel):
