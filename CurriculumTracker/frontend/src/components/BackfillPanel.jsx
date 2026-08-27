@@ -13,7 +13,7 @@ import { api } from "../api";
  * Teachers filing POWs does NOT close it — only the SME confirming that
  * coverage is complete does, and that can be reopened.
  */
-export default function BackfillPanel({ token, subject, grade }) {
+export default function BackfillPanel({ token, subject, grade, branch = "" }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -24,7 +24,7 @@ export default function BackfillPanel({ token, subject, grade }) {
   function load() {
     setError("");
     setSaved(false);
-    api.getBackfill(token, subject, grade)
+    api.getBackfill(token, subject, grade, branch)
       .then(setData)
       .catch((err) => setError(err.message));
   }
@@ -32,7 +32,7 @@ export default function BackfillPanel({ token, subject, grade }) {
   useEffect(() => {
     if (!subject || !grade) { setData(null); return; }
     load();
-  }, [token, subject, grade]);
+  }, [token, subject, grade, branch]);
 
   if (!subject || !grade) return null;
   if (error) return <div className="upload-note backfill-note">{error}</div>;
@@ -44,7 +44,7 @@ export default function BackfillPanel({ token, subject, grade }) {
     setSaving(true);
     setError("");
     try {
-      await api.reopenBackfill(token, { subject, grade: Number(grade) });
+      await api.reopenBackfill(token, { subject, grade: Number(grade), branch });
       load();
     } catch (err) {
       setError(err.message);
@@ -125,7 +125,7 @@ export default function BackfillPanel({ token, subject, grade }) {
       }
     });
     try {
-      await api.saveBackfill(token, { subject, grade: Number(grade), marks });
+      await api.saveBackfill(token, { subject, grade: Number(grade), branch, marks });
       if (!opts.silent) { setSaved(true); load(); }
     } catch (err) {
       setError(err.message);
@@ -140,7 +140,7 @@ export default function BackfillPanel({ token, subject, grade }) {
     setError("");
     try {
       await save({ silent: true });
-      await api.confirmBackfill(token, { subject, grade: Number(grade) });
+      await api.confirmBackfill(token, { subject, grade: Number(grade), branch });
       load();
     } catch (err) {
       setError(err.message);
