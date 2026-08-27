@@ -5,7 +5,7 @@ import LaggingPanel from "./LaggingPanel";
 import { fmtDate } from "../dateUtils";
 import { GRADES } from "../grades";
 
-export default function Dashboard({ token, user, isReadOnlyViewer, isLeadership, canUploadCurriculum, canCreatePow, canSeeOverview, branch = "", onNewPow, onProgress, onOverview, onPlannerUpload, onOpenPow }) {
+export default function Dashboard({ token, user, isReadOnlyViewer, isLeadership, canUploadCurriculum, canCreatePow, canSeeOverview, branch = "", onNewPow, onProgress, onOverview, onCompare, onPlannerUpload, onOpenPow }) {
   const [teachersList, setTeachersList] = useState([]);
   const mySubjects = (user.subjects && user.subjects.length ? user.subjects : [user.subject]).filter(Boolean);
   const [subject, setSubject] = useState(isReadOnlyViewer ? "" : (user.subject || mySubjects[0] || ""));
@@ -140,6 +140,9 @@ export default function Dashboard({ token, user, isReadOnlyViewer, isLeadership,
         {canUploadCurriculum && <button className="btn btn-ghost btn-sm" onClick={onPlannerUpload}>📄 Curriculum Upload</button>}
         {isReadOnlyViewer && <button className="btn btn-primary btn-sm" onClick={onProgress}>Progress Check</button>}
         {canSeeOverview && <button className="btn btn-primary btn-sm" onClick={onOverview}>Curriculum Overview</button>}
+        {/* Spans every grade and both campuses, so it sits beside the others
+            rather than inside a grade-scoped screen. */}
+        {isReadOnlyViewer && <button className="btn btn-primary btn-sm" onClick={onCompare}>Compare Campuses</button>}
       </div>
 
       <div className="filter-bar">
