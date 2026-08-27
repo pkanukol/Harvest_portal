@@ -146,8 +146,12 @@ export const api = {
   getLagging: (token, branch = "") =>
     request(`/progress/lagging?branch=${encodeURIComponent(branch)}`, { token }),
 
-  getBackfill: (token, subject, grade) =>
-    request(`/backfill?subject=${encodeURIComponent(subject)}&grade=${encodeURIComponent(grade)}`, { token }),
+  getBackfill: (token, subject, grade, branch = "") =>
+    request(
+      `/backfill?subject=${encodeURIComponent(subject)}&grade=${encodeURIComponent(grade)}` +
+        `&branch=${encodeURIComponent(branch)}`,
+      { token },
+    ),
 
   saveBackfill: (token, payload) => request("/backfill", { method: "POST", token, body: payload }),
 
@@ -177,6 +181,23 @@ export const api = {
 
   getTbsMomAlerts: (token) => request("/pow/tbs-mom-alerts", { token }),
 
+  // Where each section of a grade got to, so a new POW starts each one from
+  // its own last topic rather than the grade's.
+  // The sections a campus runs for a grade - Attibele runs two where Kodathi
+  // runs five or six, so the POW form must not offer A-F everywhere.
+  getSectionsForGrade: (token, subject, grade, branch = "") =>
+    request(
+      `/pow/sections?subject=${encodeURIComponent(subject)}&grade=${encodeURIComponent(grade)}` +
+        `&branch=${encodeURIComponent(branch)}`,
+      { token },
+    ),
+
+  getLastSectionPlans: (token, subject, grade) =>
+    request(
+      `/pow/last-plans?subject=${encodeURIComponent(subject)}&grade=${encodeURIComponent(grade)}`,
+      { token },
+    ),
+
   downloadCurriculumOverview: (token, subject, grade, branch = "") =>
     download(
       `/pow/overview.xlsx?subject=${encodeURIComponent(subject)}&grade=${encodeURIComponent(grade)}` +
@@ -201,33 +222,41 @@ export const api = {
   saveSmeReview: (token, id, payload) =>
     request(`/pow/${id}/review`, { method: "PUT", token, body: payload }),
 
-  getProgressSummary: (token, subject, grade, teacherEmail, discipline = "") =>
+  getProgressSummary: (token, subject, grade, teacherEmail, discipline = "", branch = "") =>
     request(
       `/progress/summary?subject=${encodeURIComponent(subject)}&grade=${encodeURIComponent(grade)}` +
-        `&teacher_email=${encodeURIComponent(teacherEmail || "")}&discipline=${encodeURIComponent(discipline)}`,
+        `&teacher_email=${encodeURIComponent(teacherEmail || "")}&discipline=${encodeURIComponent(discipline)}` +
+        `&branch=${encodeURIComponent(branch)}`,
       { token },
     ),
 
-  getAnnualProgress: (token, subject, grade, discipline = "") =>
+  getAnnualProgress: (token, subject, grade, discipline = "", branch = "") =>
     request(
       `/progress/annual?subject=${encodeURIComponent(subject)}&grade=${encodeURIComponent(grade)}` +
-        `&discipline=${encodeURIComponent(discipline)}`,
+        `&discipline=${encodeURIComponent(discipline)}&branch=${encodeURIComponent(branch)}`,
       { token },
     ),
 
   // Cumulative year-to-date, month by month — the Full year tab.
-  getProgressChart: (token, subject, grade, discipline = "") =>
+  // Kodathi against Attibele, grade by grade, for one subject.
+  compareBranches: (token, subject, discipline = "") =>
+    request(
+      `/progress/compare?subject=${encodeURIComponent(subject)}&discipline=${encodeURIComponent(discipline)}`,
+      { token },
+    ),
+
+  getProgressChart: (token, subject, grade, discipline = "", branch = "") =>
     request(
       `/progress/chart?subject=${encodeURIComponent(subject)}&grade=${encodeURIComponent(grade)}` +
-        `&discipline=${encodeURIComponent(discipline)}`,
+        `&discipline=${encodeURIComponent(discipline)}&branch=${encodeURIComponent(branch)}`,
       { token },
     ),
 
   // This month, week by week — the This month tab.
-  getMonthChart: (token, subject, grade, discipline = "") =>
+  getMonthChart: (token, subject, grade, discipline = "", branch = "") =>
     request(
       `/progress/month-chart?subject=${encodeURIComponent(subject)}&grade=${encodeURIComponent(grade)}` +
-        `&discipline=${encodeURIComponent(discipline)}`,
+        `&discipline=${encodeURIComponent(discipline)}&branch=${encodeURIComponent(branch)}`,
       { token },
     ),
 };
