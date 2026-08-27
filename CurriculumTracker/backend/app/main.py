@@ -384,11 +384,12 @@ def _check_backfill_scope(db: Session, user: auth.CurrentUser, subject: str) -> 
 def get_backfill(
     subject: str = Query(...),
     grade: int = Query(...),
+    branch: str = Query(""),
     db: Session = Depends(get_db),
     current_user: auth.CurrentUser = Depends(auth.require_curriculum_uploader),
 ):
     _check_backfill_scope(db, current_user, subject)
-    return crud.get_backfill_view(db, subject, grade)
+    return crud.get_backfill_view(db, subject, grade, branch)
 
 
 @app.post("/api/backfill")
@@ -401,16 +402,16 @@ def save_backfill(
     from that point progress is whatever the POWs say, and re-opening the
     marking would let someone silently rewrite history."""
     _check_backfill_scope(db, current_user, req.subject)
-    view = crud.get_backfill_view(db, req.subject, req.grade)
+    view = crud.get_backfill_view(db, req.subject, req.grade, req.branch)
     if view["locked"]:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Coverage for {req.subject} Grade {req.grade} was confirmed complete by "
                    f"{view['confirmed_by'] or 'an SME'} — reopen it first if it needs changing.",
         )
-    result = crud.save_backfill(db, req.subject, req.grade, req.marks, current_user.email)
-    logger.info("Backfill saved by %s: %s Grade %s — %s marks",
-                current_user.email, req.subject, req.grade, result["saved"])
+    result = crud.save_backfill(db, req.subject, req.grade, req.marks, current_user.email, req.branch)
+    logger.info("Backfill saved by %s: %s Grade %s %s — %s marks",
+                current_user.email, req.subject, req.grade, req.branch or "(all campuses)", result["saved"])
     return {"success": True, **result}
 
 
@@ -423,7 +424,7 @@ def confirm_backfill(
     """The SME saying "past coverage for this teacher is complete". This — not
     the arrival of POWs — is what closes the marking."""
     _check_backfill_scope(db, current_user, req.subject)
-    result = crud.confirm_backfill(db, req.subject, req.grade, current_user.email)
+    result = crud.confirm_backfill(db, req.subject, req.grade, current_user.email, req.branch)
     logger.info("Backfill confirmed by %s: %s Grade %s",
                 current_user.email, req.subject, req.grade)
     return {"success": True, **result}
@@ -437,7 +438,7 @@ def reopen_backfill(
 ):
     """Undo a confirmation — the marks are kept, the window just opens again."""
     _check_backfill_scope(db, current_user, req.subject)
-    result = crud.reopen_backfill(db, req.subject, req.grade)
+    result = crud.reopen_backfill(db, req.subject, req.grade, req.branch)
     logger.info("Backfill reopened by %s: %s Grade %s",
                 current_user.email, req.subject, req.grade)
     return {"success": True, **result}
@@ -524,6 +525,42 @@ def get_tbs_mom_alerts(
     return {"cards": crud.get_tbs_mom_alerts(db, current_user.email, current_user.role)}
 
 
+# Declared before /api/pow/{pow_id}: FastAPI matches routes in order, and
+# "last-plans" would otherwise be read as a pow_id.
+@app.get("/api/pow/sections")
+def get_sections_for_grade(
+    subject: str = Query(...),
+    grade: str = Query(...),
+    branch: str = Query(""),
+    db: Session = Depends(get_db),
+    current_user: auth.CurrentUser = Depends(auth.get_current_user),
+):
+    """The sections this campus runs for a subject+grade - Attibele runs two
+    where Kodathi runs five or six.
+
+    A teacher with no campus selected gets their OWN campus rather than the
+    union of both: they can only file for the sections they actually teach."""
+    campus = branch
+    if not campus:
+        me = db.query(models.User).filter(models.User.email.ilike(current_user.email)).first()
+        own = crud.viewer_branches(me.location if me else "")
+        if len(own) == 1:
+            campus = own[0]
+    return {"sections": crud.sections_for_grade(db, subject, grade, campus), "branch": campus}
+
+
+@app.get("/api/pow/last-plans")
+def get_last_section_plans(
+    subject: str = Query(...),
+    grade: str = Query(...),
+    db: Session = Depends(get_db),
+    _user: auth.CurrentUser = Depends(auth.get_current_user),
+):
+    """Where each section of this subject+grade got to, so a new POW can start
+    each one from its own last topic rather than from the grade's."""
+    return {"plans": crud.last_section_plans(db, subject, grade)}
+
+
 @app.get("/api/pow/{pow_id}")
 def get_pow(
     pow_id: int,
@@ -549,8 +586,40 @@ def get_pow(
                                    if getattr(pow_entry, f"impl_{s}_date") else None)
                 for s in "abcdef"
             },
+            **{
+                f"correction_{s}_date": (getattr(pow_entry, f"correction_{s}_date").isoformat()
+                                         if getattr(pow_entry, f"correction_{s}_date") else None)
+                for s in "abcdef"
+            },
             "correction_done": pow_entry.correction_done, "instructions": pow_entry.instructions,
             "teacher_remarks": pow_entry.teacher_remarks, "status": pow_entry.status, "tbs_mom": pow_entry.tbs_mom,
+            # A week runs several sessions, each with its own plan, and each
+            # section may be on its own topic - see models.PowSession and
+            # models.PowSectionPlan.
+            "sessions": [
+                {"session_no": x.session_no or "",
+                 "sections": [y for y in (x.sections or "").split(",") if y],
+                 "chapter": x.chapter or "",
+                 "topic": x.topic or "", "subtopic": x.subtopic or "",
+                 "cw": x.cw or "", "binder": x.binder or "",
+                 "activity": x.activity or "", "homework": x.homework or "",
+                 "lp_link": x.lp_link or "", "learning_outcomes": x.learning_outcomes or "",
+                 "id": x.id,
+                 "impl": {
+                     i.section: {
+                         "remarks": i.remarks or "",
+                         "completed_on": i.completed_on.isoformat() if i.completed_on else None,
+                         "correction_on": i.correction_on.isoformat() if i.correction_on else None,
+                     }
+                     for i in x.implementations
+                 }}
+                for x in pow_entry.sessions
+            ],
+            "section_plans": [
+                {"section": x.section, "chapter": x.chapter or "", "topic": x.topic or "",
+                 "subtopic": x.subtopic or ""}
+                for x in pow_entry.section_plans
+            ],
             # Inside `pow` deliberately: the frontend keeps res.pow in state, so
             # a flag on the wrapper reads as undefined and silently disables
             # every field (exactly what happened).
@@ -657,6 +726,7 @@ def get_progress_summary(
     grade: str = Query(...),
     teacher_email: str = Query(""),
     discipline: str = Query(""),
+    branch: str = Query(""),
     db: Session = Depends(get_db),
     current_user: auth.CurrentUser = Depends(auth.get_current_user),
 ):
@@ -674,7 +744,8 @@ def get_progress_summary(
         chosen = crud.stream_discipline(subject) or crud.default_discipline_for(
             staff_directory.subjects_for(current_user.email), available
         ) or ""
-    summary = crud.get_progress_summary(db, subject, int(grade), effective_email, chosen or None)
+    scope = crud.progress_scope(db, current_user.email, current_user.role, branch)
+    summary = crud.get_progress_summary(db, subject, int(grade), effective_email, chosen or None, scope, branch)
     summary["discipline_default"] = chosen
     return summary
 
@@ -684,6 +755,7 @@ def get_annual_progress(
     subject: str = Query(...),
     grade: str = Query(...),
     discipline: str = Query(""),
+    branch: str = Query(""),
     db: Session = Depends(get_db),
     current_user: auth.CurrentUser = Depends(auth.get_current_user),
 ):
@@ -703,9 +775,32 @@ def get_annual_progress(
         chosen = crud.stream_discipline(subject) or crud.default_discipline_for(
             staff_directory.subjects_for(current_user.email), available
         ) or ""
-    result = crud.get_annual_progress(db, subject, int(grade), chosen or None)
+    result = crud.get_annual_progress(
+        db, subject, int(grade), chosen or None,
+        crud.progress_scope(db, current_user.email, current_user.role, branch), branch,
+    )
     result["discipline_default"] = chosen
     return result
+
+
+@app.get("/api/progress/compare")
+def compare_branches(
+    subject: str = Query(...),
+    discipline: str = Query(""),
+    db: Session = Depends(get_db),
+    current_user: auth.CurrentUser = Depends(auth.get_current_user),
+):
+    """Kodathi against Attibele, grade by grade, for one subject. An SME,
+    Curriculum Head or the leadership team oversees both campuses separately;
+    this is the one place they are put side by side."""
+    if current_user.role == "Teacher":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="The branch comparison is for SMEs and the leadership team.",
+        )
+    return crud.compare_branches(
+        db, current_user.email, current_user.role, subject, discipline.strip() or None
+    )
 
 
 @app.get("/api/progress/lagging")
@@ -727,12 +822,16 @@ def get_month_chart(
     subject: str = Query(...),
     grade: str = Query(...),
     discipline: str = Query(""),
+    branch: str = Query(""),
     db: Session = Depends(get_db),
-    _user: auth.CurrentUser = Depends(auth.get_current_user),
+    current_user: auth.CurrentUser = Depends(auth.get_current_user),
 ):
     """This month week by week. The cumulative year-to-date chart is
     /api/progress/chart, shown on the Full year tab."""
-    return crud.get_month_chart(db, subject, int(grade), discipline.strip() or None)
+    return crud.get_month_chart(
+        db, subject, int(grade), discipline.strip() or None,
+        crud.progress_scope(db, current_user.email, current_user.role, branch), branch,
+    )
 
 
 @app.get("/api/progress/chart")
@@ -740,9 +839,13 @@ def get_progress_chart(
     subject: str = Query(...),
     grade: str = Query(...),
     discipline: str = Query(""),
+    branch: str = Query(""),
     db: Session = Depends(get_db),
-    _user: auth.CurrentUser = Depends(auth.get_current_user),
+    current_user: auth.CurrentUser = Depends(auth.get_current_user),
 ):
     """Cumulative year-to-date, month by month. Shown on the Full year tab -
     the month-by-week view is /api/progress/month-chart."""
-    return crud.get_progress_chart(db, subject, int(grade), discipline.strip() or None)
+    return crud.get_progress_chart(
+        db, subject, int(grade), discipline.strip() or None,
+        crud.progress_scope(db, current_user.email, current_user.role, branch), branch,
+    )
