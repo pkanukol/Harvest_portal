@@ -93,6 +93,9 @@ def main() -> None:
     ap.add_argument("--apply", action="store_true", help="actually write (default is a dry run)")
     ap.add_argument("--overwrite", action="store_true",
                     help="also replace reviewers that are already set (default: only fill blanks)")
+    ap.add_argument("--overwrite-teachers", action="store_true",
+                    help="enforce the branch-principal rule for teachers even where a reviewer "
+                         "is already set, leaving everyone else's manual assignments alone")
     args = ap.parse_args()
 
     db = SessionLocal()
@@ -109,7 +112,11 @@ def main() -> None:
             if reviewer is None:
                 skipped.append((u, why))
                 continue
-            if current_reviewer and not args.overwrite:
+            # Teachers follow their branch principal by rule; --overwrite-teachers
+            # re-points ones assigned to someone else (e.g. an HOD) without
+            # disturbing manual choices anywhere else in the chain.
+            force = args.overwrite or (args.overwrite_teachers and (u.role or "").strip().lower() == "teacher")
+            if current_reviewer and not force:
                 kept.append((u, current_reviewer))
                 continue
             if current_reviewer and current_reviewer.lower() == reviewer.lower():
@@ -133,7 +140,7 @@ def main() -> None:
             for u, why in skipped:
                 print(f"  {u.name:<32} {str(u.designation):<22} {why}")
 
-        if args.overwrite and to_write:
+        if (args.overwrite or args.overwrite_teachers) and to_write:
             changes = [(u, r, cur) for u, r, _, cur in to_write if cur]
             if changes:
                 print(f"\n--- {len(changes)} EXISTING reviewer(s) would be REPLACED ---")
