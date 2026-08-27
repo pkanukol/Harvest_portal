@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
+import { GRADES } from "../grades";
 import { nextWeekDates, toISO, fmtDate, MONTHS } from "../dateUtils";
 
 // mode: "new" (current/future week, no implementation section) |
@@ -28,19 +29,29 @@ export default function POWForm({ token, user, mode, prefillPow, onDone, onBack 
   const [chapter, setChapter] = useState(isImplOnly ? (prefillPow?.topic || "") : "");
   const [topicPick, setTopicPick] = useState("");
   const [subtopicPick, setSubtopicPick] = useState("");
-  const [sessionChecks, setSessionChecks] = useState({});
 
-  const [cw, setCw] = useState("");
-  const [binder, setBinder] = useState("");
-  const [activity, setActivity] = useState("");
-  const [homework, setHomework] = useState("");
+  // The week is one or more PLANS. A plan is a set of sections plus the
+  // sessions they sit through, and a session carries everything about itself:
+  // chapter, topic, sub-topic, class work, binder, activity, homework, its
+  // lesson plan and its learning outcomes.
+  //
+  // Normally there is one plan covering every section. When a section falls
+  // behind - a holiday on its slot - it moves into a plan of its own, with its
+  // own chapter and its own class work, rather than being noted as an
+  // exception to somebody else's plan.
+  const [plans, setPlans] = useState([{ sections: [], sessions: [] }]);
+
+  // Where each section got to last week: seeds the first plan's section list,
+  // and tells the teacher what a section is carrying forward.
+  const [lastPlans, setLastPlans] = useState({});
+  // The sections this campus runs for the grade, from staff_roles. Attibele
+  // runs two where Kodathi runs five or six, so A-F is not the right offer.
+  const [gradeSections, setGradeSections] = useState([]);
   const [cctYes, setCctYes] = useState(false);
   const [cctText, setCctText] = useState("");
   const [cctDashboardUpdated, setCctDashboardUpdated] = useState(false);
   const [tbsMom, setTbsMom] = useState("");
-  const [correctionDone, setCorrectionDone] = useState("");
   const [instructions, setInstructions] = useState("");
-  const [teacherRemarks, setTeacherRemarks] = useState("");
   const [implA, setImplA] = useState(prefillPow?.impl_a || "");
   const [implB, setImplB] = useState(prefillPow?.impl_b || "");
   const [implC, setImplC] = useState(prefillPow?.impl_c || "");
@@ -50,6 +61,13 @@ export default function POWForm({ token, user, mode, prefillPow, onDone, onBack 
   const [implDates, setImplDates] = useState({
     a: prefillPow?.impl_a_date || "", b: prefillPow?.impl_b_date || "", c: prefillPow?.impl_c_date || "",
     d: prefillPow?.impl_d_date || "", e: prefillPow?.impl_e_date || "", f: prefillPow?.impl_f_date || "",
+  });
+  // Correction Done is a date per section now, sitting beside that section's
+  // completion date rather than being one free-text box for the week.
+  const [correctionDates, setCorrectionDates] = useState({
+    a: prefillPow?.correction_a_date || "", b: prefillPow?.correction_b_date || "",
+    c: prefillPow?.correction_c_date || "", d: prefillPow?.correction_d_date || "",
+    e: prefillPow?.correction_e_date || "", f: prefillPow?.correction_f_date || "",
   });
   const [finalSave, setFinalSave] = useState(false);
 
@@ -170,26 +188,190 @@ export default function POWForm({ token, user, mode, prefillPow, onDone, onBack 
     return topicRow ? topicRow.sessions : (row ? row.sessions : 0);
   }, [chaptersForDiscipline, chapter, scopedRows, month, topicPick]);
 
+  // Where each section left off last week. Fetched per subject+grade, and only
+  // for a new POW - the implementation-only form is not planning anything.
+  useEffect(() => {
+    if (isImplOnly || !grade) { setLastPlans({}); return; }
+    api.getSectionsForGrade(token, stream || subject, grade)
+      .then((res) => setGradeSections(res.sections || []))
+      .catch(() => setGradeSections([]));
+
+    api.getLastSectionPlans(token, stream || subject, grade)
+      .then((res) => {
+        const plans = res.plans || {};
+        setLastPlans(plans);
+        // The first plan opens on whichever sections this grade ran last week,
+        // or A and B for a grade with no history yet.
+        const known = Object.keys(plans).sort();
+        setPlans((prev) => (prev.length === 1 && prev[0].sections.length === 0
+          ? [{ ...prev[0], sections: known.length ? known : ["A", "B"] }]
+          : prev));
+      })
+      .catch(() => setLastPlans({}));
+  }, [token, stream, subject, grade, isImplOnly]);
+
+  // A section may be on a different chapter from the week's headline pick, so
+  // its topic and sub-topic lists are derived from ITS chapter, not the form's.
+  function topicsForSection(sectionChapter) {
+    const seen = new Set();
+    const list = [];
+    scopedRows.forEach((r) => {
+      if (r.chapter_name !== sectionChapter || !r.topic) return;
+      if (!seen.has(r.topic)) { seen.add(r.topic); list.push(r.topic); }
+    });
+    return list;
+  }
+
+  function subtopicsForSection(sectionChapter, sectionTopic) {
+    const seen = new Set();
+    const list = [];
+    scopedRows.forEach((r) => {
+      if (r.chapter_name !== sectionChapter || !r.subtopic) return;
+      if (sectionTopic && r.topic !== sectionTopic) return;
+      if (!seen.has(r.subtopic)) { seen.add(r.subtopic); list.push(r.subtopic); }
+    });
+    return list;
+  }
+
+
+  // ── plans and their sessions ───────────────────────────────────────────
+  // Every section named anywhere, which is the grade's full set.
+  const allPlannedSections = plans.flatMap((p) => p.sections);
+
+  const defaultChapter = chaptersForDiscipline.length ? chaptersForDiscipline[0].chapter_name : "";
+
+  function updatePlan(pi, changes) {
+    setPlans((prev) => prev.map((p, i) => (i === pi ? { ...p, ...changes } : p)));
+  }
+
+  // A section belongs to exactly one plan: adding it here takes it out of
+  // wherever it was, which is what keeps "common" and "different" from
+  // overlapping.
+  function toggleSection(pi, sec) {
+    setPlans((prev) => prev.map((p, i) => {
+      if (i === pi) {
+        return p.sections.includes(sec)
+          ? { ...p, sections: p.sections.filter((x) => x !== sec) }
+          : { ...p, sections: [...p.sections, sec].sort() };
+      }
+      return { ...p, sections: p.sections.filter((x) => x !== sec) };
+    }));
+  }
+
+  function setSessionField(pi, si, field, value) {
+    setPlans((prev) => prev.map((p, i) => (
+      i === pi
+        ? { ...p, sessions: p.sessions.map((x, j) => (j === si ? { ...x, [field]: value } : x)) }
+        : p
+    )));
+  }
+
+  // How many sessions a chapter plans, from the mapping - the range the
+  // session-number dropdown offers.
+  function sessionsInChapter(chapterName) {
+    const row = chaptersForDiscipline.find((r) => r.chapter_name === chapterName);
+    return (row && row.sessions) || 0;
+  }
+
+  // Within a chapter the sessions run in order, so a plan only offers numbers
+  // after the ones it has already used for that chapter.
+  function availableSessionNos(pi, si, chapterName) {
+    const total = sessionsInChapter(chapterName);
+    if (!total) return [];
+    const rows = plans[pi].sessions;
+    const takenElsewhere = rows
+      .filter((x, j) => j !== si && x.chapter === chapterName)
+      .map((x) => String(x.session_no));
+    const earlier = rows
+      .filter((x, j) => j < si && x.chapter === chapterName)
+      .map((x) => Number(x.session_no))
+      .filter((n) => !Number.isNaN(n));
+    const floor = earlier.length ? Math.max(...earlier) : 0;
+    return Array.from({ length: total }, (_, i) => i + 1)
+      .filter((n) => n > floor && !takenElsewhere.includes(String(n)));
+  }
+
+  function addSession(pi) {
+    const rows = plans[pi].sessions;
+    const base = (rows.length ? rows[rows.length - 1].chapter : "") || defaultChapter;
+    const used = rows
+      .filter((x) => x.chapter === base)
+      .map((x) => Number(x.session_no))
+      .filter((n) => !Number.isNaN(n));
+    const next = (used.length ? Math.max(...used) : 0) + 1;
+    const cap = sessionsInChapter(base);
+    updatePlan(pi, {
+      sessions: [...rows, {
+        session_no: String(cap ? Math.min(next, cap) : next),
+        chapter: base,
+        topic: "", subtopic: "",
+        cw: "", binder: "", activity: "", homework: "",
+        lp_link: "", learning_outcomes: "",
+      }],
+    });
+  }
+
+  function removeSession(pi, si) {
+    updatePlan(pi, { sessions: plans[pi].sessions.filter((_, j) => j !== si) });
+  }
+
+  function addPlan() {
+    setPlans((prev) => [...prev, { sections: [], sessions: [] }]);
+  }
+
+  function removePlan(pi) {
+    setPlans((prev) => prev.filter((_, i) => i !== pi));
+  }
+
   function onStreamChange(value) {
     setStream(value);
-    setDiscipline(""); setChapter(""); setTopicPick(""); setSubtopicPick(""); setSessionChecks({});
+    setDiscipline(""); setChapter(""); setTopicPick(""); setSubtopicPick(""); setPlans([{ sections: [], sessions: [] }]);
   }
   function onMonthChange(value) {
     setMonth(value);
-    setDiscipline(""); setChapter(""); setTopicPick(""); setSubtopicPick(""); setSessionChecks({});
+    setDiscipline(""); setChapter(""); setTopicPick(""); setSubtopicPick(""); setPlans([{ sections: [], sessions: [] }]);
   }
   function onDisciplineChange(value) {
     setDiscipline(value);
-    setChapter(""); setTopicPick(""); setSubtopicPick(""); setSessionChecks({});
+    setChapter(""); setTopicPick(""); setSubtopicPick(""); setPlans([{ sections: [], sessions: [] }]);
   }
+  // The POW's own chapter is the first session's - there is no separate
+  // week-level pick any more, since every session names its own chapter and
+  // every section can name its own too.
+  const firstSession = plans.flatMap((p) => p.sessions)[0] || null;
+  const primaryChapter = firstSession ? (firstSession.chapter || "") : "";
+  const primaryTopic = firstSession ? (firstSession.topic || "") : "";
+  const primarySubtopic = firstSession ? (firstSession.subtopic || "") : "";
+
   function onChapterChange(value) {
     setChapter(value);
-    setTopicPick(""); setSubtopicPick(""); setSessionChecks({});
+    setTopicPick(""); setSubtopicPick(""); setPlans([{ sections: [], sessions: [] }]);
   }
   function onTopicPickChange(value) {
     setTopicPick(value);
     setSubtopicPick("");
   }
+
+  // One entry per section the POW being implemented names, each with its plan
+  // and its sessions - so the fields sit next to what they describe. Mirrors
+  // the same block in POWView.
+  const implValues = { a: implA, b: implB, c: implC, d: implD, e: implE, f: implF };
+  const implSetters = { a: setImplA, b: setImplB, c: setImplC, d: setImplD, e: setImplE, f: setImplF };
+
+  const implSections = (() => {
+    const named = (prefillPow?.section_plans || []).map((p) => p.section);
+    const fromSessions = (prefillPow?.sessions || []).flatMap((x) => x.sections || []);
+    const known = Array.from(new Set([...named, ...fromSessions])).sort();
+    // A POW filed before sections were recorded still needs all six fields.
+    const letters = known.length ? known : ["A", "B", "C", "D", "E", "F"];
+    return letters.map((letter) => ({
+      letter,
+      plan: (prefillPow?.section_plans || []).find((p) => p.section === letter) || null,
+      sessions: (prefillPow?.sessions || []).filter(
+        (x) => !(x.sections || []).length || (x.sections || []).includes(letter),
+      ),
+    }));
+  })();
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -221,13 +403,26 @@ export default function POWForm({ token, user, mode, prefillPow, onDone, onBack 
       return;
     }
 
-    if (!grade || (needsDiscipline && !discipline) || !chapter || (hasRealTopics && !topicPick)) {
-      setError(`Please select a grade, ${needsDiscipline ? `${levelLabel.toLowerCase()}, ` : ""}chapter${hasRealTopics ? " and topic" : ""} before submitting.`);
+    const usable = plans.filter((p) => p.sessions.length > 0);
+    const allSessions = usable.flatMap((p) => p.sessions);
+    const incomplete = allSessions.filter((x) => !x.chapter || !String(x.session_no || "").trim());
+    const sectionless = usable.filter((p) => p.sections.length === 0);
+    if (!grade || (needsDiscipline && !discipline) || allSessions.length === 0
+        || incomplete.length > 0 || sectionless.length > 0) {
+      setError(
+        allSessions.length === 0
+          ? `Add at least one session${needsDiscipline && !discipline ? ` after choosing a ${levelLabel.toLowerCase()}` : ""} before submitting.`
+          : sectionless.length > 0
+            ? "Every plan needs at least one section selected."
+            : "Every session needs a chapter and a session number.",
+      );
       setSubmitting(false);
       return;
     }
 
-    const lpSessionNum = Object.keys(sessionChecks).filter((k) => sessionChecks[k]).join(", ");
+    const lpSessionNum = Array.from(new Set(
+      plans.flatMap((p) => p.sessions).map((x) => String(x.session_no || "").trim()).filter(Boolean),
+    )).join(", ");
 
     try {
       await api.createPow(token, {
@@ -239,16 +434,26 @@ export default function POWForm({ token, user, mode, prefillPow, onDone, onBack 
         grade,
         week_start: toISO(mon),
         week_end: toISO(fri),
-        topic: chapter,
-        subtopic: [hasRealTopics ? topicPick : "", subtopicPick].filter(Boolean).join(" — "),
+        topic: primaryChapter,
+        subtopic: [primaryTopic, primarySubtopic].filter(Boolean).join(" — "),
         lp_session_num: lpSessionNum,
-        cw, binder, activity, homework,
         cct_topic_yn: cctYes ? "Yes" : "No",
         cct_topic_text: cctText,
         cct_dashboard_updated: cctDashboardUpdated,
-        correction_done: correctionDone,
         instructions,
-        teacher_remarks: teacherRemarks,
+        // Flattened, each session carrying the sections it is for. The
+        // backend derives each section's end-of-week position from these, so
+        // nothing is stated twice.
+        sessions: usable.flatMap((p) => p.sessions.map((x) => ({
+          session_no: String(x.session_no || ""),
+          sections: p.sections,
+          chapter: x.chapter || "",
+          topic: x.topic || "",
+          subtopic: x.subtopic || "",
+          cw: x.cw || "", binder: x.binder || "",
+          activity: x.activity || "", homework: x.homework || "",
+          lp_link: x.lp_link || "", learning_outcomes: x.learning_outcomes || "",
+        }))),
       });
       onDone();
     } catch (err) {
@@ -293,7 +498,10 @@ export default function POWForm({ token, user, mode, prefillPow, onDone, onBack 
               </div>
               <div className="form-group">
                 <label className="form-label">Grade</label>
-                <input className="form-control" value={grade} onChange={(e) => setGrade(e.target.value)} placeholder="e.g. 5" />
+                <select className="form-control" value={grade} onChange={(e) => setGrade(e.target.value)}>
+                  <option value="">Select a grade…</option>
+                  {GRADES.map((g) => <option key={g} value={g}>Grade {g}</option>)}
+                </select>
               </div>
             </div>
 
@@ -339,77 +547,177 @@ export default function POWForm({ token, user, mode, prefillPow, onDone, onBack 
               </div>
             )}
 
-            {levelChosen && (
-              <div className="form-group">
-                <label className="form-label">Chapter Name</label>
-                <select className="form-control" value={chapter} onChange={(e) => onChapterChange(e.target.value)}>
-                  <option value="">— select chapter —</option>
-                  {chaptersForDiscipline.map((r) => <option key={r.chapter_name} value={r.chapter_name}>{r.chapter_name}</option>)}
-                </select>
-              </div>
-            )}
 
-            {chapter && hasRealTopics && (
-              <div className="form-group">
-                <label className="form-label">Topic</label>
-                <select className="form-control" value={topicPick} onChange={(e) => onTopicPickChange(e.target.value)}>
-                  <option value="">— select topic —</option>
-                  {topicsForChapter.map((t) => <option key={t} value={t}>{t}</option>)}
-                </select>
-              </div>
-            )}
-
-            {chapter && (!hasRealTopics || topicPick) && subtopicsForTopic.length > 0 && (
-              <div className="form-group">
-                <label className="form-label">Sub Topic</label>
-                <select className="form-control" value={subtopicPick} onChange={(e) => setSubtopicPick(e.target.value)}>
-                  <option value="">— select sub topic —</option>
-                  {subtopicsForTopic.map((s) => <option key={s} value={s}>{s}</option>)}
-                </select>
-              </div>
-            )}
-
-            {chapter && (
-              <div className="form-group">
-                <label className="form-label">Total Sessions (Chapter)</label>
-                <input className="form-control readonly-field" value={chapterSessions} readOnly />
-              </div>
-            )}
-
-            {chapter && chapterSessions > 0 && (
-              <div className="form-group">
-                <label className="form-label">Sessions planned for this week</label>
-                <div className="checkbox-list">
-                  {Array.from({ length: chapterSessions }, (_, i) => i + 1).map((s) => (
-                    <label className="checkbox-item" key={s}>
-                      <input
-                        type="checkbox"
-                        checked={!!sessionChecks[s]}
-                        onChange={(e) => setSessionChecks({ ...sessionChecks, [s]: e.target.checked })}
-                      />
-                      Session {s}
-                    </label>
-                  ))}
+            {/* The week as one or more PLANS. A plan says which sections it
+                covers and lists their sessions in full - chapter, topic,
+                class work, lesson plan, the lot. A section that fell behind
+                gets a plan of its own rather than being an exception noted
+                against somebody else's. */}
+            {levelChosen && plans.map((plan, pi) => (
+              <div className="plan-card" key={pi}>
+                <div className="plan-head">
+                  <span className="plan-title">
+                    {pi === 0 ? "Plan for the week" : "Separate plan"}
+                  </span>
+                  {plans.length > 1 && (
+                    <button type="button" className="btn btn-ghost btn-sm" onClick={() => removePlan(pi)}>
+                      Remove plan
+                    </button>
+                  )}
                 </div>
-              </div>
-            )}
 
-            <div className="form-group">
-              <label className="form-label">Class Work</label>
-              <textarea className="form-control" value={cw} onChange={(e) => setCw(e.target.value)} />
-            </div>
-            <div className="form-group">
-              <label className="form-label">Binder</label>
-              <textarea className="form-control" value={binder} onChange={(e) => setBinder(e.target.value)} />
-            </div>
-            <div className="form-group">
-              <label className="form-label">Activity</label>
-              <textarea className="form-control" value={activity} onChange={(e) => setActivity(e.target.value)} />
-            </div>
-            <div className="form-group">
-              <label className="form-label">Homework</label>
-              <textarea className="form-control" value={homework} onChange={(e) => setHomework(e.target.value)} />
-            </div>
+                <div className="pill-field">
+                  <span className="pill-label">
+                    Sections on this plan
+                    <span className="pill-sublabel">a section belongs to one plan only</span>
+                  </span>
+                  <div className="pill-row">
+                    {(gradeSections.length ? gradeSections : ["A", "B", "C", "D", "E", "F"]).map((sec) => {
+                      const mine = plan.sections.includes(sec);
+                      const takenBy = plans.findIndex((p, i) => i !== pi && p.sections.includes(sec));
+                      return (
+                        <button
+                          type="button"
+                          key={sec}
+                          className={`pill${mine ? " pill-on" : ""}${takenBy >= 0 ? " pill-taken" : ""}`}
+                          title={takenBy >= 0 ? `Currently on plan ${takenBy + 1} — click to move it here` : ""}
+                          onClick={() => toggleSection(pi, sec)}
+                        >
+                          {grade}{sec}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {plan.sessions.length === 0 && (
+                  <div className="hint-text">No sessions yet — add the first one below.</div>
+                )}
+
+                {plan.sessions.map((sess, si) => (
+                  <div className="session-block" key={si}>
+                    <div className="session-block-head">
+                      Session {si + 1}
+                      <button type="button" className="btn btn-ghost btn-sm session-remove" onClick={() => removeSession(pi, si)}>
+                        Remove
+                      </button>
+                    </div>
+
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label className="form-label">Chapter</label>
+                        <select
+                          className="form-control"
+                          value={sess.chapter || ""}
+                          onChange={(e) => {
+                            setSessionField(pi, si, "chapter", e.target.value);
+                            setSessionField(pi, si, "topic", "");
+                            setSessionField(pi, si, "subtopic", "");
+                            setSessionField(pi, si, "session_no", "");
+                          }}
+                        >
+                          <option value="">Select a chapter…</option>
+                          {chaptersForDiscipline.map((r) => (
+                            <option key={r.chapter_name} value={r.chapter_name}>{r.chapter_name}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Session number</label>
+                        <select
+                          className="form-control"
+                          value={sess.session_no || ""}
+                          onChange={(e) => setSessionField(pi, si, "session_no", e.target.value)}
+                        >
+                          <option value="">Select…</option>
+                          {availableSessionNos(pi, si, sess.chapter).map((n) => (
+                            <option key={n} value={n}>Session {n}</option>
+                          ))}
+                        </select>
+                        <div className="hint-text">
+                          of {sessionsInChapter(sess.chapter) || "—"} planned for this chapter
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label className="form-label">Topic</label>
+                        <select
+                          className="form-control"
+                          value={sess.topic || ""}
+                          onChange={(e) => setSessionField(pi, si, "topic", e.target.value)}
+                        >
+                          <option value="">—</option>
+                          {topicsForSection(sess.chapter).map((t) => <option key={t} value={t}>{t}</option>)}
+                        </select>
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Sub Topic</label>
+                        <select
+                          className="form-control"
+                          value={sess.subtopic || ""}
+                          onChange={(e) => setSessionField(pi, si, "subtopic", e.target.value)}
+                        >
+                          <option value="">—</option>
+                          {subtopicsForSection(sess.chapter, sess.topic).map((t) => (
+                            <option key={t} value={t}>{t}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label className="form-label">Class Work</label>
+                        <textarea className="form-control" value={sess.cw}
+                          onChange={(e) => setSessionField(pi, si, "cw", e.target.value)} />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Binder</label>
+                        <textarea className="form-control" value={sess.binder}
+                          onChange={(e) => setSessionField(pi, si, "binder", e.target.value)} />
+                      </div>
+                    </div>
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label className="form-label">Activity</label>
+                        <textarea className="form-control" value={sess.activity}
+                          onChange={(e) => setSessionField(pi, si, "activity", e.target.value)} />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Homework</label>
+                        <textarea className="form-control" value={sess.homework}
+                          onChange={(e) => setSessionField(pi, si, "homework", e.target.value)} />
+                      </div>
+                    </div>
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label className="form-label">Lesson plan link</label>
+                        <input className="form-control" type="url" placeholder="https://…"
+                          value={sess.lp_link}
+                          onChange={(e) => setSessionField(pi, si, "lp_link", e.target.value)} />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Learning outcomes</label>
+                        <textarea className="form-control" value={sess.learning_outcomes}
+                          onChange={(e) => setSessionField(pi, si, "learning_outcomes", e.target.value)} />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+
+                <button type="button" className="btn btn-ghost btn-sm" onClick={() => addSession(pi)}>
+                  + Add session
+                </button>
+              </div>
+            ))}
+
+            {levelChosen && (
+              <button type="button" className="btn btn-ghost btn-sm plan-add" onClick={addPlan}>
+                + Add a separate plan for sections on a different chapter
+              </button>
+            )}
 
             <div className="form-group">
               <label className="form-label">CCQ Topic this week?</label>
@@ -453,43 +761,84 @@ export default function POWForm({ token, user, mode, prefillPow, onDone, onBack 
           <>
             <div className="section-title">Implementation</div>
             <div className="hint-text">
-              One field per class section for this grade — different section teachers each fill in their own; this card can be saved multiple times as each section's teacher adds theirs.
+              Each section shows what it was planned to cover, with the box its own teacher fills
+              in. This card can be saved as many times as needed, as each section's teacher adds theirs.
             </div>
-            {[
-              [["A", implA, setImplA], ["B", implB, setImplB]],
-              [["C", implC, setImplC], ["D", implD, setImplD]],
-              [["E", implE, setImplE], ["F", implF, setImplF]],
-            ].map((pair, i) => (
-              <div className="form-row" key={i}>
-                {pair.map(([label, val, setter]) => (
-                  <div className="form-group" key={label}>
-                    <label className="form-label">Grade {prefillPow?.grade} — Section {label}</label>
-                    <textarea className="form-control" value={val} onChange={(e) => setter(e.target.value)} />
-                    <div className="impl-date-row">
-                      <span className="hint-text">Completed on</span>
-                      <input
-                        type="date"
-                        className="form-control impl-date"
-                        value={implDates[label.toLowerCase()]}
-                        onChange={(e) => setImplDates({ ...implDates, [label.toLowerCase()]: e.target.value })}
-                      />
-                    </div>
+
+            {/* Same shape as POWView: a section's plan sits with its
+                implementation, not in a list further up the page. */}
+            {implSections.map(({ letter, plan, sessions }) => {
+              const key = letter.toLowerCase();
+              return (
+                <div className="impl-section" key={letter}>
+                  <div className="impl-section-head">
+                    Grade {prefillPow?.grade} — Section {letter}
+                    {plan && (
+                      <span className="impl-section-plan">
+                        {[plan.chapter, plan.topic, plan.subtopic].filter(Boolean).join(" — ")}
+                      </span>
+                    )}
                   </div>
-                ))}
-              </div>
-            ))}
+
+                  {sessions.length > 0 && (
+                    <table className="kv-table impl-plan-table">
+                      <tbody>
+                        {sessions.map((x, i) => (
+                          <tr key={i}>
+                            <th>
+                              Session {x.session_no || "—"}
+                              {x.topic ? <div className="hint-text">{x.topic}</div> : null}
+                            </th>
+                            <td>
+                              <div className="impl-plan-fields">
+                                {[["Class work", x.cw], ["Binder", x.binder],
+                                  ["Activity", x.activity], ["Homework", x.homework],
+                                  ["Learning outcomes", x.learning_outcomes]]
+                                  .filter(([, v]) => v)
+                                  .map(([k, v]) => <div key={k}><strong>{k}:</strong> {v}</div>)}
+                                {x.lp_link && (
+                                  <div>
+                                    <strong>Lesson plan:</strong>{" "}
+                                    <a href={x.lp_link} target="_blank" rel="noreferrer">{x.lp_link}</a>
+                                  </div>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+
+                  <textarea
+                    className="form-control"
+                    placeholder={`What actually happened in ${prefillPow?.grade}${letter}`}
+                    value={implValues[key]}
+                    onChange={(e) => implSetters[key](e.target.value)}
+                  />
+                  <div className="impl-date-row">
+                    <span className="hint-text">Completed on</span>
+                    <input
+                      type="date"
+                      className="form-control impl-date"
+                      value={implDates[key]}
+                      onChange={(e) => setImplDates({ ...implDates, [key]: e.target.value })}
+                    />
+                    <span className="hint-text">Correction done</span>
+                    <input
+                      type="date"
+                      className="form-control impl-date"
+                      value={correctionDates[key]}
+                      onChange={(e) => setCorrectionDates({ ...correctionDates, [key]: e.target.value })}
+                    />
+                  </div>
+                </div>
+              );
+            })}
 
             <div className="form-group">
-              <label className="form-label">Correction Done</label>
-              <input className="form-control" value={correctionDone} onChange={(e) => setCorrectionDone(e.target.value)} />
-            </div>
-            <div className="form-group">
-              <label className="form-label">Instructions</label>
+              <label className="form-label">Events / Holidays</label>
               <textarea className="form-control" value={instructions} onChange={(e) => setInstructions(e.target.value)} />
-            </div>
-            <div className="form-group">
-              <label className="form-label">Teacher Remarks</label>
-              <textarea className="form-control" value={teacherRemarks} onChange={(e) => setTeacherRemarks(e.target.value)} />
             </div>
             {tbsMomOpen && (
               <div className="form-group">
