@@ -90,6 +90,40 @@ function Cell({ text }) {
   );
 }
 
+// One line per session ("S8: ...", "S9: ..."), so a week's several sessions
+// read in one cell without needing a column each. POWs filed before sessions
+// existed fall back to the single week-level box they carry.
+// A section's dates for this row, one line per session ("S8 · 03 Sep"). A
+// section this row does not cover gets an empty cell - the other row for the
+// same week carries it.
+function implDates(row, section, field) {
+  const rec = (row.section_impl || {})[section];
+  if (!(row.sections || []).includes(section) || !rec) {
+    return <span className="overview-empty">—</span>;
+  }
+  const lines = (rec.entries || []).filter((e) => e[field]);
+  if (lines.length === 0) return <span className="overview-empty">—</span>;
+  return lines.map((e) => (
+    <div key={`${e.session_no}-${field}`}>
+      {(row.sessions || []).length > 1 && <span className="hint-text">S{e.session_no} </span>}
+      {fmtDate(e[field])}
+    </div>
+  ));
+}
+
+function sessionLines(row, field) {
+  const sessions = row.sessions || [];
+  if (sessions.length === 0) return row[field] || "";
+  return sessions
+    .map((s) => {
+      const text = (s[field] || "").trim();
+      if (!text) return "";
+      return `S${s.session_no || "?"}: ${text}`;
+    })
+    .filter(Boolean)
+    .join("\n");
+}
+
 export default function CurriculumOverview({ token, user, branch = "", onBack }) {
   const [teachersList, setTeachersList] = useState([]);
   const [subjectGroups, setSubjectGroups] = useState({ curriculum: [], other: [] });
@@ -248,45 +282,58 @@ export default function CurriculumOverview({ token, user, branch = "", onBack })
             <thead>
               <tr>
                 <th>Week with Dates</th>
+                <th>Sections</th>
                 <th>LP Sessions Number</th>
                 <th>Topic / Sub Topic</th>
                 <th>Class work / Binder / Textbook</th>
                 <th>Activity</th>
                 <th>Home work</th>
+                <th>Lesson plan</th>
+                <th>Learning outcomes</th>
                 <th>CCQ / Class test</th>
+                {/* The topic is stated once for the row - every section on the
+                    row is doing the same thing - so only the dates are per
+                    section, and only for the sections this row covers. */}
                 {sections.map((s) => (
                   <th key={s}>Implementation Date - {data.grade} {s}</th>
                 ))}
-                <th>Correction Done</th>
-                <th>Remarks</th>
-                <th>Instructions / Events / Holidays</th>
+                {sections.map((s) => (
+                  <th key={`corr-${s}`}>Correction Done - {data.grade} {s}</th>
+                ))}
+                <th>Events / Holidays</th>
                 <th>TBS MOM</th>
               </tr>
             </thead>
             <tbody>
               {data.rows.map((r) => (
-                <tr key={r.id}>
+                <tr
+                  key={`${r.id}-${r.row_index}`}
+                  /* Several rows can belong to one POW - one per plan. Banded
+                     together so the repeated dates read as the same week. */
+                  className={r.row_index > 0 ? "overview-row-cont" : ""}
+                >
                   <td className="overview-week">
                     {fmtDate(r.week_start)} – {fmtDate(r.week_end)}
                     <div className="hint-text">{r.teacher_name}{r.branch ? ` · ${r.branch}` : ""}</div>
                   </td>
+                  <td className="overview-sections">
+                    {(r.sections || []).map((x) => `${data.grade}${x}`).join(", ") || "—"}
+                  </td>
                   <td>{r.lp_session_num || "—"}</td>
                   <Cell text={[r.topic, r.subtopic].filter(Boolean).join(" — ")} />
+                  {/* Already prefixed per session by the API. */}
                   <Cell text={r.classwork} />
                   <Cell text={r.activity} />
                   <Cell text={r.homework} />
+                  <Cell text={sessionLines(r, "lp_link")} />
+                  <Cell text={sessionLines(r, "learning_outcomes")} />
                   <Cell text={r.cct} />
-                  {sections.map((s) => {
-                    const cell = r.sections[s] || {};
-                    return (
-                      <td key={s} className="overview-cell">
-                        {cell.date ? <strong>{fmtDate(cell.date)}</strong> : <span className="overview-empty">—</span>}
-                        {cell.text && <div className="overview-impl-text">{cell.text}</div>}
-                      </td>
-                    );
-                  })}
-                  <Cell text={r.correction_done} />
-                  <Cell text={r.remarks} />
+                  {sections.map((s) => (
+                    <td key={s} className="overview-cell">{implDates(r, s, "completed_on")}</td>
+                  ))}
+                  {sections.map((s) => (
+                    <td key={`corr-${s}`} className="overview-cell">{implDates(r, s, "correction_on")}</td>
+                  ))}
                   <Cell text={r.instructions} />
                   <Cell text={r.tbs_mom} />
                 </tr>
