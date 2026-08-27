@@ -131,7 +131,7 @@ function Ticks({ sections, done }) {
   );
 }
 
-export default function AnnualProgress({ token, subject, grade, discipline, onDisciplineChange }) {
+export default function AnnualProgress({ token, subject, grade, discipline, branch = "", onDisciplineChange }) {
   const [data, setData] = useState(null);
   const [chart, setChart] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -144,7 +144,7 @@ export default function AnnualProgress({ token, subject, grade, discipline, onDi
     if (!subject || !grade) { setData(null); return; }
     setLoading(true);
     setError("");
-    api.getAnnualProgress(token, subject, grade, discipline)
+    api.getAnnualProgress(token, subject, grade, discipline, branch)
       .then((res) => {
         setData(res);
         if (onDisciplineChange && res.discipline_default && !discipline) {
@@ -154,10 +154,10 @@ export default function AnnualProgress({ token, subject, grade, discipline, onDi
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
 
-    api.getProgressChart(token, subject, grade, discipline)
+    api.getProgressChart(token, subject, grade, discipline, branch)
       .then(setChart)
       .catch(() => setChart(null));   // the chart is a bonus, not the page
-  }, [token, subject, grade, discipline]);
+  }, [token, subject, grade, discipline, branch]);
 
   if (!subject || !grade) {
     return <div className="hint-text">Pick a subject and grade to see the year at a glance.</div>;
