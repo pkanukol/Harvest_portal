@@ -13,25 +13,105 @@ import { api } from "../api";
  * or six), so each campus shows its own — the same plan taught to a different
  * number of classes.
  */
-export default function BranchCompare({ token, subject, discipline }) {
+export default function BranchCompare({ token, onBack, initialSubject = "", embed = false }) {
+  const [subjectGroups, setSubjectGroups] = useState({ curriculum: [], other: [] });
+  const [subjectsLoaded, setSubjectsLoaded] = useState(false);
+  const [subjectsLoading, setSubjectsLoading] = useState(false);
+  const [subject, setSubject] = useState(initialSubject);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  // Fetched when the picker is first touched, like the other screens - nothing
+  // heavy runs just because the page opened.
+  function loadSubjects() {
+    if (subjectsLoaded || subjectsLoading) return;
+    setSubjectsLoading(true);
+    api.getTeachers(token, "")
+      .then((res) => {
+        if (res.subjects) setSubjectGroups(res.subjects);
+        setSubjectsLoaded(true);
+      })
+      .catch((err) => setError(err.message))
+      .finally(() => setSubjectsLoading(false));
+  }
+
+  const subjectOptions = [...(subjectGroups.curriculum || []), ...(subjectGroups.other || [])];
+
+  useEffect(() => {
+    if (subjectsLoaded && !subject && subjectOptions.length) setSubject(subjectOptions[0]);
+  }, [subjectsLoaded, subject, subjectOptions]);
 
   useEffect(() => {
     if (!subject) { setData(null); return; }
     setLoading(true);
     setError("");
-    api.compareBranches(token, subject, discipline)
+    api.compareBranches(token, subject)
       .then(setData)
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
-  }, [token, subject, discipline]);
+  }, [token, subject]);
 
-  if (!subject) return <div className="hint-text">Pick a subject to compare the campuses.</div>;
-  if (loading) return <div className="hint-text">Comparing both campuses…</div>;
-  if (error) return <div className="form-error">{error}</div>;
-  if (!data) return null;
+  // The page's own header and subject picker, shown in every state so the
+  // subject can be changed while a slow comparison is still running.
+  // Embedded in someone else's page: no back link, and no subject picker when
+  // the link already names the subject - the host page chose it.
+  const showPicker = !embed || !initialSubject;
+  const header = (
+    <>
+      {!embed && <button className="back-link" onClick={onBack}>← Back</button>}
+      <div className="section-title">
+        Compare campuses{embed && subject ? ` — ${subject}` : ""}
+      </div>
+      {!embed && (
+        <p className="hint-text">
+          Kodathi against Attibele, grade by grade, for one subject. Every other screen follows the
+          campus selector at the top; this one deliberately shows both.
+        </p>
+      )}
+      <div className="filter-bar" style={{ display: showPicker ? undefined : "none" }}>
+        <div className="form-row">
+          <div className="form-group">
+            <label className="form-label">Subject</label>
+            <select
+              className="form-control"
+              value={subject}
+              onFocus={loadSubjects}
+              onMouseDown={loadSubjects}
+              onChange={(e) => setSubject(e.target.value)}
+            >
+              {subjectOptions.length === 0 && (
+                <option value="">
+                  {subjectsLoading
+                    ? "Loading subjects…"
+                    : subjectsLoaded ? "No subjects available" : "Select a subject…"}
+                </option>
+              )}
+              {(subjectGroups.curriculum || []).length > 0 ? (
+                <>
+                  <optgroup label="Curriculum subjects">
+                    {subjectGroups.curriculum.map((x) => <option key={x} value={x}>{x}</option>)}
+                  </optgroup>
+                  {(subjectGroups.other || []).length > 0 && (
+                    <optgroup label="Other subjects">
+                      {subjectGroups.other.map((x) => <option key={x} value={x}>{x}</option>)}
+                    </optgroup>
+                  )}
+                </>
+              ) : (
+                subjectOptions.map((x) => <option key={x} value={x}>{x}</option>)
+              )}
+            </select>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+
+  if (error) return <div>{header}<div className="form-error">{error}</div></div>;
+  if (!subject) return <div>{header}<div className="hint-text">Pick a subject to compare the campuses.</div></div>;
+  if (loading) return <div>{header}<div className="hint-text">Comparing both campuses…</div></div>;
+  if (!data) return <div>{header}</div>;
 
   const branches = data.branches || [];
   const taught = data.grades.filter((g) =>
@@ -39,6 +119,7 @@ export default function BranchCompare({ token, subject, discipline }) {
 
   return (
     <div>
+      {header}
       <div className="hint-text compare-note">
         {data.discipline ? `${data.discipline} · ` : ""}
         Sessions covered out of the year&rsquo;s plan, per campus. The plan is the same for both;
