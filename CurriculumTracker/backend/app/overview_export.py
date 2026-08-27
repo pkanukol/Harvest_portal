@@ -25,20 +25,25 @@ BORDER = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
 LEADING_COLUMNS = [
     ("Week with Dates", 22),
     ("Teacher", 22),
+    ("Sections", 14),
     ("LP Sessions Number", 14),
     ("Topic / Sub Topic", 40),
     ("Class work / Binder / Textbook", 34),
     ("Activity", 26),
     ("Home work", 26),
+    ("Lesson plan", 34),
+    ("Learning outcomes", 34),
     ("CCQ / Class test", 20),
 ]
 TRAILING_COLUMNS = [
-    ("Correction Done", 22),
-    ("Remarks", 28),
-    ("Instructions / Events / Holidays", 30),
+    ("Events / Holidays", 30),
     ("TBS MOM", 30),
 ]
 SECTION_WIDTH = 24
+PLAN_WIDTH = 30
+
+# Separator for the per-session lines inside one cell.
+NEWLINE = chr(10)
 
 
 def _fmt_date(iso: str) -> str:
@@ -53,6 +58,39 @@ def _fmt_date(iso: str) -> str:
 def _week(row: dict) -> str:
     start, end = _fmt_date(row.get("week_start")), _fmt_date(row.get("week_end"))
     return f"{start} - {end}" if start and end else (start or end)
+
+
+def _session_lines(row: dict, field: str) -> str:
+    """A week's sessions in one cell, one labelled line each ("S8: ..."), the
+    same shape the screen uses. A POW filed before sessions existed still has
+    its single week-level box, which is used instead."""
+    sessions = row.get("sessions") or []
+    if not sessions:
+        return (row.get(field) or "").strip()
+    lines = []
+    for s in sessions:
+        text = (s.get(field) or "").strip()
+        if text:
+            lines.append("S%s: %s" % (s.get("session_no") or "?", text))
+    return "\n".join(lines)
+
+
+def _impl_dates(row: dict, section: str, field: str) -> str:
+    """A section's dates on this row, one line per session. Empty for a section
+    the row does not cover - the row for the other plan carries that one."""
+    if section not in (row.get("sections") or []):
+        return ""
+    rec = (row.get("section_impl") or {}).get(section)
+    if not rec:
+        return ""
+    many = len(row.get("sessions") or []) > 1
+    lines = []
+    for e in rec.get("entries") or []:
+        if not e.get(field):
+            continue
+        stamp = _fmt_date(e[field])
+        lines.append("S%s: %s" % (e.get("session_no") or "?", stamp) if many else stamp)
+    return NEWLINE.join(lines)
 
 
 def _section_cell(cell: dict) -> str:
@@ -76,10 +114,12 @@ def build_overview_workbook(data: dict) -> bytes:
     headers = (
         [h for h, _ in LEADING_COLUMNS]
         + [f"Implementation Date - {grade} {s}" for s in sections]
+        + [f"Correction Done - {grade} {s}" for s in sections]
         + [h for h, _ in TRAILING_COLUMNS]
     )
     widths = (
         [w for _, w in LEADING_COLUMNS]
+        + [SECTION_WIDTH] * len(sections)
         + [SECTION_WIDTH] * len(sections)
         + [w for _, w in TRAILING_COLUMNS]
     )
@@ -95,17 +135,19 @@ def build_overview_workbook(data: dict) -> bytes:
         values = [
             _week(row),
             row.get("teacher_name", "") + (f" ({row['branch']})" if row.get("branch") else ""),
+            ", ".join("%s%s" % (grade, x) for x in (row.get("sections") or [])),
             row.get("lp_session_num", ""),
             " - ".join(x for x in (row.get("topic"), row.get("subtopic")) if x),
             row.get("classwork", ""),
             row.get("activity", ""),
             row.get("homework", ""),
+            _session_lines(row, "lp_link"),
+            _session_lines(row, "learning_outcomes"),
             row.get("cct", ""),
         ]
-        values += [_section_cell(row.get("sections", {}).get(s)) for s in sections]
+        values += [_impl_dates(row, s, "completed_on") for s in sections]
+        values += [_impl_dates(row, s, "correction_on") for s in sections]
         values += [
-            row.get("correction_done", ""),
-            row.get("remarks", ""),
             row.get("instructions", ""),
             row.get("tbs_mom", ""),
         ]
