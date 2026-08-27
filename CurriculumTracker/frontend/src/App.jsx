@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "./api";
 import { useAuth } from "./context/AuthContext";
 import { isPastWeek } from "./dateUtils";
@@ -9,6 +9,7 @@ import POWForm from "./components/POWForm";
 import POWView from "./components/POWView";
 import Progress from "./components/Progress";
 import CurriculumOverview from "./components/CurriculumOverview";
+import BranchCompare from "./components/BranchCompare";
 import PlannerUpload from "./components/PlannerUpload";
 
 const LOG = "[CurriculumTracker SSO]";
@@ -65,7 +66,21 @@ export default function App() {
     api.getMe(token).then(refreshUser).catch(() => {});
   }, [token]);
 
-  const [view, setView] = useState("dashboard");
+  // A URL can open straight into a view, and ?embed=1 strips the app chrome so
+  // the page can be dropped into a report or an iframe elsewhere - the
+  // management dashboard shows the campus comparison this way.
+  const deepLink = useMemo(() => {
+    const params = new URLSearchParams(window.location.search);
+    const target = params.get("view");
+    if (!target) return null;
+    return {
+      view: target,
+      subject: params.get("subject") || "",
+      embed: params.get("embed") === "1",
+    };
+  }, []);
+
+  const [view, setView] = useState(deepLink ? deepLink.view : "dashboard");
   const [currentPowId, setCurrentPowId] = useState(null);
   const [implPrefillPow, setImplPrefillPow] = useState(null);
   const [loadError, setLoadError] = useState("");
@@ -105,6 +120,8 @@ export default function App() {
 
   const goOverview = () => { setView("overview"); };
 
+  const goCompare = () => { setView("compare"); };
+
   const goPlannerUpload = () => { setView("planner-upload"); };
 
   async function openPow(id) {
@@ -132,7 +149,7 @@ export default function App() {
 
   return (
     <>
-      {isAuthenticated && (
+      {isAuthenticated && !deepLink?.embed && (
         <Header
           user={user}
           realUser={realUser}
@@ -175,6 +192,7 @@ export default function App() {
                 onNewPow={goNewPow}
                 onProgress={goProgress}
                 onOverview={goOverview}
+                onCompare={goCompare}
                 onPlannerUpload={goPlannerUpload}
                 onOpenPow={openPow}
               />
@@ -194,6 +212,16 @@ export default function App() {
 
             {view === "planner-upload" && canUploadCurriculum && (
               <PlannerUpload key={user.email} token={token} onBack={goDashboard} />
+            )}
+
+            {view === "compare" && isReadOnlyViewer && (
+              <BranchCompare
+                key={user.email}
+                token={token}
+                initialSubject={deepLink?.view === "compare" ? deepLink.subject : ""}
+                embed={Boolean(deepLink?.embed)}
+                onBack={goDashboard}
+              />
             )}
 
             {view === "overview" && canSeeOverview && (
