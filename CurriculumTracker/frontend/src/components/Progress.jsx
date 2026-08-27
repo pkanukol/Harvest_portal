@@ -4,6 +4,7 @@ import { api } from "../api";
 import { fmtDate } from "../dateUtils";
 import BackfillPanel from "./BackfillPanel";
 import AnnualProgress from "./AnnualProgress";
+import BranchCompare from "./BranchCompare";
 import { GRADES } from "../grades";
 
 export default function Progress({ token, user, isReadOnlyViewer, isLeadership = false, branch = "", onBack }) {
@@ -72,16 +73,16 @@ export default function Progress({ token, user, isReadOnlyViewer, isLeadership =
     if (!subject || !grade || range !== "month") { setChartData(null); setSummary(null); return; }
     setError("");
 
-    api.getProgressSummary(token, subject, grade, isReadOnlyViewer ? "" : user.email, discipline)
+    api.getProgressSummary(token, subject, grade, isReadOnlyViewer ? "" : user.email, discipline, branch)
       .then(setSummary)
       .catch((err) => setError(err.message));
 
     // The month tab gets the month's own week-by-week pace; the cumulative
     // year-to-date chart belongs to the Full year tab and is drawn there.
-    api.getMonthChart(token, subject, grade, discipline)
+    api.getMonthChart(token, subject, grade, discipline, branch)
       .then(setChartData)
       .catch((err) => setError(err.message));
-  }, [token, subject, grade, isReadOnlyViewer, user.email, discipline, range]);
+  }, [token, subject, grade, isReadOnlyViewer, user.email, discipline, range, branch]);
 
   useEffect(() => {
     if (!chartData || !chartData.labels?.length || !canvasRef.current) return;
@@ -127,6 +128,14 @@ export default function Progress({ token, user, isReadOnlyViewer, isLeadership =
         >
           This month
         </button>
+        {/* Both campuses side by side. Every other view is scoped to one of
+            them by the header selector; this one deliberately is not. */}
+        <button
+          className={`range-tab${range === "compare" ? " range-tab-active" : ""}`}
+          onClick={() => setRange("compare")}
+        >
+          Compare campuses
+        </button>
       </div>
 
       <div className="filter-bar">
@@ -159,7 +168,7 @@ export default function Progress({ token, user, isReadOnlyViewer, isLeadership =
             <input className="form-control readonly-field" value={subject} readOnly />
           )}
         </div>
-        <div className="form-group">
+        <div className="form-group" style={{ display: range === "compare" ? "none" : undefined }}>
           <label className="form-label">Grade</label>
           <select className="form-control" value={grade} onChange={(e) => setGrade(e.target.value)}>
             <option value="">Select a grade…</option>
@@ -170,12 +179,17 @@ export default function Progress({ token, user, isReadOnlyViewer, isLeadership =
       </div>
 
 
+      {range === "compare" && (
+        <BranchCompare token={token} subject={subject} discipline={discipline} />
+      )}
+
       {range === "annual" && (
         <AnnualProgress
           token={token}
           subject={subject}
           grade={grade}
           discipline={discipline}
+          branch={branch}
           onDisciplineChange={setDiscipline}
         />
       )}
@@ -185,6 +199,7 @@ export default function Progress({ token, user, isReadOnlyViewer, isLeadership =
           token={token}
           subject={subject}
           grade={grade}
+          branch={branch}
           teachers={teachersList.filter((t) => (t.subject || "").toLowerCase() === (subject || "").toLowerCase())}
         />
       )}
