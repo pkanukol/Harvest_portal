@@ -13,10 +13,14 @@ export default function POWView({ token, user, powId, onBack, onDone }) {
   const [implE, setImplE] = useState(""); const [implF, setImplF] = useState("");
   // Completion date per section — sections finish a chapter on different days.
   const [implDates, setImplDates] = useState({ a: "", b: "", c: "", d: "", e: "", f: "" });
+  // Correction Done is a date per section now, beside that section's
+  // completion date, rather than one free-text box for the whole week.
+  const [correctionDates, setCorrectionDates] = useState({ a: "", b: "", c: "", d: "", e: "", f: "" });
+  // Implementation per (session, section) - see models.PowSessionImpl. The
+  // per-section fields above stay for POWs filed before sessions existed.
+  const [sessionImpl, setSessionImpl] = useState({});
   const [tbsMom, setTbsMom] = useState("");
-  const [correctionDone, setCorrectionDone] = useState("");
   const [instructions, setInstructions] = useState("");
-  const [teacherRemarks, setTeacherRemarks] = useState("");
   const [finalSave, setFinalSave] = useState(false);
 
   const [smeRemarks, setSmeRemarks] = useState("");
@@ -36,10 +40,24 @@ export default function POWView({ token, user, powId, onBack, onDone }) {
         a: res.pow.impl_a_date || "", b: res.pow.impl_b_date || "", c: res.pow.impl_c_date || "",
         d: res.pow.impl_d_date || "", e: res.pow.impl_e_date || "", f: res.pow.impl_f_date || "",
       });
+      setCorrectionDates({
+        a: res.pow.correction_a_date || "", b: res.pow.correction_b_date || "",
+        c: res.pow.correction_c_date || "", d: res.pow.correction_d_date || "",
+        e: res.pow.correction_e_date || "", f: res.pow.correction_f_date || "",
+      });
       setTbsMom(res.pow.tbs_mom || "");
-      setCorrectionDone(res.pow.correction_done || "");
       setInstructions(res.pow.instructions || "");
-      setTeacherRemarks(res.pow.teacher_remarks || "");
+      const impl = {};
+      (res.pow.sessions || []).forEach((x) => {
+        Object.entries(x.impl || {}).forEach(([sec, v]) => {
+          impl[`${x.id}|${sec}`] = {
+            remarks: v.remarks || "",
+            completed_on: v.completed_on || "",
+            correction_on: v.correction_on || "",
+          };
+        });
+      });
+      setSessionImpl(impl);
       setSmeRemarks(res.review?.remarks || "");
       setCctDiscussed(!!res.review?.cct_discussed);
       setApprovedClosed(!!res.review?.approved_closed);
@@ -82,7 +100,20 @@ export default function POWView({ token, user, powId, onBack, onDone }) {
         impl_a: implA, impl_b: implB, impl_c: implC, impl_d: implD, impl_e: implE, impl_f: implF,
         impl_a_date: implDates.a, impl_b_date: implDates.b, impl_c_date: implDates.c,
         impl_d_date: implDates.d, impl_e_date: implDates.e, impl_f_date: implDates.f,
-        correction_done: correctionDone, instructions, teacher_remarks: teacherRemarks,
+        instructions,
+        ...Object.fromEntries(
+          Object.entries(correctionDates).map(([k, v]) => [`correction_${k}_date`, v]),
+        ),
+        session_impl: Object.entries(sessionImpl).map(([k, v]) => {
+          const [sessionId, section] = k.split("|");
+          return {
+            session_id: Number(sessionId),
+            section,
+            remarks: v.remarks ?? "",
+            completed_on: v.completed_on ?? "",
+            correction_on: v.correction_on ?? "",
+          };
+        }),
         final_save: finalSave,
       });
       onDone();
@@ -147,6 +178,41 @@ export default function POWView({ token, user, powId, onBack, onDone }) {
     }
   }
 
+  // Sessions grouped by the set of sections that share them. Sections on the
+  // same chapter and topic belong in ONE box - it is one plan, taught to
+  // several sections - while a section that fell behind has its own sessions
+  // and so forms a box of its own. Within a box each session is separate,
+  // because a section finishes session 8 and session 9 on different days.
+  const sessionGroups = (() => {
+    const groups = new Map();
+    (pow.sessions || []).forEach((x) => {
+      const letters = (x.sections || []).length
+        ? [...x.sections].sort()
+        : ["A", "B", "C", "D", "E", "F"];   // an older POW named none: the whole grade
+      const key = letters.join(",");
+      if (!groups.has(key)) groups.set(key, { sections: letters, sessions: [] });
+      groups.get(key).sessions.push(x);
+    });
+    return [...groups.values()];
+  })();
+
+  // { "<sessionId>|<section>": {remarks, completed_on, correction_on} } - what
+  // is on screen, seeded from the server and sent back as only the rows that
+  // were touched.
+  const implKey = (sessionId, section) => `${sessionId}|${section}`;
+
+  function setImplField(sessionId, section, field, value) {
+    setSessionImpl((prev) => {
+      const k = implKey(sessionId, section);
+      return { ...prev, [k]: { ...(prev[k] || {}), [field]: value } };
+    });
+  }
+
+  function implValue(sessionId, section, field) {
+    const v = sessionImpl[implKey(sessionId, section)];
+    return (v && v[field] !== undefined ? v[field] : "") || "";
+  }
+
   return (
     <div>
       <button className="back-link" onClick={onBack}>← Back</button>
@@ -168,50 +234,115 @@ export default function POWView({ token, user, powId, onBack, onDone }) {
       <table className="kv-table">
         <tbody>
           <tr><th>LP Session #</th><td>{pow.lp_session_num || "—"}</td></tr>
-          <tr><th>Class Work</th><td>{pow.cw || "—"}</td></tr>
-          <tr><th>Binder</th><td>{pow.binder || "—"}</td></tr>
-          <tr><th>Activity</th><td>{pow.activity || "—"}</td></tr>
-          <tr><th>Homework</th><td>{pow.homework || "—"}</td></tr>
+          {/* POWs filed before the per-session split still carry one set of
+              week-level boxes; newer ones list each session separately below. */}
+          {(pow.sessions || []).length === 0 && (
+            <>
+              <tr><th>Class Work</th><td>{pow.cw || "—"}</td></tr>
+              <tr><th>Binder</th><td>{pow.binder || "—"}</td></tr>
+              <tr><th>Activity</th><td>{pow.activity || "—"}</td></tr>
+              <tr><th>Homework</th><td>{pow.homework || "—"}</td></tr>
+            </>
+          )}
         </tbody>
       </table>
 
       <div className="section-title">Implementation</div>
-      <div className="hint-text">One field per class section — different section teachers each fill in their own.</div>
-      {[
-        [["A", implA, setImplA], ["B", implB, setImplB]],
-        [["C", implC, setImplC], ["D", implD, setImplD]],
-        [["E", implE, setImplE], ["F", implF, setImplF]],
-      ].map((pair, i) => (
-        <div className="form-row" key={i}>
-          {pair.map(([label, val, setter]) => (
-            <div className="form-group" key={label}>
-              <label className="form-label">Grade {pow.grade} — Section {label}</label>
-              <textarea className="form-control" value={val} disabled={isLocked} onChange={(e) => setter(e.target.value)} />
-              <div className="impl-date-row">
-                <span className="hint-text">Completed on</span>
-                <input
-                  type="date"
-                  className="form-control impl-date"
-                  value={implDates[label.toLowerCase()]}
-                  disabled={isLocked}
-                  onChange={(e) => setImplDates({ ...implDates, [label.toLowerCase()]: e.target.value })}
-                />
+      <div className="hint-text">
+        Sections sharing a plan are together; each session is recorded per section, since sections
+        finish on different days.
+      </div>
+
+      {sessionGroups.map((group, gi) => (
+        <div className="impl-section" key={gi}>
+          <div className="impl-section-head">
+            <span>
+              {group.sections.map((x) => `${pow.grade}${x}`).join(", ")}
+            </span>
+            <span className="impl-section-plan">
+              {[group.sessions[0]?.chapter].filter(Boolean).join("")}
+            </span>
+          </div>
+
+          {group.sessions.map((sess) => (
+            <div className="impl-session" key={sess.id}>
+              <div className="impl-session-head">
+                Session {sess.session_no || "—"}
+                {sess.topic ? ` · ${sess.topic}` : ""}
+                {sess.subtopic ? ` — ${sess.subtopic}` : ""}
               </div>
+
+              <div className="impl-plan-fields">
+                {[["Class work", sess.cw], ["Binder", sess.binder],
+                  ["Activity", sess.activity], ["Homework", sess.homework],
+                  ["Learning outcomes", sess.learning_outcomes]]
+                  .filter(([, v]) => v)
+                  .map(([k, v]) => <div key={k}><strong>{k}:</strong> {v}</div>)}
+                {sess.lp_link && (
+                  <div>
+                    <strong>Lesson plan:</strong>{" "}
+                    <a href={sess.lp_link} target="_blank" rel="noreferrer">{sess.lp_link}</a>
+                  </div>
+                )}
+              </div>
+
+              <table className="impl-grid">
+                <thead>
+                  <tr>
+                    <th>Section</th>
+                    <th>What happened</th>
+                    <th>Completed on</th>
+                    <th>Correction done</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {group.sections.map((sec) => (
+                    <tr key={sec}>
+                      <th className="impl-grid-section">{pow.grade}{sec}</th>
+                      <td>
+                        <textarea
+                          className="form-control"
+                          value={implValue(sess.id, sec, "remarks")}
+                          disabled={isLocked}
+                          onChange={(e) => setImplField(sess.id, sec, "remarks", e.target.value)}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          type="date"
+                          className="form-control impl-date"
+                          value={implValue(sess.id, sec, "completed_on")}
+                          disabled={isLocked}
+                          onChange={(e) => setImplField(sess.id, sec, "completed_on", e.target.value)}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          type="date"
+                          className="form-control impl-date"
+                          value={implValue(sess.id, sec, "correction_on")}
+                          disabled={isLocked}
+                          onChange={(e) => setImplField(sess.id, sec, "correction_on", e.target.value)}
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           ))}
         </div>
       ))}
+
+      {sessionGroups.length === 0 && (
+        <div className="hint-text">
+          This POW has no sessions recorded, so there is nothing to implement against.
+        </div>
+      )}
+
       <div className="form-group">
-        <label className="form-label">Correction Done</label>
-        <input className="form-control" value={correctionDone} disabled={isLocked} onChange={(e) => setCorrectionDone(e.target.value)} />
-      </div>
-      <div className="form-group">
-        <label className="form-label">Instructions</label>
+        <label className="form-label">Events / Holidays</label>
         <textarea className="form-control" value={instructions} disabled={isLocked} onChange={(e) => setInstructions(e.target.value)} />
-      </div>
-      <div className="form-group">
-        <label className="form-label">Teacher Remarks</label>
-        <textarea className="form-control" value={teacherRemarks} disabled={isLocked} onChange={(e) => setTeacherRemarks(e.target.value)} />
       </div>
       {isPastFinalSave && (
         <div className="form-group">
