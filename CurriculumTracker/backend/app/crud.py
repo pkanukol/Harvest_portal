@@ -3,7 +3,7 @@ import re
 import calendar
 from typing import Optional, List
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, or_, true as sql_true
 from . import models, staff_directory
 
 IST_OFFSET = datetime.timedelta(hours=5, minutes=30)
@@ -122,6 +122,15 @@ def group_head(subject: str) -> str:
     group."""
     entry = _GROUP_BY_MEMBER.get((subject or "").strip().lower())
     return entry[0].title() if entry else subject
+
+
+def _backfill_branch_filter(model, branch: Optional[str]):
+    """Rows for this campus, plus the ones marked before the column existed
+    (branch IS NULL) which are not yet attributed to either. Saving a campus
+    replaces both, so the ambiguity clears the first time it is saved."""
+    if not branch:
+        return sql_true()
+    return or_(model.branch.is_(None), func.lower(model.branch) == branch.lower())
 
 
 def _backfill_subject_filter(subject: str):
@@ -642,42 +651,152 @@ def get_curriculum_overview(db: Session, user_email: str, role: str, subject: st
             if disc_of.get((p.topic or "").strip(), stream).lower() == stream.lower()
         ]
 
-    def impl(p, letter):
+    def legacy_impl(p, letter):
+        """The pre-session record: one field and one date pair per section for
+        the whole week. Still read for the POWs filed that way."""
         return (
             (getattr(p, "impl_" + letter.lower(), None) or "").strip(),
             getattr(p, "impl_" + letter.lower() + "_date", None),
+            getattr(p, "correction_" + letter.lower() + "_date", None),
         )
 
-    sections = [l for l in SECTION_LETTERS if any(any(impl(p, l)) for p in pows)]
+    # A section counts as present if anything names it: a session's plan, a
+    # per-session record, or a legacy per-section field.
+    named = {sp.section for p in pows for sp in p.section_plans}
+    for p in pows:
+        for x in p.sessions:
+            named.update(y for y in (x.sections or "").split(",") if y)
+            named.update(i.section for i in x.implementations)
+        named.update(l for l in SECTION_LETTERS if any(legacy_impl(p, l)))
+    sections = [l for l in SECTION_LETTERS if l in named]
+
+    def group_sessions(p):
+        """The POW's sessions grouped by the sections that share them - one
+        group per plan. Sections taught the same thing belong on ONE row, with
+        the topic stated once; a section that fell behind gets its own row."""
+        groups = {}
+        order = []
+        for x in sorted(p.sessions, key=lambda y: y.display_order):
+            letters = [y for y in (x.sections or "").split(",") if y]
+            key = ",".join(sorted(letters)) if letters else ",".join(sections)
+            if key not in groups:
+                groups[key] = []
+                order.append(key)
+            groups[key].append(x)
+        return [(k.split(",") if k else [], groups[k]) for k in order]
 
     rows = []
     for p in pows:
         temail = p.teacher_email.lower()
-        rows.append({
+        base = {
             "id": p.id,
             "teacher_name": teacher_map.get(temail, {}).get("name") or temail,
             "branch": teacher_map.get(temail, {}).get("location") or "",
             "week_start": p.week_start.isoformat() if p.week_start else None,
             "week_end": p.week_end.isoformat() if p.week_end else None,
-            "lp_session_num": p.lp_session_num or "",
-            "topic": p.topic or "",
-            "subtopic": p.subtopic or "",
-            # Class Work and Binder are two boxes on the form, one column here.
-            "classwork": _joined(p.cw, p.binder),
-            "activity": (p.activity or "").strip(),
-            "homework": (p.homework or "").strip(),
             "cct": _overview_cct(p),
-            "sections": {
-                l: {"date": (d.isoformat() if d else None), "text": t}
-                for l in sections
-                for t, d in [impl(p, l)]
-            },
-            "correction_done": (p.correction_done or "").strip(),
-            "remarks": (p.teacher_remarks or "").strip(),
             "instructions": (p.instructions or "").strip(),
             "tbs_mom": (p.tbs_mom or "").strip(),
             "status": STATUS_LABELS.get(p.status, p.status),
-        })
+        }
+
+        groups = group_sessions(p)
+
+        # A POW filed before sessions existed: one row, its week-level boxes,
+        # and whatever its per-section fields hold.
+        if not groups:
+            rows.append({
+                **base,
+                "row_index": 0,
+                "sections": [l for l in sections if any(legacy_impl(p, l))] or sections,
+                "lp_session_num": p.lp_session_num or "",
+                "topic": p.topic or "",
+                "subtopic": p.subtopic or "",
+                "sessions": [],
+                "classwork": _joined(p.cw, p.binder),
+                "activity": (p.activity or "").strip(),
+                "homework": (p.homework or "").strip(),
+                "section_impl": {
+                    l: {
+                        "remarks": t,
+                        "entries": [{"session_no": "", "completed_on": d.isoformat() if d else None,
+                                     "correction_on": c.isoformat() if c else None}]
+                        if (d or c) else [],
+                    }
+                    for l in sections
+                    for t, d, c in [legacy_impl(p, l)]
+                    if any(legacy_impl(p, l))
+                },
+            })
+            continue
+
+        for gi, (letters, group) in enumerate(groups):
+            # The topic is stated once for the row, not repeated per section -
+            # every section on the row is doing the same thing.
+            topics = []
+            for x in group:
+                label = " - ".join(y for y in [(x.topic or "").strip(), (x.subtopic or "").strip()] if y)
+                if label and label not in topics:
+                    topics.append(label)
+
+            section_impl = {}
+            for letter in letters:
+                entries = []
+                remarks = []
+                for x in group:
+                    rec = next((i for i in x.implementations if i.section == letter), None)
+                    if not rec:
+                        continue
+                    if rec.remarks:
+                        remarks.append("S%s: %s" % (x.session_no or "?", rec.remarks))
+                    if rec.completed_on or rec.correction_on:
+                        entries.append({
+                            "session_no": x.session_no or "",
+                            "completed_on": rec.completed_on.isoformat() if rec.completed_on else None,
+                            "correction_on": rec.correction_on.isoformat() if rec.correction_on else None,
+                        })
+                if entries or remarks:
+                    section_impl[letter] = {"remarks": NEWLINE.join(remarks), "entries": entries}
+
+            rows.append({
+                **base,
+                # Which of several rows for the same POW this is, so the table
+                # can band them together as one week.
+                "row_index": gi,
+                "sections": letters,
+                "lp_session_num": ", ".join(
+                    x.session_no for x in group if (x.session_no or "").strip()
+                ),
+                "topic": next((x.chapter for x in group if x.chapter), p.topic or ""),
+                "subtopic": NEWLINE.join(topics),
+                "sessions": [
+                    {
+                        "session_no": x.session_no or "",
+                        "chapter": x.chapter or "",
+                        "topic": x.topic or "",
+                        "subtopic": x.subtopic or "",
+                        "classwork": _joined(x.cw, x.binder),
+                        "activity": (x.activity or "").strip(),
+                        "homework": (x.homework or "").strip(),
+                        "lp_link": (x.lp_link or "").strip(),
+                        "learning_outcomes": (x.learning_outcomes or "").strip(),
+                    }
+                    for x in group
+                ],
+                "classwork": NEWLINE.join(
+                    "S%s: %s" % (x.session_no or "?", _joined(x.cw, x.binder))
+                    for x in group if _joined(x.cw, x.binder)
+                ),
+                "activity": NEWLINE.join(
+                    "S%s: %s" % (x.session_no or "?", (x.activity or "").strip())
+                    for x in group if (x.activity or "").strip()
+                ),
+                "homework": NEWLINE.join(
+                    "S%s: %s" % (x.session_no or "?", (x.homework or "").strip())
+                    for x in group if (x.homework or "").strip()
+                ),
+                "section_impl": section_impl,
+            })
 
     return {"subject": subject, "grade": grade, "sections": sections, "rows": rows}
 
@@ -722,6 +841,18 @@ def find_duplicate_pow(db: Session, subject: str, grade: str, week_start: str, t
     return None
 
 
+def _all_pow_sections(data) -> list:
+    """Every section this POW names, across its sessions. A session that names
+    none is for all of them, and this is what "all of them" resolves to."""
+    seen = []
+    for s in getattr(data, "sessions", []) or []:
+        for x in (getattr(s, "sections", []) or []):
+            letter = (x or "").strip().upper()[:1]
+            if letter and letter not in seen:
+                seen.append(letter)
+    return seen
+
+
 def create_pow(db: Session, teacher_email: str, data) -> models.PowEntry:
     pow_entry = models.PowEntry(
         teacher_email=teacher_email.lower(),
@@ -746,9 +877,81 @@ def create_pow(db: Session, teacher_email: str, data) -> models.PowEntry:
         status="created",
     )
     db.add(pow_entry)
+    db.flush()          # need the id before the children can point at it
+
+    for order, s in enumerate(getattr(data, "sessions", []) or []):
+        db.add(models.PowSession(
+            pow_id=pow_entry.id,
+            session_no=(s.session_no or "").strip(),
+            display_order=order,
+            sections=",".join(
+                x.strip().upper()[:1] for x in (getattr(s, "sections", []) or []) if x and x.strip()
+            ),
+            chapter=(getattr(s, "chapter", "") or "").strip() or data.topic,
+            topic=(getattr(s, "topic", "") or "").strip(),
+            subtopic=(getattr(s, "subtopic", "") or "").strip(),
+            cw=s.cw or "", binder=s.binder or "",
+            activity=s.activity or "", homework=s.homework or "",
+            lp_link=(getattr(s, "lp_link", "") or "").strip(),
+            learning_outcomes=(getattr(s, "learning_outcomes", "") or "").strip(),
+        ))
+
+    # Where each section ends the week - derived from ITS sessions, so nothing
+    # has to be stated twice. A section's plan is the last session it was given,
+    # which is exactly what the next POW should suggest it continues from.
+    per_section = {}
+    for order, s in enumerate(getattr(data, "sessions", []) or []):
+        letters = [x.strip().upper()[:1] for x in (getattr(s, "sections", []) or []) if x and x.strip()]
+        if not letters:
+            # No sections named: the session is for the whole grade.
+            letters = [x.strip().upper()[:1] for x in _all_pow_sections(data) if x]
+        for letter in letters:
+            per_section[letter] = s
+
+    for letter, s in per_section.items():
+        db.add(models.PowSectionPlan(
+            pow_id=pow_entry.id,
+            section=letter,
+            subject=data.subject,
+            grade=str(data.grade),
+            week_start=pow_entry.week_start,
+            chapter=(getattr(s, "chapter", "") or "").strip() or data.topic,
+            topic=(getattr(s, "topic", "") or "").strip(),
+            subtopic=(getattr(s, "subtopic", "") or "").strip(),
+        ))
+
     db.commit()
     db.refresh(pow_entry)
     return pow_entry
+
+
+def last_section_plans(db: Session, subject: str, grade: str) -> dict:
+    """Where each section got to, most recent first.
+
+    What the new POW form suggests from: 6A finished "Adaptations" last week
+    while a holiday left 6B still on "Habitats", so each section starts from
+    its own last recorded plan rather than from the grade's."""
+    rows = (
+        db.query(models.PowSectionPlan)
+        .filter(
+            func.lower(models.PowSectionPlan.subject).in_(
+                [s.lower() for s in subjects_in_group(subject)]
+            ),
+            models.PowSectionPlan.grade == str(grade),
+        )
+        .order_by(models.PowSectionPlan.week_start.asc(), models.PowSectionPlan.id.asc())
+        .all()
+    )
+    latest = {}
+    for r in rows:
+        latest[r.section] = {
+            "section": r.section,
+            "chapter": r.chapter or "",
+            "topic": r.topic or "",
+            "subtopic": r.subtopic or "",
+            "week_start": r.week_start.isoformat() if r.week_start else None,
+        }
+    return latest
 
 
 def get_pow(db: Session, pow_id: int) -> Optional[models.PowEntry]:
@@ -757,7 +960,63 @@ def get_pow(db: Session, pow_id: int) -> Optional[models.PowEntry]:
 
 IMPLEMENTATION_FIELDS = ("impl_a", "impl_b", "impl_c", "impl_d", "impl_e", "impl_f",
                          "tbs_mom", "correction_done", "instructions", "teacher_remarks")
-IMPLEMENTATION_DATE_FIELDS = tuple(f"impl_{s}_date" for s in "abcdef")
+IMPLEMENTATION_DATE_FIELDS = (
+    tuple(f"impl_{s}_date" for s in "abcdef")
+    + tuple(f"correction_{s}_date" for s in "abcdef")
+)
+
+
+def _as_date(value):
+    """"" clears the date; None means the caller did not send it."""
+    if value is None:
+        return None
+    return datetime.date.fromisoformat(value) if value else None
+
+
+def save_session_impl(db: Session, pow_entry: models.PowEntry, rows: list) -> int:
+    """Upsert what each section did in each session.
+
+    Keyed on (session, section) so a section teacher can save theirs without
+    touching anyone else's, and can come back and add a date later without
+    retyping their remarks. Sessions that do not belong to this POW are
+    ignored rather than trusted from the request."""
+    if not rows:
+        return 0
+    own = {s.id: s for s in pow_entry.sessions}
+    saved = 0
+    for r in rows:
+        session = own.get(r.session_id)
+        letter = (r.section or "").strip().upper()[:1]
+        if not session or not letter:
+            continue
+        existing = next((x for x in session.implementations if x.section == letter), None)
+        if existing is None:
+            existing = models.PowSessionImpl(session_id=session.id, section=letter)
+            db.add(existing)
+            session.implementations.append(existing)
+        if r.remarks is not None:
+            existing.remarks = r.remarks
+        if r.completed_on is not None:
+            existing.completed_on = _as_date(r.completed_on)
+        if r.correction_on is not None:
+            existing.correction_on = _as_date(r.correction_on)
+        saved += 1
+    return saved
+
+
+def session_impl_rows(pow_entry: models.PowEntry) -> list:
+    """Every (session, section) record this POW holds, for the API to return."""
+    out = []
+    for s in pow_entry.sessions:
+        for x in s.implementations:
+            out.append({
+                "session_id": s.id,
+                "section": x.section,
+                "remarks": x.remarks or "",
+                "completed_on": x.completed_on.isoformat() if x.completed_on else None,
+                "correction_on": x.correction_on.isoformat() if x.correction_on else None,
+            })
+    return out
 
 
 def update_pow_implementation(db: Session, pow_entry: models.PowEntry, data) -> models.PowEntry:
@@ -778,6 +1037,7 @@ def update_pow_implementation(db: Session, pow_entry: models.PowEntry, data) -> 
         if value is None:
             continue
         setattr(pow_entry, field, datetime.date.fromisoformat(value) if value else None)
+    save_session_impl(db, pow_entry, getattr(data, "session_impl", []) or [])
     if data.final_save:
         pow_entry.status = "final"
     db.commit()
@@ -930,8 +1190,61 @@ def default_discipline_for(user_subjects: List[str], available: List[str]) -> Op
     return None
 
 
+def sections_for_grade(db: Session, subject: str, grade: str, branch: Optional[str] = None,
+                       allowed: Optional[set] = None) -> list:
+    """Which sections a campus actually runs for this subject+grade.
+
+    Attibele runs two sections of a grade where Kodathi runs five or six, so
+    offering A-F everywhere invites a teacher to file against a section that
+    does not exist. Read from the assigned classes in staff_roles
+    ("Science|6A"), narrowed to the teachers at this campus, and falling back
+    to whatever POWs already name if the directory is unreachable.
+    """
+    wanted_subjects = {x.lower() for x in subjects_in_group(subject)}
+    # The caller may already have the campus's teacher set (the branch
+    # comparison does, for ten grades) - building it per call made that twenty
+    # full staff scans.
+    if allowed is None and branch:
+        allowed = set(_build_teacher_map(db, "", "Leadership", branch).keys())
+
+    letters = set()
+    for email, entry in staff_directory.get_directory().items():
+        if allowed is not None and email not in allowed:
+            continue
+        for a in entry.get("assignments", []):
+            if str(a.get("grade")) != str(grade):
+                continue
+            if a.get("subject") and a["subject"].lower() not in wanted_subjects:
+                continue
+            sec = (a.get("section") or "").strip().upper()[:1]
+            if sec:
+                letters.add(sec)
+
+    if not letters:
+        # Nothing in the directory: fall back to the sections POWs already use
+        # on this campus, so an existing grade keeps working.
+        q = db.query(models.PowSession).join(models.PowEntry).filter(
+            _subject_group_filter(subject),
+            models.PowEntry.grade == str(grade),
+        )
+        if allowed is not None:
+            q = q.filter(func.lower(models.PowEntry.teacher_email).in_(allowed or {""}))
+        for row in q.all():
+            letters.update(x for x in (row.sections or "").split(",") if x)
+
+    return [l for l in SECTION_LETTERS if l in letters]
+
+
+def progress_scope(db: Session, user_email: str, role: str, branch: Optional[str] = None) -> set:
+    """The teachers whose POWs count towards a progress reading: the ones this
+    viewer oversees on the selected campus. Same map the dashboard and the
+    Curriculum Overview use, so all three describe the same set of people."""
+    return set(_build_teacher_map(db, user_email, role, branch).keys())
+
+
 def get_progress_summary(db: Session, subject: str, grade: int, teacher_email: Optional[str] = None,
-                         discipline: Optional[str] = None):
+                         discipline: Optional[str] = None, teacher_emails: Optional[set] = None,
+                         branch: Optional[str] = None):
     """One table's worth of truth for the month: per chapter, what was planned
     and what has actually been done, with the POW detail behind each row. The
     headline tiles are derived from these same rows, so they cannot disagree.
@@ -964,6 +1277,11 @@ def get_progress_summary(db: Session, subject: str, grade: int, teacher_email: O
     )
     if teacher_email:
         q = q.filter(func.lower(models.PowEntry.teacher_email) == teacher_email.lower())
+    # Campus scoping: the caller passes the set of teachers this viewer may see
+    # on the selected branch, so a Kodathi view never counts Attibele's POWs.
+    # An empty set means the viewer oversees nobody there - no POWs, not all.
+    if teacher_emails is not None:
+        q = q.filter(func.lower(models.PowEntry.teacher_email).in_(teacher_emails or {""}))
     pows = q.order_by(models.PowEntry.week_start.asc()).all()
 
     pows_by_chapter = {}
@@ -982,6 +1300,7 @@ def get_progress_summary(db: Session, subject: str, grade: int, teacher_email: O
     marks = db.query(models.CurriculumBackfill).filter(
         _backfill_subject_filter(subject),
         models.CurriculumBackfill.grade == int(grade),
+        _backfill_branch_filter(models.CurriculumBackfill, branch),
     ).all()
     # Scoped to THIS month. A chapter spanning July and August, marked covered
     # for July, is not covered for August - crediting the mark to both months
@@ -1235,7 +1554,166 @@ def _pow_targets(p, chapter: dict) -> list:
     return leaves
 
 
-def get_annual_progress(db: Session, subject: str, grade: int, discipline: Optional[str] = None) -> dict:
+def implied_complete_chapters(chapters: list, pows_by_chapter: dict, disciplines: list) -> set:
+    """Chapters behind one that is already under way, per DISCIPLINE.
+
+    Teaching moves through a discipline in sequence, so starting chapter 3 means
+    1 and 2 are done. Biology being under way says nothing about Physics, hence
+    one track per discipline."""
+    out = set()
+    for disc in (disciplines or [None]):
+        track = [c for c in chapters if (c["discipline"] or None) == disc] if disc else list(chapters)
+        started = [i for i, c in enumerate(track) if pows_by_chapter.get(c["chapter"])]
+        if started:
+            out.update(c["chapter"] for c in track[:max(started)])
+    return out
+
+
+def chapter_sessions_done(chapters: list, pows_by_chapter: dict, marked_full: set,
+                          marked_months: dict, marked_labels: dict, implied: set) -> dict:
+    """{chapter: sessions done}. The one place this rule lives, so the year
+    view, the charts and the branch comparison can never drift apart.
+
+    Sessions are recorded on the POW for the CHAPTER, not per section
+    (lp_session_num is one field for the class), so this is grade-wide.
+    """
+    out = {}
+    for c in chapters:
+        name, planned = c["chapter"], c["sessions"]
+        done = 0
+        for p in pows_by_chapter.get(name, []):
+            done = max(done, _sessions_completed(p.lp_session_num, p.week_start, p.status))
+        if name in marked_full or name in implied:
+            done = max(done, planned)
+        else:
+            # Credit the sessions of the months that WERE marked. Session
+            # numbers on a POW count the chapter, not the month, so this is a
+            # max rather than a sum - two readings of the same chapter, not two
+            # separate stretches of work.
+            marked = marked_months.get(name, set())
+            if marked:
+                done = max(done, sum(v for m, v in c["month_sessions"].items() if m in marked))
+            if name in marked_labels:
+                leaves = _leaf_keys(c)
+                if leaves:
+                    done = max(done, round(planned * len(marked_labels[name]) / len(leaves)))
+        out[name] = min(done, planned) if planned else done
+    return out
+
+
+def compare_branches(db: Session, user_email: str, role: str, subject: str,
+                     discipline: Optional[str] = None) -> dict:
+    """Grade-by-grade, Kodathi against Attibele, for one subject.
+
+    Built from three queries rather than one annual reading per grade per
+    campus: the same maths run twenty times took eleven seconds, which is too
+    slow for a button. The per-chapter rule itself is shared with the year view
+    (chapter_sessions_done), so the two cannot disagree.
+    """
+    rows = get_planner_rows(db, subject)
+    wanted = (discipline or "").strip().lower()
+    if wanted:
+        rows = [r for r in rows if (r.strands_of_language or r.discipline or "").lower() == wanted]
+
+    by_grade = {}
+    for r in rows:
+        by_grade.setdefault(int(r.grade), []).append(r)
+
+    pows = db.query(models.PowEntry).filter(_subject_group_filter(subject)).all()
+    marks = db.query(models.CurriculumBackfill).filter(_backfill_subject_filter(subject)).all()
+
+    # Which campus each teacher belongs to, so a POW can be placed without a
+    # query per row.
+    campus_of = {}
+    for u in db.query(models.User).all():
+        if u.email:
+            campus_of[u.email.lower()] = normalize_branch(u.location)
+
+    allowed = {
+        br: set(_build_teacher_map(db, user_email, role, br).keys())
+        for br in BRANCHES
+    }
+
+    grades = []
+    for grade in sorted(by_grade):
+        chapters = annual_planner_tree(by_grade[grade])
+        if not chapters:
+            continue
+        disciplines = []
+        for r in by_grade[grade]:
+            d = r.strands_of_language or r.discipline
+            if d and d not in disciplines:
+                disciplines.append(d)
+
+        planned_chapters = len(chapters)
+        planned_sessions = sum(c["sessions"] for c in chapters)
+        entry = {"grade": grade, "chapters": planned_chapters, "sessions": planned_sessions,
+                 "branches": {}}
+
+        for br in BRANCHES:
+            scope = allowed[br]
+            pows_by_chapter = {}
+            for p in pows:
+                if str(p.grade) != str(grade):
+                    continue
+                email = (p.teacher_email or "").lower()
+                if email not in scope:
+                    continue
+                pows_by_chapter.setdefault((p.topic or "").strip(), []).append(p)
+
+            marked_months, marked_labels = {}, {}
+            for m in marks:
+                if int(m.grade) != grade:
+                    continue
+                # Unattributed marks (made before coverage was per campus)
+                # count for both until that campus is saved again.
+                if m.branch and normalize_branch(m.branch) != br:
+                    continue
+                if m.subtopic:
+                    marked_labels.setdefault(m.chapter_name, set()).add(m.subtopic)
+                else:
+                    marked_months.setdefault(m.chapter_name, set()).add(m.month)
+
+            marked_full = {
+                c["chapter"] for c in chapters
+                if c["months"] and set(c["months"]) <= marked_months.get(c["chapter"], set())
+            }
+            implied = implied_complete_chapters(chapters, pows_by_chapter, disciplines)
+            done = chapter_sessions_done(
+                chapters, pows_by_chapter, marked_full, marked_months, marked_labels, implied,
+            )
+
+            sessions_done = sum(done.values())
+            chapters_done = sum(
+                1 for c in chapters if c["sessions"] and done.get(c["chapter"], 0) >= c["sessions"]
+            )
+            entry["branches"][br] = {
+                "chapters_done": chapters_done,
+                "sessions_done": sessions_done,
+                "pct": round(sessions_done * 100 / planned_sessions) if planned_sessions else 0,
+                "sections": sections_for_grade(db, subject, str(grade), br, allowed[br]),
+                "teachers_filing": len({
+                    (p.teacher_email or "").lower()
+                    for p in pows if str(p.grade) == str(grade)
+                    and (p.teacher_email or "").lower() in scope
+                }),
+            }
+
+        k, a = entry["branches"].get("Kodathi", {}), entry["branches"].get("Attibele", {})
+        entry["gap_sessions"] = (k.get("sessions_done", 0) or 0) - (a.get("sessions_done", 0) or 0)
+        entry["gap_pct"] = (k.get("pct", 0) or 0) - (a.get("pct", 0) or 0)
+        grades.append(entry)
+
+    return {
+        "subject": subject,
+        "discipline": discipline or "",
+        "branches": BRANCHES,
+        "grades": grades,
+    }
+
+
+def get_annual_progress(db: Session, subject: str, grade: int, discipline: Optional[str] = None,
+                        teacher_emails: Optional[set] = None, branch: Optional[str] = None) -> dict:
     """Whole-year progress for one subject+grade, per SECTION - the leadership
     view, as opposed to the month-at-a-time SME view in get_progress_summary.
 
@@ -1256,10 +1734,13 @@ def get_annual_progress(db: Session, subject: str, grade: int, discipline: Optio
     chapters = annual_planner_tree(rows)
     disciplines = planner_disciplines(db, subject, int(grade))
 
-    pows = db.query(models.PowEntry).filter(
+    pow_q = db.query(models.PowEntry).filter(
         _subject_group_filter(subject),
         models.PowEntry.grade == str(grade),
-    ).order_by(models.PowEntry.week_start.asc()).all()
+    )
+    if teacher_emails is not None:
+        pow_q = pow_q.filter(func.lower(models.PowEntry.teacher_email).in_(teacher_emails or {""}))
+    pows = pow_q.order_by(models.PowEntry.week_start.asc()).all()
 
     sections = [
         l for l in SECTION_LETTERS
@@ -1296,6 +1777,7 @@ def get_annual_progress(db: Session, subject: str, grade: int, discipline: Optio
     marks = db.query(models.CurriculumBackfill).filter(
         _backfill_subject_filter(subject),
         models.CurriculumBackfill.grade == int(grade),
+        _backfill_branch_filter(models.CurriculumBackfill, branch),
     ).all()
     # Marks are per (month, chapter). A chapter taught across two months and
     # marked for only one is partly covered, so the months are kept and the
@@ -1321,12 +1803,7 @@ def get_annual_progress(db: Session, subject: str, grade: int, discipline: Optio
     for p in pows:
         pows_by_chapter.setdefault((p.topic or "").strip(), []).append(p)
 
-    implied_complete = set()
-    for disc in (disciplines or [None]):
-        track = [c for c in chapters if (c["discipline"] or None) == disc] if disc else list(chapters)
-        started = [i for i, c in enumerate(track) if pows_by_chapter.get(c["chapter"])]
-        if started:
-            implied_complete.update(c["chapter"] for c in track[:max(started)])
+    implied_complete = implied_complete_chapters(chapters, pows_by_chapter, disciplines)
 
     def leaf_label(leaf):
         """How the backfill sheet names this leaf (BackfillPanel items use
@@ -1348,30 +1825,9 @@ def get_annual_progress(db: Session, subject: str, grade: int, discipline: Optio
             return True
         return leaf in ticked.get((section, chapter_name), set())
 
-    # Sessions are recorded on the POW for the chapter, not per section
-    # (lp_session_num is one field for the class), so session progress is
-    # grade-wide by nature.
-    grade_sessions = {}
-    for c in chapters:
-        name, planned = c["chapter"], c["sessions"]
-        done = 0
-        for p in pows_by_chapter.get(name, []):
-            done = max(done, _sessions_completed(p.lp_session_num, p.week_start, p.status))
-        if name in marked_full or name in implied_complete:
-            done = max(done, planned)
-        else:
-            # Credit the sessions of the months that WERE marked. Session
-            # numbers on a POW count the chapter, not the month, so this is a
-            # max rather than a sum - the two are different readings of the
-            # same chapter, not two separate stretches of work.
-            marked = marked_months.get(name, set())
-            if marked:
-                done = max(done, sum(v for m, v in c["month_sessions"].items() if m in marked))
-            if name in marked_labels:
-                leaves = _leaf_keys(c)
-                if leaves:
-                    done = max(done, round(planned * len(marked_labels[name]) / len(leaves)))
-        grade_sessions[name] = min(done, planned) if planned else done
+    grade_sessions = chapter_sessions_done(
+        chapters, pows_by_chapter, marked_full, marked_months, marked_labels, implied_complete,
+    )
 
     # Sessions -> leaves. The proportion of the chapter's sessions that are
     # done, applied to its topics/sub-topics in sheet order. Rounded DOWN, so a
@@ -1471,7 +1927,7 @@ def months_to_date() -> List[str]:
     return [m for m in ACADEMIC_MONTHS if MONTH_INDEX[m] <= cutoff]
 
 
-def get_backfill_view(db: Session, subject: str, grade: int) -> dict:
+def get_backfill_view(db: Session, subject: str, grade: int, branch: Optional[str] = None) -> dict:
     """The marking sheet: every planner chapter in a month already past, with
     its sub-topics and what's ticked so far.
 
@@ -1485,6 +1941,7 @@ def get_backfill_view(db: Session, subject: str, grade: int) -> dict:
     marks = db.query(models.CurriculumBackfill).filter(
         _backfill_subject_filter(subject),
         models.CurriculumBackfill.grade == int(grade),
+        _backfill_branch_filter(models.CurriculumBackfill, branch),
     ).all()
     chapter_marks = {(m.month, m.chapter_name) for m in marks if not m.subtopic}
     item_marks = {(m.month, m.chapter_name, m.subtopic) for m in marks if m.subtopic}
@@ -1516,7 +1973,7 @@ def get_backfill_view(db: Session, subject: str, grade: int) -> dict:
     pow_count = db.query(func.count(models.PowEntry.id)).filter(
         _subject_group_filter(subject), models.PowEntry.grade == str(grade)
     ).scalar()
-    confirmation = _backfill_confirmation(db, subject, grade)
+    confirmation = _backfill_confirmation(db, subject, grade, branch)
 
     return {
         "subject": subject, "grade": int(grade),
@@ -1530,43 +1987,55 @@ def get_backfill_view(db: Session, subject: str, grade: int) -> dict:
     }
 
 
-def _backfill_confirmation(db: Session, subject: str, grade: int):
+def _backfill_confirmation(db: Session, subject: str, grade: int, branch: Optional[str] = None):
     return (
         db.query(models.BackfillConfirmation)
         .filter(_backfill_confirmation_filter(subject),
-                models.BackfillConfirmation.grade == int(grade))
+                models.BackfillConfirmation.grade == int(grade),
+                _backfill_branch_filter(models.BackfillConfirmation, branch))
         .first()
     )
 
 
-def confirm_backfill(db: Session, subject: str, grade: int, email: str) -> dict:
-    """Closes the marking for this subject+grade."""
-    existing = _backfill_confirmation(db, subject, grade)
+def confirm_backfill(db: Session, subject: str, grade: int, email: str,
+                     branch: Optional[str] = None) -> dict:
+    """Closes the marking for this subject+grade on this campus."""
+    existing = _backfill_confirmation(db, subject, grade, branch)
     if existing:
         return {"already_confirmed": True, "confirmed_by": existing.confirmed_by}
-    db.add(models.BackfillConfirmation(subject=group_head(subject), grade=int(grade), confirmed_by=email))
+    db.add(models.BackfillConfirmation(
+        subject=group_head(subject), grade=int(grade), confirmed_by=email,
+        branch=normalize_branch(branch) if branch else None,
+    ))
     db.commit()
     return {"already_confirmed": False, "confirmed_by": email}
 
 
-def reopen_backfill(db: Session, subject: str, grade: int) -> dict:
+def reopen_backfill(db: Session, subject: str, grade: int, branch: Optional[str] = None) -> dict:
     """Undoes a confirmation — the marks themselves are untouched."""
     deleted = (
         db.query(models.BackfillConfirmation)
         .filter(_backfill_confirmation_filter(subject),
-                models.BackfillConfirmation.grade == int(grade))
+                models.BackfillConfirmation.grade == int(grade),
+                _backfill_branch_filter(models.BackfillConfirmation, branch))
         .delete(synchronize_session=False)
     )
     db.commit()
     return {"reopened": bool(deleted)}
 
 
-def save_backfill(db: Session, subject: str, grade: int, marks: list, email: str) -> dict:
-    """Replaces the marks for this subject+grade. A tick is a row; unticking
-    removes it, so the table only ever states what WAS covered."""
+def save_backfill(db: Session, subject: str, grade: int, marks: list, email: str,
+                  branch: Optional[str] = None) -> dict:
+    """Replaces the marks for this subject+grade on this campus. A tick is a
+    row; unticking removes it, so the table only ever states what WAS covered.
+
+    Deletes the unattributed rows too (branch IS NULL, from before coverage was
+    per campus): the SME is now stating it for this campus, so the older
+    ambiguous rows have been superseded."""
     db.query(models.CurriculumBackfill).filter(
         _backfill_subject_filter(subject),
         models.CurriculumBackfill.grade == int(grade),
+        _backfill_branch_filter(models.CurriculumBackfill, branch),
     ).delete(synchronize_session=False)
 
     saved = 0
@@ -1575,6 +2044,7 @@ def save_backfill(db: Session, subject: str, grade: int, marks: list, email: str
             continue
         db.add(models.CurriculumBackfill(
             subject=group_head(subject), grade=int(grade),
+            branch=normalize_branch(branch) if branch else None,
             month=m.month, chapter_name=m.chapter_name,
             subtopic=m.subtopic or None, marked_by=email,
         ))
@@ -1900,7 +2370,8 @@ def month_weeks(year: int, month: int) -> list:
     return out
 
 
-def get_month_chart(db: Session, subject: str, grade: int, discipline: Optional[str] = None) -> dict:
+def get_month_chart(db: Session, subject: str, grade: int, discipline: Optional[str] = None,
+                    teacher_emails: Optional[set] = None, branch: Optional[str] = None) -> dict:
     """This month, week by week: how far through the month's planned sessions
     the class should be, against how far the POWs say it is.
 
@@ -1915,7 +2386,7 @@ def get_month_chart(db: Session, subject: str, grade: int, discipline: Optional[
     """
     today = now_ist()
     month = today.strftime("%B")
-    summary = get_progress_summary(db, subject, int(grade), None, discipline)
+    summary = get_progress_summary(db, subject, int(grade), None, discipline, teacher_emails, branch)
     rows = summary["chapter_rows"]
     planned_total = sum(r["sessions_planned"] for r in rows)
 
@@ -1927,10 +2398,13 @@ def get_month_chart(db: Session, subject: str, grade: int, discipline: Optional[
             "verdict": "No sessions planned for " + month if not planned_total else "No weeks",
         }
 
-    pows = db.query(models.PowEntry).filter(
+    chart_q = db.query(models.PowEntry).filter(
         _subject_group_filter(subject),
         models.PowEntry.grade == str(grade),
-    ).all()
+    )
+    if teacher_emails is not None:
+        chart_q = chart_q.filter(func.lower(models.PowEntry.teacher_email).in_(teacher_emails or {""}))
+    pows = chart_q.all()
     wanted_chapters = {r["chapter"] for r in rows}
     planned_by_chapter = {r["chapter"]: r["sessions_planned"] for r in rows}
 
@@ -1977,7 +2451,8 @@ def get_month_chart(db: Session, subject: str, grade: int, discipline: Optional[
     }
 
 
-def get_progress_chart(db: Session, subject: str, grade: int, discipline: Optional[str] = None):
+def get_progress_chart(db: Session, subject: str, grade: int, discipline: Optional[str] = None,
+                       teacher_emails: Optional[set] = None, branch: Optional[str] = None):
     """The year, month by month: cumulative sessions planned against
     cumulative sessions covered.
 
@@ -1987,7 +2462,7 @@ def get_progress_chart(db: Session, subject: str, grade: int, discipline: Option
     for a Science Grade 6 plan of 221, and plotted a POW's first ticked session
     number on top of a running total - two different units on one line.
     """
-    annual = get_annual_progress(db, subject, int(grade), discipline)
+    annual = get_annual_progress(db, subject, int(grade), discipline, teacher_emails, branch)
     chapters = annual["chapters"]
     if not chapters:
         return {"success": True, "labels": [], "planned": [], "actual": [], "verdict": "No planner data",
