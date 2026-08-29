@@ -2,7 +2,7 @@ import datetime
 import re
 import calendar
 from typing import Optional, List
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import func, or_, true as sql_true
 from . import models, staff_directory
 
@@ -29,6 +29,48 @@ ACADEMIC_MONTHS = [
     "October", "November", "December", "January", "February", "March",
 ]
 MONTH_INDEX = {m: i for i, m in enumerate(ACADEMIC_MONTHS)}
+
+
+# Some sheets write a span rather than a single month - Social Science Grade 8
+# has "Aug-Sep", "May-June-July", "Oct-Nov-Dec". MONTH_INDEX only knows whole
+# month names, so every one of those sorted to 99 and counted as "not yet
+# planned": the entire subject and grade came out blank on the reports.
+#
+# A span is placed by the FIRST month it names, which is when that stretch of
+# teaching starts. The label is left exactly as the sheet wrote it, so nothing
+# on screen is rewritten behind the SME's back.
+_MONTH_WORD = re.compile(r"[A-Za-z]+")
+# First three letters of each month -> its academic position. Three is enough
+# to separate all twelve, and it absorbs both abbreviations ("Sep") and the
+# odd typo ("Novemeber").
+_MONTH_BY_PREFIX = {name.lower()[:3]: idx for name, idx in MONTH_INDEX.items()}
+
+
+def month_position(label, default=99):
+    """Where a month label sits in the academic year (April = 0)."""
+    if not label:
+        return default
+    text = str(label).strip()
+    if text in MONTH_INDEX:
+        return MONTH_INDEX[text]
+    for word in _MONTH_WORD.findall(text):
+        idx = _MONTH_BY_PREFIX.get(word.lower()[:3])
+        if idx is not None:
+            return idx
+    return default
+
+
+def months_in_label(label):
+    """Every month a label names: ["August", "September"] for "Aug-Sep"."""
+    if not label:
+        return []
+    by_idx = {v: k for k, v in MONTH_INDEX.items()}
+    out = []
+    for word in _MONTH_WORD.findall(str(label)):
+        idx = _MONTH_BY_PREFIX.get(word.lower()[:3])
+        if idx is not None and by_idx[idx] not in out:
+            out.append(by_idx[idx])
+    return out
 
 
 def now_ist() -> datetime.datetime:
@@ -125,12 +167,20 @@ def group_head(subject: str) -> str:
 
 
 def _backfill_branch_filter(model, branch: Optional[str]):
-    """Rows for this campus, plus the ones marked before the column existed
-    (branch IS NULL) which are not yet attributed to either. Saving a campus
-    replaces both, so the ambiguity clears the first time it is saved."""
+    """Rows for this campus only.
+
+    Rows with no campus - marked before coverage became per campus - are
+    deliberately NOT counted for anybody. Letting them stand in for whichever
+    campus was being viewed showed Attibele coverage it had never been given,
+    which is worse than showing none: the two campuses teach the same grade at
+    their own pace and the marks belong to one of them. Saving a campus deletes
+    them (see save_backfill), so they clear as coverage is re-marked.
+
+    A blank branch means "no campus filter" - the whole-school view - and still
+    sees everything."""
     if not branch:
         return sql_true()
-    return or_(model.branch.is_(None), func.lower(model.branch) == branch.lower())
+    return func.lower(model.branch) == branch.lower()
 
 
 def _backfill_subject_filter(subject: str):
@@ -252,9 +302,9 @@ def chapters_from_rows(rows: List[models.PlannerTopic]) -> List[PlannerChapter]:
         # the largest stated count wins, so the plan is never under-stated
         entry.sessions = max(entry.sessions, r.sessions or 0)
         # and the chapter is due by the LAST month it appears in
-        if MONTH_INDEX.get(r.month, -1) > MONTH_INDEX.get(entry.month, -1):
+        if month_position(r.month, -1) > month_position(entry.month, -1):
             entry.month = r.month
-        if MONTH_INDEX.get(r.month, 99) < MONTH_INDEX.get(entry.first_month, 99):
+        if month_position(r.month, 99) < month_position(entry.first_month, 99):
             entry.first_month = r.month
     return [chosen[key] for key in order]
 
@@ -368,6 +418,26 @@ def allowed_upload_subjects(db: Session, email: str, designation: str, subject: 
             if member and member not in allowed:
                 allowed.append(member)
     return allowed
+
+
+def subject_variants(db: Session, subjects: list) -> list:
+    """Planner subjects that are a LEVEL of one this person teaches:
+    "Hindi (R3)" for a Hindi teacher.
+
+    A third language is stored as its own subject so its curriculum does not
+    collide with the main one for the same grade, which means staff_roles - it
+    only ever says "Hindi" - would otherwise leave nobody able to file a POW
+    against it."""
+    if not subjects:
+        return []
+    mine = {x.strip().lower() for x in subjects if x}
+    out = []
+    rows = db.query(models.PlannerTopic.subject).distinct().all()
+    for (name,) in rows:
+        base = re.sub(r"\s*[\(\[][^)\]]*[\)\]]\s*$", "", name or "").strip().lower()
+        if base and base != (name or "").strip().lower() and base in mine:
+            out.append(name)
+    return sorted(set(out))
 
 
 def get_known_subjects(db: Session, limit_to: Optional[List[str]] = None) -> dict:
@@ -853,9 +923,20 @@ def _all_pow_sections(data) -> list:
     return seen
 
 
+def teacher_branch(db: Session, email: str) -> Optional[str]:
+    """The campus a member of staff is on, normalised. 'Both' resolves to None
+    - it is not a campus a POW can be filed for."""
+    u = db.query(models.User).filter(func.lower(models.User.email) == (email or "").lower()).first()
+    # viewer_branches returns None for 'Both' and for an unset location - both
+    # mean "not one campus", so there is nothing to stamp.
+    own = viewer_branches(u.location if u else "") or []
+    return own[0] if len(own) == 1 else None
+
+
 def create_pow(db: Session, teacher_email: str, data) -> models.PowEntry:
     pow_entry = models.PowEntry(
         teacher_email=teacher_email.lower(),
+        branch=teacher_branch(db, teacher_email),
         subject=data.subject,
         grade=data.grade,
         week_start=datetime.date.fromisoformat(data.week_start),
@@ -1190,6 +1271,33 @@ def default_discipline_for(user_subjects: List[str], available: List[str]) -> Op
     return None
 
 
+def sections_by_grade(allowed: Optional[set] = None) -> dict:
+    """{(subject lowercased, grade): [sections]} for a campus, in ONE pass over
+    the staff directory and no database round trips.
+
+    sections_for_grade answers the same question for a single grade, but the
+    management report asks it for every subject and grade at once - forty
+    separate calls, each with a fallback query, and the report took fifty
+    seconds against a remote database.
+    """
+    out = {}
+    for email, entry in staff_directory.get_directory().items():
+        if allowed is not None and email not in allowed:
+            continue
+        for a in entry.get("assignments", []):
+            sec = (a.get("section") or "").strip().upper()[:1]
+            grade = str(a.get("grade") or "").strip()
+            subject = (a.get("subject") or "").strip().lower()
+            if not sec or not grade:
+                continue
+            # Recorded against the stream ("Biology"); the report asks by the
+            # group as well, so both keys are filled.
+            for key_subject in {subject, group_head(subject).lower() if subject else ""}:
+                if key_subject:
+                    out.setdefault((key_subject, grade), set()).add(sec)
+    return {k: [l for l in SECTION_LETTERS if l in v] for k, v in out.items()}
+
+
 def sections_for_grade(db: Session, subject: str, grade: str, branch: Optional[str] = None,
                        allowed: Optional[set] = None) -> list:
     """Which sections a campus actually runs for this subject+grade.
@@ -1495,7 +1603,7 @@ def annual_planner_tree(rows) -> list:
         share = {}
         if months and total:
             base, extra = divmod(total, len(months))
-            for i, m in enumerate(sorted(months, key=lambda x: MONTH_INDEX.get(x, 99))):
+            for i, m in enumerate(sorted(months, key=lambda x: month_position(x, 99))):
                 share[m] = base + (1 if i < extra else 0)
 
         out.append({
@@ -1601,6 +1709,272 @@ def chapter_sessions_done(chapters: list, pows_by_chapter: dict, marked_full: se
     return out
 
 
+# Subjects shown as one column per discipline in the management report.
+# Science and Social Science are taught as separate streams with their own
+# teachers; Mathematics carries "disciplines" too (Arithmetic, Geometry...) but
+# those are strands of one subject taught by one teacher, so it stays a single
+# column.
+REPORT_SPLIT_SUBJECTS = {"science", "social science"}
+
+
+def _variance(done: float, expected: float):
+    """How far ahead or behind the plan, as a percentage of what should have
+    been covered by now. None when nothing is planned yet - a blank cell rather
+    than a misleading zero."""
+    if not expected:
+        return None
+    return round((done - expected) * 100.0 / expected)
+
+
+# The report reads the whole planner and every POW, and the round trips to a
+# remote Postgres dominate. It is read-only and identical for everyone with the
+# same scope, so it is held briefly rather than rebuilt per viewer - a
+# management page with several readers would otherwise pay for each of them.
+_REPORT_CACHE = {}
+_REPORT_TTL_SECONDS = 300
+
+
+def _report_cache_get(key):
+    hit = _REPORT_CACHE.get(key)
+    if not hit:
+        return None
+    stamp, value = hit
+    if (now_ist() - stamp).total_seconds() > _REPORT_TTL_SECONDS:
+        _REPORT_CACHE.pop(key, None)
+        return None
+    return value
+
+
+def delivery_report(db: Session, user_email: str, role: str, branch: Optional[str] = None,
+                    fresh: bool = False) -> dict:
+    """Grade x subject delivery for one campus, as the management report.
+
+    Each cell is how far ahead or behind that class is against the sessions the
+    mapping expects to have been covered by now - not how much of the year is
+    done, which always reads low in September. A grade's figure is the average
+    of its sections, and each grade opens into those sections.
+
+    Built from a handful of bulk queries: per-subject-per-grade readings would
+    be about fifty round trips.
+    """
+    today = now_ist()
+    this_month = today.strftime("%B")
+    month_cut = month_position(this_month, 99)
+
+    scope = set(_build_teacher_map(db, user_email, role, branch))
+    # Keyed on the scope, not the viewer: two people who oversee the same
+    # teachers see the same report and can share the cached one.
+    cache_key = (normalize_branch(branch) if branch else "", this_month, tuple(sorted(scope)))
+    if not fresh:
+        cached = _report_cache_get(cache_key)
+        if cached is not None:
+            return {**cached, "cached": True}
+
+    rows = db.query(models.PlannerTopic).order_by(
+        models.PlannerTopic.subject, models.PlannerTopic.display_order
+    ).all()
+    # Eager-loaded: walking p.sessions and their implementations lazily is a
+    # query per POW per session, which is what a remote database charges most
+    # for.
+    pows = (
+        db.query(models.PowEntry)
+        .options(
+            selectinload(models.PowEntry.sessions).selectinload(models.PowSession.implementations)
+        )
+        .all()
+    )
+    marks = db.query(models.CurriculumBackfill).all()
+    campus_sections = sections_by_grade(scope)
+
+    # Which disciplines of a split subject are real STREAMS, and which mean
+    # "not bifurcated at this grade".
+    #
+    # Science is EVS in Grades 1-2, plain Science in 3-4 and only splits into
+    # Biology/Chemistry/Physics from Grade 5. A value that is the sole
+    # discipline for its grade is therefore the whole subject under another
+    # name, not a stream, and belongs in the group's FIRST column with the rest
+    # left blank - one figure for the subject, which is what it is.
+    streams, catchalls, first_seen = {}, {}, {}
+    per_grade = {}
+    for r in rows:
+        if r.subject.strip().lower() not in REPORT_SPLIT_SUBJECTS:
+            continue
+        d = (r.strands_of_language or r.discipline or "").strip()
+        if not d:
+            continue
+        per_grade.setdefault((r.subject, int(r.grade)), set()).add(d)
+        key = (r.subject, d)
+        if key not in first_seen:
+            first_seen[key] = r.display_order or 0
+
+    for (subject, grade), found in per_grade.items():
+        for d in found:
+            # Sole discipline for a grade, or simply the subject's own name:
+            # either way it is the unbifurcated case.
+            if len(found) == 1 or d.strip().lower() == subject.strip().lower():
+                catchalls.setdefault(subject, set()).add(d)
+
+    for (subject, d) in first_seen:
+        if d not in catchalls.get(subject, set()):
+            streams.setdefault(subject, []).append(d)
+    # Alphabetical, not sheet order: the sheet happens to introduce Physics
+    # first, and the leftmost column is where an unbifurcated grade's single
+    # figure lands, so it should be a predictable one.
+    for subject in streams:
+        streams[subject].sort(key=lambda d: d.lower())
+
+    def column_for(subject, discipline):
+        """Where a planner row's figures belong. A stream keeps its own column;
+        anything else lands in the group's first column."""
+        if subject.strip().lower() not in REPORT_SPLIT_SUBJECTS:
+            return ""
+        mine = streams.get(subject) or []
+        if discipline in mine:
+            return discipline
+        return mine[0] if mine else ""
+
+    # planner rows grouped by (subject, column, grade)
+    plans = {}
+    for r in rows:
+        subject = r.subject
+        disc = (r.strands_of_language or r.discipline or "").strip()
+        plans.setdefault((subject, column_for(subject, disc)), {}) \
+             .setdefault(int(r.grade), []).append(r)
+
+    # POWs by (subject-group-head, grade). Scope decides who this viewer may
+    # see; the POW's own stamped campus decides which report it belongs in, so
+    # a teacher moving campus does not move their history with them.
+    pows_by_key = {}
+    for p in pows:
+        email = (p.teacher_email or "").lower()
+        if email not in scope:
+            continue
+        if branch and p.branch and normalize_branch(p.branch) != normalize_branch(branch):
+            continue
+        pows_by_key.setdefault((group_head(p.subject), str(p.grade)), []).append(p)
+
+    marks_by_key = {}
+    for m in marks:
+        # A mark with no campus counts for nobody: see _backfill_branch_filter.
+        if branch and normalize_branch(m.branch or "") != normalize_branch(branch):
+            continue
+        marks_by_key.setdefault((group_head(m.subject), str(m.grade)), []).append(m)
+
+    def column_order(key):
+        subject, disc = key
+        mine = streams.get(subject) or []
+        return (subject, mine.index(disc) if disc in mine else -1)
+
+    columns = []
+    for (subject, disc) in sorted(plans, key=column_order):
+        columns.append({"subject": subject, "discipline": disc,
+                        "key": f"{subject}|{disc}" if disc else subject,
+                        "label": disc or subject})
+
+    all_grades = sorted({g for byg in plans.values() for g in byg})
+
+    def sections_of(subject, grade):
+        return (campus_sections.get((subject.lower(), str(grade)))
+                or campus_sections.get((group_head(subject).lower(), str(grade)))
+                or [])
+
+    grades = []
+    for grade in all_grades:
+        grade_row = {"grade": grade, "cells": {}, "sections": []}
+        section_rows = {}
+
+        for col in columns:
+            subject, disc = col["subject"], col["discipline"]
+            grade_rows = plans[(subject, disc)].get(grade)
+            if not grade_rows:
+                continue
+
+            chapters = annual_planner_tree(grade_rows)
+            if not chapters:
+                continue
+
+            # What should have been covered by now: every month up to this one.
+            expected = 0
+            for c in chapters:
+                for month, v in c["month_sessions"].items():
+                    if month_position(month, 99) <= month_cut:
+                        expected += v
+            if not expected:
+                continue
+
+            key = (group_head(subject), str(grade))
+            subject_pows = [
+                p for p in pows_by_key.get(key, [])
+                if not disc or (p.topic or "").strip() in {c["chapter"] for c in chapters}
+            ]
+            pows_by_chapter = {}
+            for p in subject_pows:
+                pows_by_chapter.setdefault((p.topic or "").strip(), []).append(p)
+
+            marked_months, marked_labels = {}, {}
+            chapter_names = {c["chapter"] for c in chapters}
+            for m in marks_by_key.get(key, []):
+                if m.chapter_name not in chapter_names:
+                    continue
+                if m.subtopic:
+                    marked_labels.setdefault(m.chapter_name, set()).add(m.subtopic)
+                else:
+                    marked_months.setdefault(m.chapter_name, set()).add(m.month)
+            marked_full = {
+                c["chapter"] for c in chapters
+                if c["months"] and set(c["months"]) <= marked_months.get(c["chapter"], set())
+            }
+
+            # Coverage the SME marked, which belongs to every section equally.
+            backfill_only = sum(chapter_sessions_done(
+                chapters, {}, marked_full, marked_months, marked_labels, set(),
+            ).values())
+
+            # What each section itself recorded: a session it marked completed.
+            done_by_section = {}
+            for p in subject_pows:
+                for sess in p.sessions:
+                    for impl in sess.implementations:
+                        if impl.completed_on:
+                            done_by_section[impl.section] = done_by_section.get(impl.section, 0) + 1
+
+            letters = sections_of(subject, grade)
+            if not letters:
+                letters = sorted(done_by_section) or ["A"]
+
+            variances = []
+            for letter in letters:
+                done = min(backfill_only + done_by_section.get(letter, 0), expected)
+                v = _variance(done, expected)
+                variances.append(v)
+                section_rows.setdefault(letter, {})[col["key"]] = {
+                    "variance": v, "done": done, "expected": expected,
+                }
+
+            real = [v for v in variances if v is not None]
+            grade_row["cells"][col["key"]] = {
+                "variance": round(sum(real) / len(real)) if real else None,
+                "expected": expected,
+                "sections": len(letters),
+            }
+
+        grade_row["sections"] = [
+            {"section": letter, "cells": cells}
+            for letter, cells in sorted(section_rows.items())
+        ]
+        grades.append(grade_row)
+
+    result = {
+        "branch": branch or "",
+        "month": this_month,
+        "columns": columns,
+        "grades": grades,
+        "cached": False,
+    }
+    _REPORT_CACHE[cache_key] = (now_ist(), result)
+    return result
+
+
 def compare_branches(db: Session, user_email: str, role: str, subject: str,
                      discipline: Optional[str] = None) -> dict:
     """Grade-by-grade, Kodathi against Attibele, for one subject.
@@ -1667,7 +2041,8 @@ def compare_branches(db: Session, user_email: str, role: str, subject: str,
                     continue
                 # Unattributed marks (made before coverage was per campus)
                 # count for both until that campus is saved again.
-                if m.branch and normalize_branch(m.branch) != br:
+                # Unattributed marks belong to neither campus.
+                if normalize_branch(m.branch or "") != br:
                     continue
                 if m.subtopic:
                     marked_labels.setdefault(m.chapter_name, set()).add(m.subtopic)
@@ -1882,7 +2257,7 @@ def get_annual_progress(db: Session, subject: str, grade: int, discipline: Optio
     # "More than 50% left by August end" - raised from August onward, since
     # before that a large remainder is simply the year being young.
     today = now_ist()
-    past_august = MONTH_INDEX.get(today.strftime("%B"), 0) >= MONTH_INDEX.get("August", 0)
+    past_august = month_position(today.strftime("%B"), 0) >= month_position("August", 0)
     behind = past_august and (chapters_pct_left > 50 or sessions_pct_left > 50)
     reasons = []
     if behind and chapters_pct_left > 50:
@@ -1921,7 +2296,7 @@ def months_to_date() -> List[str]:
     """Academic months up to and INCLUDING the current one — everything that
     could already have been taught. In August: April to August."""
     current = now_ist().strftime("%B")
-    cutoff = MONTH_INDEX.get(current)
+    cutoff = month_position(current, None)
     if cutoff is None:
         return []
     return [m for m in ACADEMIC_MONTHS if MONTH_INDEX[m] <= cutoff]
@@ -1934,7 +2309,12 @@ def get_backfill_view(db: Session, subject: str, grade: int, branch: Optional[st
     `locked` is the one-time rule — once a POW exists for this subject+grade,
     progress comes from POWs and the marking is closed for good."""
     rows = get_planner_rows(db, subject, grade)
-    past = set(months_to_date())
+    # Compared by POSITION, not by name: a sheet that writes a span
+    # ("Aug-Sep", "May-June-July") never matched a whole-month name, so those
+    # chapters could not be ticked at all - Social Science Grade 8 offered
+    # nothing to mark. A span counts as under way once its first month has
+    # started, which is how it is ordered everywhere else.
+    cutoff = month_position(now_ist().strftime("%B"), None)
 
     # Grade-wise: the curriculum was covered (or not) for the class, so the
     # marks belong to the subject+grade rather than to each teacher of it.
@@ -1948,7 +2328,7 @@ def get_backfill_view(db: Session, subject: str, grade: int, branch: Optional[st
 
     chapters = {}
     for r in rows:
-        if r.month not in past:
+        if cutoff is None or month_position(r.month) > cutoff:
             continue
         key = (r.month, r.chapter_name)
         entry = chapters.setdefault(key, {
@@ -1965,7 +2345,7 @@ def get_backfill_view(db: Session, subject: str, grade: int, branch: Optional[st
         entry.pop("_seen")
         entry["items_done"] = sum(1 for i in entry["items"] if i["done"])
         out.append(entry)
-    out.sort(key=lambda c: (MONTH_INDEX.get(c["month"], 99), c["chapter_name"]))
+    out.sort(key=lambda c: (month_position(c["month"], 99), c["chapter_name"]))
 
     # POWs do NOT close the marking — an SME may still be working through past
     # coverage after teachers have started filing. Only their explicit
@@ -1977,7 +2357,12 @@ def get_backfill_view(db: Session, subject: str, grade: int, branch: Optional[st
 
     return {
         "subject": subject, "grade": int(grade),
-        "months": months_to_date(),
+        # The month labels actually on the sheet, in academic order - the panel
+        # groups its rows by these. Whole month names would leave a span like
+        # "May-June-July" in no group at all, and its chapters unreachable.
+        "months": ([c["month"] for c in sorted(
+            {x["month"]: x for x in out}.values(), key=lambda x: month_position(x["month"]))]
+            or months_to_date()),
         "chapters": out,
         "locked": confirmation is not None,
         "confirmed_by": confirmation.confirmed_by if confirmation else None,
@@ -2032,10 +2417,17 @@ def save_backfill(db: Session, subject: str, grade: int, marks: list, email: str
     Deletes the unattributed rows too (branch IS NULL, from before coverage was
     per campus): the SME is now stating it for this campus, so the older
     ambiguous rows have been superseded."""
+    # Replaces this campus's marks, and clears any left unattributed for the
+    # same subject and grade: the SME is stating coverage per campus now, so
+    # the older ambiguous rows have been superseded. Reads ignore them either
+    # way (see _backfill_branch_filter) - this is what actually removes them.
     db.query(models.CurriculumBackfill).filter(
         _backfill_subject_filter(subject),
         models.CurriculumBackfill.grade == int(grade),
-        _backfill_branch_filter(models.CurriculumBackfill, branch),
+        or_(
+            models.CurriculumBackfill.branch.is_(None),
+            _backfill_branch_filter(models.CurriculumBackfill, branch),
+        ),
     ).delete(synchronize_session=False)
 
     saved = 0
@@ -2239,7 +2631,7 @@ def get_lagging_report(db: Session, viewer_email: str, role: str, branch: Option
         if current_month in month_order:
             expected = month_cum[current_month]
         elif month_order:
-            months_elapsed = [m for m in month_order if MONTH_INDEX.get(m, 99) <= MONTH_INDEX.get(current_month, -1)]
+            months_elapsed = [m for m in month_order if month_position(m, 99) <= month_position(current_month, -1)]
             expected = month_cum[months_elapsed[-1]] if months_elapsed else 0
 
         done = 0
@@ -2302,7 +2694,7 @@ def get_lagging_report(db: Session, viewer_email: str, role: str, branch: Option
                 if current_month in month_cum:
                     expected = month_cum[current_month]
                 else:
-                    elapsed = [m for m in month_cum if MONTH_INDEX.get(m, 99) <= MONTH_INDEX.get(current_month, -1)]
+                    elapsed = [m for m in month_cum if month_position(m, 99) <= month_position(current_month, -1)]
                     expected = max((month_cum[m] for m in elapsed), default=0)
                 if expected <= 0:
                     continue
@@ -2471,7 +2863,7 @@ def get_progress_chart(db: Session, subject: str, grade: int, discipline: Option
     # Academic order (April -> March), only the months this plan actually uses.
     months = sorted(
         {m for c in chapters for m in c["month_sessions"]},
-        key=lambda m: MONTH_INDEX.get(m, 99),
+        key=lambda m: month_position(m, 99),
     )
 
     planned_by_month = {m: 0 for m in months}
@@ -2484,7 +2876,7 @@ def get_progress_chart(db: Session, subject: str, grade: int, discipline: Option
         # the earliest month gets its share first. Spreading it proportionally
         # instead pushed part of the work already done into months still ahead,
         # and the year-to-date line then disagreed with the donut.
-        for m in sorted(c["month_sessions"], key=lambda x: MONTH_INDEX.get(x, 99)):
+        for m in sorted(c["month_sessions"], key=lambda x: month_position(x, 99)):
             v = c["month_sessions"][m]
             planned_by_month[m] += v
             take = min(done_left, v)
@@ -2492,7 +2884,7 @@ def get_progress_chart(db: Session, subject: str, grade: int, discipline: Option
             done_left -= take
 
     today = now_ist()
-    this_month_idx = MONTH_INDEX.get(today.strftime("%B"), 99)
+    this_month_idx = month_position(today.strftime("%B"), 99)
 
     labels, plan_line, act_line, analysis = [], [], [], []
     cum_planned = cum_done = 0
@@ -2503,7 +2895,7 @@ def get_progress_chart(db: Session, subject: str, grade: int, discipline: Option
         plan_line.append(cum_planned)
         # The actual line stops at the current month - drawing it flat across
         # months not yet taught reads as a collapse in progress.
-        past = MONTH_INDEX.get(m, 99) <= this_month_idx
+        past = month_position(m, 99) <= this_month_idx
         act_line.append(round(cum_done) if past else None)
 
         gap = round(cum_done - cum_planned)
