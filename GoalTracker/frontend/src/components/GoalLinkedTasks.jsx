@@ -9,7 +9,7 @@ function flatten(tasks) {
   return out;
 }
 
-export default function GoalLinkedTasks({ token, user, myGoals, goal, onGoalChanged, readOnly }) {
+export default function GoalLinkedTasks({ token, user, myGoals, goal, onGoalChanged, readOnly, onHasTasks }) {
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -20,14 +20,12 @@ export default function GoalLinkedTasks({ token, user, myGoals, goal, onGoalChan
     try {
       const data = await api.getTasksForGoal(token, goal.id);
       setTasks(data);
-      if (checkForCompletionPrompt && !goal.is_completed) {
-        const linked = flatten(data).filter((t) => t.goal_id === goal.id);
-        if (linked.length > 0 && linked.every((t) => t.is_completed)) {
-          if (window.confirm(`All ${linked.length} task${linked.length === 1 ? "" : "s"} linked to "${goal.title}" are complete. Mark this goal as complete too?`)) {
-            await api.setGoalCompletion(token, goal.id, true);
-            onGoalChanged && onGoalChanged();
-          }
-        }
+      onHasTasks && onHasTasks(flatten(data).some((t) => t.goal_id === goal.id));
+      // The server now closes (and reopens) a goal from the state of its
+      // linked tasks, so there is nothing to ask about - a prompt could be
+      // dismissed and leave the goal open with all its work finished.
+      if (checkForCompletionPrompt) {
+        onGoalChanged && onGoalChanged();
       }
     } catch (err) {
       setError(err.message);
