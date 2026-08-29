@@ -35,3 +35,17 @@ export function weeksLate(dueAt, now = new Date()) {
   if (weeks <= 0) return null;
   return weeks === 1 ? "1 week late" : `${weeks} weeks late`;
 }
+
+
+// Flatten a task tree to a plain list - subtasks count too when asking
+// "how much work hangs off this?".
+export function flattenTasks(tasks) {
+  const out = [];
+  (function walk(list) {
+    for (const t of list || []) {
+      out.push(t);
+      walk(t.subtasks);
+    }
+  })(tasks);
+  return out;
+}
