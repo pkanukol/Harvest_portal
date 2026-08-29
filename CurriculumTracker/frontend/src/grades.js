@@ -4,3 +4,7 @@
 // today (excel_import.VALID_GRADES); 11 and 12 are selectable so a grade can
 // be looked at as soon as its mapping is uploaded.
 export const GRADES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+
+// The school's campuses, in the order reports show them. Mirrors
+// crud.BRANCHES on the backend.
+export const BRANCHES = ["Kodathi", "Attibele"];
