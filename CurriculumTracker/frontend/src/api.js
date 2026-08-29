@@ -1,8 +1,12 @@
-import { PORTAL_URL } from "./portal";
-
 // In local dev, VITE_API_URL is empty -> requests go to "/" -> Vite proxy forwards to localhost:8030
 // In production (Render), VITE_API_URL is set to the backend Render URL
 export const API_ROOT = import.meta.env.VITE_API_URL || "";
+// The school portal is where every session starts: the Curriculum Tracker has
+// no login of its own, only the SSO handoff from there. Hard-coded rather than
+// read from VITE_PORTAL_URL, because a build that shipped without that variable
+// sent an expired session to a page that cannot sign anyone back in.
+const PORTAL_URL = "https://his-academy360.netlify.app";
+
 const API_BASE = API_ROOT + "/api";
 
 function authHeaders(token) {
