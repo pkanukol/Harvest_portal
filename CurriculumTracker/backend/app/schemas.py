@@ -20,6 +20,7 @@ class SSOResponse(BaseModel):
     can_see_lagging: bool = False   # SME/HOD and leadership — the curriculum-lag dashboard
     can_create_pow: bool = False    # also teaches, so may file POWs regardless of role
     can_see_overview: bool = False  # the week-by-week Curriculum Overview table
+    can_oversee: bool = False       # reads curriculum delivery across teachers
     branches: List[str] = []        # campuses this account may view
 
 
@@ -38,6 +39,7 @@ class MeResponse(BaseModel):
     can_see_lagging: bool = False
     can_create_pow: bool = False
     can_see_overview: bool = False
+    can_oversee: bool = False
     branches: List[str] = []
 
 
