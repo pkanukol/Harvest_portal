@@ -93,6 +93,23 @@ def run_migrations():
                 with engine.begin() as conn:
                     conn.execute(text(f"ALTER TABLE pow_entries ADD COLUMN {column} DATE"))
 
+    if "pow_entries" in existing_tables:
+        cols = {c["name"] for c in inspector.get_columns("pow_entries")}
+        if "branch" not in cols:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE pow_entries ADD COLUMN branch VARCHAR"))
+                # Existing POWs take the campus their teacher is on today -
+                # the best evidence available, and correct for everyone who has
+                # not moved.
+                conn.execute(text("""
+                    UPDATE pow_entries p
+                       SET branch = u.location
+                      FROM users u
+                     WHERE lower(u.email) = lower(p.teacher_email)
+                       AND p.branch IS NULL
+                       AND u.location IS NOT NULL
+                """))
+
     if "pow_sessions" in existing_tables:
         cols = {c["name"] for c in inspector.get_columns("pow_sessions")}
         # A session carries its own chapter/topic/sub-topic (a week can cross a
