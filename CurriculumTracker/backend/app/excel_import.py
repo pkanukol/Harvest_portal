@@ -93,6 +93,38 @@ def _grade_from_tab_name(name: str):
     return int(m.group(1)) if m else None
 
 
+# A language taught at more than one level in the same grade: Hindi Grade 9 has
+# both the second-language curriculum ("Grade 9") and the third-language one
+# ("Grade 9(R3)"). They are different curricula for the same grade, so the tab
+# name's marker is what keeps them apart - without it the second tab looked
+# like a duplicate grade and was dropped.
+LEVEL_ALIASES = {
+    "r1": "R1", "r2": "R2", "r3": "R3",
+    "i": "R1", "ii": "R2", "iii": "R3",
+    "1st lang": "R1", "2nd lang": "R2", "3rd lang": "R3",
+    "first language": "R1", "second language": "R2", "third language": "R3",
+}
+
+
+def _level_from_tab_name(name: str):
+    """-> "R3" for "Grade 9(R3)", "Gr 9 - III", "Grade 9 3rd lang"; None for a
+    plain grade tab. Matched inside brackets or after a separator, so a tab
+    called "Grade 3" is never read as a level."""
+    text = (name or "").strip().lower()
+    bracketed = re.search(r"[\(\[]\s*([^)\]]+?)\s*[\)\]]", text)
+    candidates = []
+    if bracketed:
+        candidates.append(bracketed.group(1))
+    tail = re.split(r"[-–—_]", text)
+    if len(tail) > 1:
+        candidates.append(tail[-1])
+    for raw in candidates:
+        key = re.sub(r"\s+", " ", raw.strip())
+        if key in LEVEL_ALIASES:
+            return LEVEL_ALIASES[key]
+    return None
+
+
 def _unwrap_sessions(cell):
     """The source Google Sheet's "No of sessions" column may have the same
     auto-date corruption Code.gs's getTopics() already guards against for
@@ -353,10 +385,13 @@ def parse_workbook_all_grades(xlsx_bytes: bytes, subject: str) -> dict:
         if grade not in VALID_GRADES:
             skipped_tabs.append({"name": label, "why": f"'{grade}' is not one of Grades 1-10"})
             continue
-        if grade in seen_grades:
-            skipped_tabs.append({"name": label, "why": f"another tab ('{seen_grades[grade]}') already covers Grade {grade}"})
+        level = _level_from_tab_name(tab_name)
+        key = (grade, level)
+        if key in seen_grades:
+            shown = f"Grade {grade}" + (f" ({level})" if level else "")
+            skipped_tabs.append({"name": label, "why": f"another tab ('{seen_grades[key]}') already covers {shown}"})
             warnings.append(
-                f"Two or more tabs claim Grade {grade} — importing '{seen_grades[grade]}' and ignoring '{label}'."
+                f"Two or more tabs claim {shown} — importing '{seen_grades[key]}' and ignoring '{label}'."
             )
             continue
 
@@ -367,9 +402,9 @@ def parse_workbook_all_grades(xlsx_bytes: bytes, subject: str) -> dict:
             warnings.extend(tab_warnings)
             continue
 
-        seen_grades[grade] = label
+        seen_grades[key] = label
         grades.append({
-            "grade": grade, "tab": label, "rows": rows,
+            "grade": grade, "level": level, "tab": label, "rows": rows,
             "row_count": len(rows), "chapters": _chapter_summary(rows),
             "has_strands": any(r["strands_of_language"] for r in rows),
             "has_skill": any(r["skill_of_development"] for r in rows),
@@ -377,12 +412,13 @@ def parse_workbook_all_grades(xlsx_bytes: bytes, subject: str) -> dict:
         })
 
     wb.close()
-    grades.sort(key=lambda g: g["grade"])
+    grades.sort(key=lambda g: (g["grade"], g["level"] or ""))
 
+    covered = {g for (g, _lvl) in seen_grades}
     return {
         "subject": subject,
         "grades": grades,
-        "missing_grades": [g for g in VALID_GRADES if g not in seen_grades],
+        "missing_grades": [g for g in VALID_GRADES if g not in covered],
         "skipped_tabs": skipped_tabs,
         "warnings": warnings,
     }
