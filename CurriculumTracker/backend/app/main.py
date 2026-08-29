@@ -104,6 +104,9 @@ async def sso_login(req: schemas.SSORequest, db: Session = Depends(get_db)):
         "can_see_overview": auth.can_see_curriculum_overview(
             auth.CurrentUser(user.email, user.name, user.designation, user.subject, app_role)
         ),
+        "can_oversee": auth.can_oversee_curriculum(
+            auth.CurrentUser(user.email, user.name, user.designation, user.subject, app_role)
+        ),
         "branches": crud.viewer_branches(user.location) or crud.BRANCHES,
     }
 
@@ -135,6 +138,12 @@ def get_me(
     for s in staff_directory.subjects_for(user.email):
         if s.lower() not in [x.lower() for x in subjects]:
             subjects.append(s)
+    # A third language is its own planner subject ("Hindi (R3)"), and
+    # staff_roles only ever says "Hindi" - offer the levels to the teachers of
+    # the base subject so they can file against them.
+    for s in crud.subject_variants(db, subjects):
+        if s.lower() not in [x.lower() for x in subjects]:
+            subjects.append(s)
 
     return {
         "role": app_role, "name": user.name, "email": user.email,
@@ -146,6 +155,7 @@ def get_me(
         "can_see_lagging": crud.can_see_lagging(app_role, user.designation),
         "can_create_pow": auth.can_author_pow(resolved),
         "can_see_overview": auth.can_see_curriculum_overview(resolved),
+        "can_oversee": auth.can_oversee_curriculum(resolved),
         # Campuses this account may look at: their own, or both for 'Both'.
         "branches": crud.viewer_branches(user.location) or crud.BRANCHES,
     }
@@ -216,6 +226,9 @@ def view_as(
             auth.CurrentUser(target.email, target.name, target.designation, target.subject, app_role)
         ),
         "can_see_overview": auth.can_see_curriculum_overview(
+            auth.CurrentUser(target.email, target.name, target.designation, target.subject, app_role)
+        ),
+        "can_oversee": auth.can_oversee_curriculum(
             auth.CurrentUser(target.email, target.name, target.designation, target.subject, app_role)
         ),
         "branches": crud.viewer_branches(target.location) or crud.BRANCHES,
@@ -318,19 +331,26 @@ async def import_planner_workbook(
             f"{subject} as the stream on the POW form."
         )
 
+    # A third-language tab is a curriculum of its own, stored under its own
+    # subject name ("Hindi (R3)") so it never collides with the main one for
+    # the same grade.
+    def subject_for(g):
+        return f"{subject} ({g['level']})" if g.get("level") else subject
+
+    inventory = crud.get_planner_inventory(db)
     existing_by_grade = {
-        i["grade"]: i["rows"] for i in crud.get_planner_inventory(db)
-        if i["subject"].lower() == subject.lower()
+        (i["subject"].lower(), i["grade"]): i["rows"] for i in inventory
     }
 
     grades_out = []
     for g in parsed["grades"]:
         grades_out.append({
-            "grade": g["grade"], "tab": g["tab"],
+            "grade": g["grade"], "level": g.get("level"),
+            "subject": subject_for(g), "tab": g["tab"],
             "row_count": g["row_count"], "chapter_count": len(g["chapters"]),
             "chapters": g["chapters"],
             "has_strands": g["has_strands"], "has_skill": g["has_skill"],
-            "existing_rows": existing_by_grade.get(g["grade"], 0),
+            "existing_rows": existing_by_grade.get((subject_for(g).lower(), g["grade"]), 0),
             "warnings": g["warnings"],
             "replaced": 0, "imported": 0,
         })
@@ -348,12 +368,15 @@ async def import_planner_workbook(
         return result
 
     for g, out in zip(parsed["grades"], grades_out):
-        counts = crud.replace_planner_grade(db, subject, g["grade"], g["rows"])
+        target = subject_for(g)
+        for row in g["rows"]:
+            row["subject"] = target
+        counts = crud.replace_planner_grade(db, target, g["grade"], g["rows"])
         out["replaced"] = counts["deleted"]
         out["imported"] = counts["inserted"]
         # Kept so the sheet's own warnings stay visible after this session ends.
         crud.save_import_log(
-            db, subject, g["grade"], g["tab"], counts["inserted"],
+            db, target, g["grade"], g["tab"], counts["inserted"],
             len(g["chapters"]), g["warnings"], current_user.email,
         )
 
@@ -380,6 +403,18 @@ def _check_backfill_scope(db: Session, user: auth.CurrentUser, subject: str) -> 
         )
 
 
+def _require_campus(branch: str, doing: str) -> None:
+    """Coverage belongs to a campus. Kodathi and Attibele teach the same grade
+    at their own pace, so a mark saved with no campus selected would count for
+    both - which is exactly how the unattributed rows came about."""
+    if not (branch or "").strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Choose a campus at the top of the page before {doing} — "
+                   f"Kodathi and Attibele are marked separately.",
+        )
+
+
 @app.get("/api/backfill", response_model=schemas.BackfillResponse)
 def get_backfill(
     subject: str = Query(...),
@@ -402,6 +437,7 @@ def save_backfill(
     from that point progress is whatever the POWs say, and re-opening the
     marking would let someone silently rewrite history."""
     _check_backfill_scope(db, current_user, req.subject)
+    _require_campus(req.branch, "marking coverage")
     view = crud.get_backfill_view(db, req.subject, req.grade, req.branch)
     if view["locked"]:
         raise HTTPException(
@@ -424,6 +460,7 @@ def confirm_backfill(
     """The SME saying "past coverage for this teacher is complete". This — not
     the arrival of POWs — is what closes the marking."""
     _check_backfill_scope(db, current_user, req.subject)
+    _require_campus(req.branch, "confirming coverage")
     result = crud.confirm_backfill(db, req.subject, req.grade, current_user.email, req.branch)
     logger.info("Backfill confirmed by %s: %s Grade %s",
                 current_user.email, req.subject, req.grade)
@@ -438,6 +475,7 @@ def reopen_backfill(
 ):
     """Undo a confirmation — the marks are kept, the window just opens again."""
     _check_backfill_scope(db, current_user, req.subject)
+    _require_campus(req.branch, "reopening coverage")
     result = crud.reopen_backfill(db, req.subject, req.grade, req.branch)
     logger.info("Backfill reopened by %s: %s Grade %s",
                 current_user.email, req.subject, req.grade)
@@ -762,10 +800,10 @@ def get_annual_progress(
     """Whole-year, per-section progress for one subject+grade. The leadership
     reading of Progress Check; SMEs keep the month-at-a-time view but may
     switch to this one."""
-    if current_user.role == "Teacher":
+    if not auth.can_oversee_curriculum(current_user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="The annual view is for SMEs and the leadership team.",
+            detail="The annual view is for staff who oversee curriculum delivery.",
         )
     available = crud.planner_disciplines(db, subject, int(grade))
     chosen = discipline.strip()
@@ -783,6 +821,18 @@ def get_annual_progress(
     return result
 
 
+@app.get("/api/progress/report")
+def delivery_report(
+    branch: str = Query(""),
+    db: Session = Depends(get_db),
+    current_user: auth.CurrentUser = Depends(auth.require_oversight),
+):
+    """Grade x subject delivery for one campus - the management report. Each
+    cell is how far ahead or behind the plan that class is, and each grade
+    opens into its sections."""
+    return crud.delivery_report(db, current_user.email, current_user.role, branch)
+
+
 @app.get("/api/progress/compare")
 def compare_branches(
     subject: str = Query(...),
@@ -793,10 +843,10 @@ def compare_branches(
     """Kodathi against Attibele, grade by grade, for one subject. An SME,
     Curriculum Head or the leadership team oversees both campuses separately;
     this is the one place they are put side by side."""
-    if current_user.role == "Teacher":
+    if not auth.can_oversee_curriculum(current_user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="The branch comparison is for SMEs and the leadership team.",
+            detail="The branch comparison is for staff who oversee curriculum delivery.",
         )
     return crud.compare_branches(
         db, current_user.email, current_user.role, subject, discipline.strip() or None
