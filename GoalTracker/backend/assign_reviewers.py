@@ -33,8 +33,40 @@ from collections import Counter
 
 sys.path.insert(0, os.path.dirname(__file__))
 
+from sqlalchemy import create_engine, text
+from sqlalchemy.orm import sessionmaker
+
 from app.database import SessionLocal
+from app.config import settings
 from app import crud, models
+
+# Set from --database-url, so the target can be given as a plain argument
+# instead of an environment variable (whose syntax differs between cmd.exe,
+# PowerShell and bash - an easy way to run against the wrong database).
+_OVERRIDE_URL = None
+
+
+def open_session():
+    if not _OVERRIDE_URL:
+        return SessionLocal()
+    engine = create_engine(_OVERRIDE_URL, pool_pre_ping=True)
+    return sessionmaker(bind=engine, autocommit=False, autoflush=False)()
+
+
+def target_database() -> str:
+    """Which database this run will actually touch, password removed.
+
+    Without DATABASE_URL set, config falls back to the local SQLite file and
+    this script reports success against the wrong database - indistinguishable
+    from a successful production run. So say it out loud, every run.
+    """
+    url = _OVERRIDE_URL or settings.DATABASE_URL or ""
+    if url.startswith("sqlite"):
+        return f"LOCAL SQLite  ({url})"
+    if "@" in url and "://" in url:
+        scheme, rest = url.split("://", 1)
+        return f"{scheme}://***@{rest.split('@', 1)[1]}"
+    return url or "(unset)"
 
 MD = "abhinav_g@harvestinternationalschool.in"
 
@@ -91,6 +123,9 @@ def intended_reviewer(user) -> tuple:
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--apply", action="store_true", help="actually write (default is a dry run)")
+    ap.add_argument("--database-url", default=None,
+                    help="run against this database instead of the configured one "
+                         "(quote it; use for a one-off production run)")
     ap.add_argument("--overwrite", action="store_true",
                     help="also replace reviewers that are already set (default: only fill blanks)")
     ap.add_argument("--overwrite-teachers", action="store_true",
@@ -98,7 +133,25 @@ def main() -> None:
                          "is already set, leaving everyone else's manual assignments alone")
     args = ap.parse_args()
 
-    db = SessionLocal()
+    global _OVERRIDE_URL
+    _OVERRIDE_URL = args.database_url
+
+    # Banner first: on a bad URL you should still see which target was tried.
+    print(f"database: {target_database()}")
+    if (_OVERRIDE_URL or settings.DATABASE_URL).startswith("sqlite"):
+        print("  ^ this is your LOCAL database. Pass --database-url \"...\" to target production.")
+    print("APPLYING" if args.apply else "DRY RUN - nothing will be written")
+    print()
+
+    try:
+        db = open_session()
+        db.execute(text("select 1"))
+    except Exception as e:
+        print(f"Could not connect: {type(e).__name__}: {str(e)[:300]}")
+        print()
+        print("Check the URL (quote it), the password, and that ?sslmode=require is present.")
+        raise SystemExit(1)
+
     try:
         users = crud.get_all_org_users(db)
         existing = {a.person_email.lower(): a for a in db.query(models.ReviewerAssignment).all()}
@@ -124,6 +177,9 @@ def main() -> None:
                 continue
             to_write.append((u, reviewer, why, current_reviewer))
 
+        print(f"database: {target_database()}")
+        if (_OVERRIDE_URL or settings.DATABASE_URL).startswith("sqlite"):
+            print("  ^ this is your LOCAL database. For production, set DATABASE_URL for this command.")
         print(f"{'APPLYING' if args.apply else 'DRY RUN - nothing will be written'}\n")
         print(f"people: {len(users)}")
         print(f"  to set:            {len(to_write)}")
