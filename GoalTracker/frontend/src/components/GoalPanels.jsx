@@ -10,6 +10,19 @@ const PANELS = [
   { key: "annual", label: "Organisation goals", empty: "No organisation goal set yet." },
 ];
 
+// A week's notice is the point of these - "overdue" alone is a post-mortem.
+const RISK_BADGE = {
+  due_soon: { label: "Due soon", cls: "risk-due_soon" },
+  overdue: { label: "Overdue", cls: "risk-overdue" },
+};
+
+function formatTarget(d) {
+  if (!d) return null;
+  return new Date(`${String(d).slice(0, 10)}T00:00:00`).toLocaleDateString(undefined, {
+    day: "numeric", month: "short", year: "numeric",
+  });
+}
+
 const STATUS_TITLE = {
   modified_pending_ack: "Modified - needs your acknowledgment",
   struck_off_pending_ack: "Struck off - needs your acknowledgment",
@@ -107,6 +120,25 @@ export default function GoalPanels({
                               </span>
                               {g.is_completed && <span className="completed-tick" title="Completed">✓</span>}
                               {STATUS_TITLE[g.status] && <span className="flag-dot" title={STATUS_TITLE[g.status]} />}
+                              {!g.is_completed && RISK_BADGE[g.risk] && (
+                                <span
+                                  className={`badge ${RISK_BADGE[g.risk].cls}`}
+                                  title={`Target ${formatTarget(g.target_date)}`}
+                                >
+                                  {RISK_BADGE[g.risk].label}
+                                </span>
+                              )}
+                              {g.plan_overruns_target && (
+                                <span
+                                  className="badge risk-overruns"
+                                  title="A task on this goal is dated after the target date - the plan has slipped past the deadline"
+                                >
+                                  Plan overruns
+                                </span>
+                              )}
+                              {g.target_date && !g.is_completed && !RISK_BADGE[g.risk] && (
+                                <span className="goal-target-date">by {formatTarget(g.target_date)}</span>
+                              )}
                             </button>
                             {isOwner && (
                               <span className="goal-bullet-actions">
