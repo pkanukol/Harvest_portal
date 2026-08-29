@@ -268,7 +268,31 @@ def list_goals(db: Session, owner_email: str) -> List[models.Goal]:
     )
 
 
-def create_goal(db: Session, owner_email: str, req: schemas.GoalCreate) -> models.Goal:
+def plan_step_dates(count: int, target: Optional[datetime.date],
+                    start: Optional[datetime.date] = None) -> List[Optional[datetime.date]]:
+    """Spread `count` steps between today and the goal's target date, evenly,
+    with the last step landing ON the target date - so finishing the plan and
+    hitting the goal date are the same event.
+
+    Returns Nones when there is no target date (steps still become tasks, just
+    undated). A target that is today or already past gives every step today's
+    date rather than the target's: a step cannot have been due before the goal
+    existed, and the soonest a thing can now be done is today. The goal itself
+    still reports as overdue - that is what the risk badge is for.
+    """
+    if count <= 0:
+        return []
+    if not target:
+        return [None] * count
+    start = start or datetime.date.today()
+    span = (target - start).days
+    if span <= 0:
+        return [start] * count
+    # Step i of n lands at start + span*(i+1)/n; the last is exactly target.
+    return [start + datetime.timedelta(days=round(span * (i + 1) / count)) for i in range(count)]
+
+
+def create_goal(db: Session, owner_email: str, owner_name: str, req: schemas.GoalCreate) -> models.Goal:
     goal = models.Goal(
         owner_email=owner_email,
         cadence=req.cadence,
@@ -278,11 +302,98 @@ def create_goal(db: Session, owner_email: str, req: schemas.GoalCreate) -> model
         measurable_text=req.measurable_text,
         achievable_text=req.achievable_text,
         relevant_text=req.relevant_text,
+        target_date=req.target_date,
     )
     db.add(goal)
     db.commit()
     db.refresh(goal)
+
+    # Each step of the plan becomes a task linked to this goal, assigned to the
+    # owner and dated so the last one lands on the goal's target date. They are
+    # ordinary tasks from here on: re-datable, re-assignable, editable.
+    steps = [s.strip() for s in (req.steps or []) if s and s.strip()]
+    if steps:
+        for step, due in zip(steps, plan_step_dates(len(steps), req.target_date)):
+            db.add(models.Task(
+                goal_id=goal.id,
+                title=step,
+                created_by_email=owner_email,
+                created_by_name=owner_name,
+                assignee_email=owner_email,
+                assignee_name=owner_name,
+                # End of the working day, so a task due "today" is not already
+                # overdue the moment it is created.
+                due_at=datetime.datetime.combine(due, datetime.time(17, 30)) if due else None,
+            ))
+        db.commit()
+        db.refresh(goal)
     return goal
+
+
+def sync_goal_completion_from_tasks(db: Session, goal_id: Optional[int]) -> None:
+    """Close a goal once every task linked to it is done - and re-open it if
+    one is reopened. The goal's completion used to be a manual checkbox with a
+    "shall I tick this for you?" prompt; deriving it means the goal cannot sit
+    open with all its work finished, or closed with work outstanding.
+
+    Only ever acts on goals that HAVE linked tasks: a goal with no plan keeps
+    its manual completion flag untouched.
+    """
+    if not goal_id:
+        return
+    goal = db.query(models.Goal).filter(models.Goal.id == goal_id).first()
+    if not goal or goal.status == "deleted":
+        return
+    linked = db.query(models.Task).filter(models.Task.goal_id == goal_id).all()
+    if not linked:
+        return
+    all_done = all(t.is_completed for t in linked)
+    if all_done and not goal.is_completed:
+        goal.is_completed = True
+        goal.completed_at = datetime.datetime.utcnow()
+        db.commit()
+    elif not all_done and goal.is_completed:
+        goal.is_completed = False
+        goal.completed_at = None
+        db.commit()
+
+
+def annotate_goal_risk(db: Session, goals: List[models.Goal]) -> None:
+    """Attach `risk` and `plan_overruns_target` to goals for the response.
+
+    A week's notice is the point: "overdue" after the fact is a post-mortem,
+    whereas "due_soon" plus a plan whose last task already sits past the
+    target date is something the owner can still act on.
+    """
+    today = datetime.date.today()
+    goal_ids = [g.id for g in goals]
+    latest_task_due = {}
+    if goal_ids:
+        rows = (
+            db.query(models.Task.goal_id, models.Task.due_at)
+            .filter(models.Task.goal_id.in_(goal_ids), models.Task.is_completed.is_(False))
+            .all()
+        )
+        for gid, due_at in rows:
+            if not due_at:
+                continue
+            d = due_at.date()
+            if gid not in latest_task_due or d > latest_task_due[gid]:
+                latest_task_due[gid] = d
+
+    for g in goals:
+        if g.is_completed or not g.target_date:
+            g.risk = "on_track"
+        elif g.target_date < today:
+            g.risk = "overdue"
+        elif (g.target_date - today).days <= 7:
+            g.risk = "due_soon"
+        else:
+            g.risk = "on_track"
+        last_due = latest_task_due.get(g.id)
+        g.plan_overruns_target = bool(
+            g.target_date and last_due and last_due > g.target_date and not g.is_completed
+        )
 
 
 def get_goal(db: Session, goal_id: int) -> Optional[models.Goal]:
@@ -295,6 +406,7 @@ def edit_goal(db: Session, goal: models.Goal, req: schemas.GoalEdit) -> models.G
     goal.measurable_text = req.measurable_text
     goal.achievable_text = req.achievable_text
     goal.relevant_text = req.relevant_text
+    goal.target_date = req.target_date
     db.commit()
     db.refresh(goal)
     return goal
@@ -321,7 +433,9 @@ def review_goal(db: Session, goal: models.Goal, reviewer_email: str, req: schema
     if req.action_type not in ("approved", "modified", "struck_off"):
         raise ValueError("Invalid action_type")
     if req.action_type == "struck_off" and not (req.reason or "").strip():
-        raise ValueError("A reason is required to strike off a goal")
+        raise ValueError("A comment is required to strike off a goal")
+    if req.action_type == "modified" and not (req.reason or "").strip():
+        raise ValueError("A comment is required when modifying a goal")
     if req.action_type == "modified" and not req.edit:
         raise ValueError("edit fields are required to modify a goal")
 
@@ -338,7 +452,7 @@ def review_goal(db: Session, goal: models.Goal, reviewer_email: str, req: schema
     action = models.GoalReviewAction(
         goal_id=goal.id,
         action_type=req.action_type,
-        reason=req.reason,
+        reason=(req.reason or "").strip() or None,
         snapshot_before=snapshot_before,
         reviewed_by=reviewer_email,
     )
@@ -385,9 +499,43 @@ def goal_delete_block_reason(goal: models.Goal) -> Optional[str]:
     return "This goal can't be deleted right now."
 
 
-def soft_delete_goal(db: Session, goal: models.Goal) -> None:
+def _delete_task_tree(db: Session, task: models.Task) -> int:
+    """Delete a task and everything under it. Subtasks have no DB-level
+    cascade, so removing only the parent would strand the children."""
+    removed = 0
+    for child in list(task.subtasks or []):
+        removed += _delete_task_tree(db, child)
+    db.query(models.TaskNote).filter(models.TaskNote.task_id == task.id).delete(synchronize_session=False)
+    db.delete(task)
+    return removed + 1
+
+
+def soft_delete_goal(db: Session, goal: models.Goal) -> int:
+    """Hide the goal and clear the plan that belonged to it.
+
+    The goal itself stays as a soft-deleted row (the review record refers to
+    it), but its tasks are removed outright: they only existed as steps of
+    this goal, and leaving them behind puts orphaned work in people's task
+    lists with no goal to explain it. Returns how many tasks went with it.
+    """
+    tasks = db.query(models.Task).filter(models.Task.goal_id == goal.id).all()
+    # Only whole trees rooted on this goal - a subtask whose parent belongs to
+    # another goal is that goal's business, so it is unlinked, not deleted.
+    removed = 0
+    for t in tasks:
+        if t.parent_id and not any(p.id == t.parent_id for p in tasks):
+            t.goal_id = None
+            continue
+        if t.parent_id:
+            continue  # reached via its parent's tree below
+        removed += _delete_task_tree(db, t)
     goal.status = "deleted"
     db.commit()
+    return removed
+
+
+def count_goal_tasks(db: Session, goal_id: int) -> int:
+    return db.query(models.Task).filter(models.Task.goal_id == goal_id).count()
 
 
 # ─── Flag notification throttling (used by flag_check.py) ──────────────────
@@ -575,6 +723,11 @@ def can_view_goal(db: Session, viewer_email: str, goal: models.Goal, viewer_is_a
 
 # ─── Staff directory (staff_roles - a SEPARATE Supabase project, read-only) ─
 
+class StaffDirectoryUnavailable(RuntimeError):
+    """Raised when staff_roles returns nothing at all - which means lost access,
+    not an empty search. See the probe in search_staff."""
+
+
 async def search_staff(query: str, location: Optional[str] = None) -> List[dict]:
     params = {
         "select": "email,name,designation,branches",
@@ -598,5 +751,41 @@ async def search_staff(query: str, location: Optional[str] = None) -> List[dict]
             },
             timeout=10,
         )
+    # PostgREST reports a lost GRANT as 401 with Postgres code 42501
+    # ("permission denied for table"), which is a configuration problem on the
+    # shared project, not a bad request from here - and is the OTHER way this
+    # keeps breaking, alongside a lost RLS policy (handled below).
+    if resp.status_code in (401, 403):
+        body = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {}
+        if body.get("code") == "42501" or "permission denied" in (body.get("message") or "").lower():
+            raise StaffDirectoryUnavailable(
+                "The staff directory can't be read right now - its access grant has been "
+                "reset again. Re-run the staff_roles GRANT/RLS policy in the shared "
+                "Supabase project."
+            )
     resp.raise_for_status()
-    return resp.json()
+    rows = resp.json()
+    if rows:
+        return rows
+
+    # Zero rows is ambiguous: either nobody matches, or the anon role has lost
+    # its grant/policy on staff_roles again (PostgREST answers 200 with [] when
+    # RLS filters everything out - no error to catch). Re-probe with no filters
+    # at all: if even that is empty, the directory is unreachable rather than
+    # unmatched, and the caller should say so instead of "No match".
+    async with httpx.AsyncClient() as client:
+        probe = await client.get(
+            f"{settings.STAFF_SUPABASE_URL}/rest/v1/staff_roles",
+            params={"select": "email", "limit": "1"},
+            headers={
+                "apikey": settings.STAFF_SUPABASE_ANON_KEY,
+                "Authorization": f"Bearer {settings.STAFF_SUPABASE_ANON_KEY}",
+            },
+            timeout=10,
+        )
+    if probe.status_code == 200 and not probe.json():
+        raise StaffDirectoryUnavailable(
+            "The staff directory can't be read right now. Its access policy may need "
+            "re-applying (staff_roles GRANT/RLS in the shared Supabase project)."
+        )
+    return rows
