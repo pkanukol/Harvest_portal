@@ -53,6 +53,10 @@ class GoalCreate(BaseModel):
     measurable_text: str
     achievable_text: Optional[str] = None
     relevant_text: Optional[str] = None
+    target_date: Optional[date] = None
+    # Numbered plan. Each entry becomes a task linked to this goal, dated so
+    # the last one lands on target_date (see crud.plan_step_dates).
+    steps: List[str] = []
 
 
 class GoalEdit(BaseModel):
@@ -61,6 +65,7 @@ class GoalEdit(BaseModel):
     measurable_text: str
     achievable_text: Optional[str] = None
     relevant_text: Optional[str] = None
+    target_date: Optional[date] = None
 
 
 class GoalCompletionUpdate(BaseModel):
@@ -97,6 +102,16 @@ class GoalOut(BaseModel):
     status: str
     is_completed: bool = False
     completed_at: Optional[datetime] = None
+    target_date: Optional[date] = None
+    # Computed per request, not stored - see crud.goal_risk.
+    #   on_track   - no target date, already done, or more than a week away
+    #   due_soon   - target date is within the next 7 days
+    #   overdue    - target date has passed and it is not complete
+    risk: str = "on_track"
+    # True when a linked task is dated AFTER the goal's target date - the plan
+    # itself has slipped past the deadline, which is worth flagging before the
+    # date arrives rather than after.
+    plan_overruns_target: bool = False
     logs: List[GoalLogOut] = []
     review_actions: List[ReviewActionOut] = []
 
@@ -119,6 +134,8 @@ class GoalsResponse(BaseModel):
 
 class ReviewRequest(BaseModel):
     action_type: str  # approved | modified | struck_off
+    # The reviewer's comment. Required for modified/struck_off (the owner has
+    # to acknowledge those and needs to know why), optional on approval.
     reason: Optional[str] = None
     # required when action_type == "modified" - the new field values
     edit: Optional[GoalEdit] = None
