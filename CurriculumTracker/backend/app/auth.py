@@ -209,21 +209,52 @@ def can_upload_curriculum(user: CurrentUser) -> bool:
     return (user.email or "").strip().lower() in settings.curriculum_upload_emails
 
 
-def can_see_curriculum_overview(user: CurrentUser) -> bool:
-    """The week-by-week POW table across a whole grade. Asked for by the APM
-    for SMEs and Curriculum Heads — the two roles that read POWs across a
-    grade rather than write them — plus the DLP Manager and APM, who already
-    administer the curriculum through the same designations."""
+# Everyone who OVERSEES curriculum delivery rather than filing it: the three
+# reading screens (Progress Check, Curriculum Overview, Compare Campuses) all
+# use this one list, so access cannot drift apart between them again.
+#
+# Named explicitly rather than inferred from the resolved role, which was the
+# bug: the Managing Director, Principals, HODs and Coordinators all came out as
+# "Leadership" and got Progress Check, but Curriculum Overview was gated on the
+# curriculum-upload list and left them out.
+OVERSIGHT_DESIGNATIONS = {
+    "subject matter expert",
+    "curriculum head",
+    "hod",
+    "coordinator",
+    "principal", "vice principal",
+    "managing director",
+    "apm",
+    "dlp manager",
+}
+
+
+def can_oversee_curriculum(user: CurrentUser) -> bool:
+    """May read the curriculum-delivery screens across teachers and grades."""
     if user.role == "SME":
         return True
-    return (user.designation or "").strip().lower() in CURRICULUM_UPLOAD_DESIGNATIONS
+    return (user.designation or "").strip().lower() in OVERSIGHT_DESIGNATIONS
+
+
+def can_see_curriculum_overview(user: CurrentUser) -> bool:
+    """The week-by-week POW table across a whole grade."""
+    return can_oversee_curriculum(user)
 
 
 def require_curriculum_overview(current_user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
     if not can_see_curriculum_overview(current_user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Curriculum Overview is available to SMEs and Curriculum Heads.",
+            detail="This view is for staff who oversee curriculum delivery.",
+        )
+    return current_user
+
+
+def require_oversight(current_user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
+    if not can_oversee_curriculum(current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This view is for staff who oversee curriculum delivery.",
         )
     return current_user
 
