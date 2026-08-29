@@ -1,3 +1,5 @@
+import { PORTAL_URL } from "./portal";
+
 // In local dev, VITE_API_URL is empty -> requests go to "/" -> Vite proxy forwards to localhost:8030
 // In production (Render), VITE_API_URL is set to the backend Render URL
 export const API_ROOT = import.meta.env.VITE_API_URL || "";
@@ -28,8 +30,7 @@ function recoverFromExpiredSession(path) {
   if (!localStorage.getItem("token")) return;   // never had a session — leave the login view alone
   recovering = true;
   ["token", "user", "real_token", "real_user"].forEach((k) => localStorage.removeItem(k));
-  const portalUrl = import.meta.env.VITE_PORTAL_URL || "https://his-academy360.netlify.app";
-  window.location.href = portalUrl;
+  window.location.href = PORTAL_URL;
 }
 
 async function request(path, { method = "GET", token, body } = {}) {
@@ -238,6 +239,10 @@ export const api = {
     ),
 
   // Cumulative year-to-date, month by month — the Full year tab.
+  // Grade x subject delivery for one campus - the management report.
+  deliveryReport: (token, branch = "") =>
+    request(`/progress/report?branch=${encodeURIComponent(branch)}`, { token }),
+
   // Kodathi against Attibele, grade by grade, for one subject.
   compareBranches: (token, subject, discipline = "") =>
     request(
