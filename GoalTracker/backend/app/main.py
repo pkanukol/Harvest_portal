@@ -132,6 +132,7 @@ def dev_login(req: schemas.DevLoginRequest, db: Session = Depends(get_db)):
 @app.get("/api/goals", response_model=schemas.GoalsResponse)
 def get_my_goals(db: Session = Depends(get_db), current_user: auth.CurrentUser = Depends(auth.get_current_user)):
     goals = crud.list_goals(db, current_user.email)
+    crud.annotate_goal_risk(db, goals)
     flags = crud.compute_flags(db, current_user.email)
     return {"goals": goals, "flags": flags, "period_key": crud.current_academic_year_key()}
 
@@ -142,7 +143,7 @@ def create_goal(
     db: Session = Depends(get_db),
     current_user: auth.CurrentUser = Depends(auth.get_current_user),
 ):
-    return crud.create_goal(db, current_user.email, req)
+    return crud.create_goal(db, current_user.email, current_user.name, req)
 
 
 def _require_own_goal(db: Session, goal_id: int, email: str) -> models.Goal:
@@ -188,8 +189,8 @@ def delete_goal(
     block_reason = crud.goal_delete_block_reason(goal)
     if block_reason:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=block_reason)
-    crud.soft_delete_goal(db, goal)
-    return {"success": True}
+    removed = crud.soft_delete_goal(db, goal)
+    return {"success": True, "tasks_removed": removed}
 
 
 @app.post("/api/goals/{goal_id}/logs", response_model=schemas.GoalLogOut)
@@ -278,6 +279,7 @@ def get_member_goals(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You cannot view this person's goals")
 
     goals = crud.list_goals(db, email)
+    crud.annotate_goal_risk(db, goals)
     flags = crud.compute_flags(db, email)
     return {"goals": goals, "flags": flags, "period_key": crud.current_academic_year_key()}
 
@@ -458,7 +460,7 @@ def view_as(
                 or user.email.strip().lower() == settings.REVIEWER_ASSIGNMENTS_ADMIN_EMAIL.lower(),
             "reviewee_count": len(crud.get_reviewees(db, user.email)),
         },
-        "goals": crud.list_goals(db, user.email),
+        "goals": _goals_with_risk(db, user.email),
         "flags": crud.compute_flags(db, user.email),
         "period_key": period_key,
         "tasks": roots,
@@ -509,6 +511,12 @@ def get_observations(
 
 
 # ─── Tasks (freely assignable to anyone, not just reviewees) ───────────────
+
+def _goals_with_risk(db: Session, email: str):
+    goals = crud.list_goals(db, email)
+    crud.annotate_goal_risk(db, goals)
+    return goals
+
 
 def _annotate_tasks(db: Session, tasks: List[models.Task], viewer_email: str) -> None:
     goal_ids = set()
@@ -580,7 +588,13 @@ def edit_task(
     current_user: auth.CurrentUser = Depends(auth.get_current_user),
 ):
     task = _require_task_edit(db, task_id, current_user.email)
+    previous_goal_id = task.goal_id
     task = crud.edit_task(db, task, req)
+    # Both sides matter when a task is re-linked: the goal it left may now be
+    # fully done, and the goal it joined may no longer be.
+    crud.sync_goal_completion_from_tasks(db, previous_goal_id)
+    if task.goal_id != previous_goal_id:
+        crud.sync_goal_completion_from_tasks(db, task.goal_id)
     _annotate_tasks(db, [task], current_user.email)
     return task
 
@@ -593,7 +607,12 @@ def update_task_completion(
     current_user: auth.CurrentUser = Depends(auth.get_current_user),
 ):
     task = _require_task_edit(db, task_id, current_user.email)
+    goal_id = task.goal_id
     task = crud.set_task_completion(db, task, req.is_completed)
+    # A goal with a plan is closed (or reopened) purely by whether its linked
+    # tasks are done - no separate tick, and no "all done, shall I close it?"
+    # prompt that could be dismissed and leave the two out of step.
+    crud.sync_goal_completion_from_tasks(db, goal_id)
     _annotate_tasks(db, [task], current_user.email)
     return task
 
@@ -605,7 +624,9 @@ def delete_task(
     current_user: auth.CurrentUser = Depends(auth.get_current_user),
 ):
     task = _require_task_edit(db, task_id, current_user.email)
+    goal_id = task.goal_id
     crud.delete_task(db, task)
+    crud.sync_goal_completion_from_tasks(db, goal_id)
     return {"success": True}
 
 
@@ -678,7 +699,13 @@ async def search_staff(
     location: Optional[str] = None,
     current_user: auth.CurrentUser = Depends(auth.get_current_user),
 ):
-    return await crud.search_staff(q, location)
+    try:
+        return await crud.search_staff(q, location)
+    except crud.StaffDirectoryUnavailable as exc:
+        # 503, not an empty list: "nobody matched" and "the directory is down"
+        # are different answers and the picker should not conflate them.
+        logger.error("Staff directory unreachable: %s", exc)
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc))
 
 
 # ─── Admin: reviewer assignments ────────────────────────────────────────────
