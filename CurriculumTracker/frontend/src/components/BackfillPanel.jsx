@@ -38,7 +38,11 @@ export default function BackfillPanel({ token, subject, grade, branch = "" }) {
   if (error) return <div className="upload-note backfill-note">{error}</div>;
   if (!data) return null;
 
-  const title = `${subject} Grade ${grade}`;
+  // Coverage is per campus, so the panel names the one it will write to and
+  // will not let a mark be saved against "All branches" - that is what made
+  // the earlier marks count for both.
+  const title = `${subject} Grade ${grade}${branch ? ` · ${branch}` : ""}`;
+  const noCampus = !branch;
 
   async function reopen() {
     setSaving(true);
@@ -60,7 +64,7 @@ export default function BackfillPanel({ token, subject, grade, branch = "" }) {
           Coverage for {title} was confirmed complete
           {data.confirmed_by ? ` by ${data.confirmed_by}` : ""}
           {data.confirmed_at ? ` on ${data.confirmed_at.slice(0, 10)}` : ""}.
-          <button className="btn btn-ghost btn-sm backfill-month-btn" disabled={saving} onClick={reopen}>
+          <button className="btn btn-ghost btn-sm backfill-month-btn" disabled={saving || noCampus} onClick={reopen}>
             Reopen for changes
           </button>
         </div>
@@ -170,7 +174,19 @@ export default function BackfillPanel({ token, subject, grade, branch = "" }) {
             filing POWs doesn&apos;t close this; it stays open until you confirm coverage is complete.
           </div>
 
-          {saved && <div className="upload-success">Saved. The progress and lag reports now treat these as covered.</div>}
+          {noCampus && (
+            <div className="upload-note backfill-note">
+              Choose <strong>Kodathi</strong> or <strong>Attibele</strong> at the top of the page
+              first. Each campus is marked separately, because they teach the same grade at their
+              own pace.
+            </div>
+          )}
+
+          {saved && (
+            <div className="upload-success">
+              Saved for {branch}. The progress and lag reports now treat these as covered there.
+            </div>
+          )}
 
           <div className="card upload-preview-table">
             <table>
@@ -248,10 +264,10 @@ export default function BackfillPanel({ token, subject, grade, branch = "" }) {
               Save as often as you like — this stays open. Confirm only when coverage for {title} is complete.
             </span>
             <div className="backfill-actions">
-              <button className="btn btn-ghost" disabled={saving} onClick={() => save()}>
+              <button className="btn btn-ghost" disabled={saving || noCampus} onClick={() => save()}>
                 {saving ? "Saving…" : "Save coverage"}
               </button>
-              <button className="btn btn-primary" disabled={saving} onClick={confirmDone}>
+              <button className="btn btn-primary" disabled={saving || noCampus} onClick={confirmDone}>
                 Save &amp; confirm done
               </button>
             </div>
