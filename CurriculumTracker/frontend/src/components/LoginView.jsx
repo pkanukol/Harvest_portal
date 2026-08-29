@@ -1,6 +1,6 @@
-export default function LoginView({ error }) {
-  const portalUrl = import.meta.env.VITE_PORTAL_URL || "http://localhost:3000/portal/login.html";
+import { PORTAL_URL } from "../portal";
 
+export default function LoginView({ error }) {
   return (
     <div className="login-container">
       <div className="login-card">
@@ -8,10 +8,13 @@ export default function LoginView({ error }) {
           <div className="brand-title">📚 Curriculum Tracker</div>
           <div className="brand-tagline">Harvest International School</div>
         </div>
-        <p className="login-copy">Please sign in through the school portal to access the Curriculum Tracker.</p>
+        <p className="login-copy">
+          Your login has expired. Sign in again through the school portal to get back to the
+          Curriculum Tracker.
+        </p>
         {error && <div className="form-error">Sign-in failed: {error}</div>}
-        <a href={portalUrl} className="btn btn-primary btn-block">
-          Go to School Portal →
+        <a href={PORTAL_URL} className="btn btn-primary btn-block">
+          Login expired — Relogin →
         </a>
       </div>
     </div>
