@@ -108,6 +108,11 @@ class Goal(Base):
     # the goal was properly set/reviewed, not whether it was accomplished.
     is_completed = Column(Boolean, nullable=False, default=False)
     completed_at = Column(DateTime, nullable=True)
+    # When the owner plans to have this achieved. Drives the "about to be
+    # missed" warning and the due dates of the steps generated from the plan.
+    # Nullable: goals created before this existed have none, and it stays
+    # optional so a goal can be set before its timeline is known.
+    target_date = Column(Date, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
 
