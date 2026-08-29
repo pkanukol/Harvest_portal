@@ -4,7 +4,7 @@ import GoalForm from "./GoalForm";
 import GoalPanels from "./GoalPanels";
 import TeamOverview from "./TeamOverview";
 import TaskTracker from "./TaskTracker";
-import { getWeekStart, collectOverdue } from "../taskUtils";
+import { getWeekStart, collectOverdue, flattenTasks } from "../taskUtils";
 
 export default function Dashboard({ token, user }) {
   const [mainTab, setMainTab] = useState("goals");
@@ -104,11 +104,24 @@ export default function Dashboard({ token, user }) {
   }
 
   async function handleDeleteGoal(goal) {
-    if (!window.confirm(`Delete "${goal.title}"? This can't be undone.`)) return;
+    // Deleting a goal now removes the tasks that made up its plan, so say so
+    // before it happens rather than leaving people to notice work vanish.
+    let linked = 0;
+    try {
+      linked = flattenTasks(await api.getTasksForGoal(token, goal.id))
+        .filter((t) => t.goal_id === goal.id).length;
+    } catch {
+      // Can't count them - the warning below stays generic rather than wrong.
+    }
+    const alsoTasks = linked
+      ? ` Its ${linked} linked task${linked === 1 ? "" : "s"} will be deleted too.`
+      : "";
+    if (!window.confirm(`Delete "${goal.title}"?${alsoTasks} This can't be undone.`)) return;
     setError("");
     try {
       await api.deleteGoal(token, goal.id);
       loadMyGoals();
+      loadTasks();
     } catch (err) {
       setError(err.message);
     }
