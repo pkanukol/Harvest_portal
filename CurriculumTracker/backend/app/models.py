@@ -42,6 +42,10 @@ class PowEntry(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     teacher_email = Column(String, nullable=False, index=True)  # lowercased; no FK against shared users table
+    # The campus this POW was filed for, stamped when it is created rather than
+    # looked up from the teacher each time: a teacher who moves campus must not
+    # drag last term's POWs across with them.
+    branch = Column(String, nullable=True, index=True)
     subject = Column(String, nullable=False, index=True)
     grade = Column(String, nullable=False, index=True)  # free text ("6", "7A"...), matches the POWForm input
     week_start = Column(Date, nullable=False, index=True)
