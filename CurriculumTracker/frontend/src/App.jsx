@@ -10,6 +10,7 @@ import POWView from "./components/POWView";
 import Progress from "./components/Progress";
 import CurriculumOverview from "./components/CurriculumOverview";
 import BranchCompare from "./components/BranchCompare";
+import DeliveryReport from "./components/DeliveryReport";
 import PlannerUpload from "./components/PlannerUpload";
 
 const LOG = "[CurriculumTracker SSO]";
@@ -42,18 +43,29 @@ export default function App() {
       return api.ssoLogin(ssoToken);
     }
 
+    // The one-time token must not linger in the address bar, but everything
+    // else in the link has to survive it: a deep link from the portal carries
+    // ?view=report&branch=…&embed=1 alongside ?sso=, and clearing the whole
+    // query string dropped the reader back on the dashboard.
+    function cleanUrl() {
+      const keep = new URLSearchParams(window.location.search);
+      keep.delete("sso");
+      const rest = keep.toString();
+      window.history.replaceState({}, "", window.location.pathname + (rest ? `?${rest}` : ""));
+    }
+
     attemptExchange(1)
       .catch((firstErr) => {
         console.warn(LOG, "attempt 1 failed:", firstErr.message, "— retrying once");
         return new Promise((resolve) => setTimeout(resolve, 800)).then(() => attemptExchange(2));
       })
       .then((data) => {
-        window.history.replaceState({}, "", window.location.pathname);
+        cleanUrl();
         login(data);
       })
       .catch((err) => {
         console.error(LOG, "exchange failed after retry:", err);
-        window.history.replaceState({}, "", window.location.pathname);
+        cleanUrl();
         setSsoError(err.message || "Unknown error");
         setSsoLoading(false);
       });
@@ -76,6 +88,7 @@ export default function App() {
     return {
       view: target,
       subject: params.get("subject") || "",
+      branch: params.get("branch") || "",
       embed: params.get("embed") === "1",
     };
   }, []);
@@ -91,6 +104,9 @@ export default function App() {
   const canUploadCurriculum = Boolean(user?.can_upload_curriculum);
   // The week-by-week POW table across a grade — SMEs and Curriculum Heads.
   const canSeeOverview = Boolean(user?.can_see_overview);
+  // Reads curriculum delivery across teachers and grades: Progress Check,
+  // Curriculum Overview and Compare Campuses all follow this one flag.
+  const canOversee = Boolean(user?.can_oversee) || isReadOnlyViewer;
   // Reviewing and teaching are not exclusive: Coordinators, HODs and some SMEs
   // teach their own classes, so POW authoring follows this flag rather than the
   // single resolved role.
@@ -188,6 +204,7 @@ export default function App() {
                 canUploadCurriculum={canUploadCurriculum}
                 canCreatePow={canCreatePow}
                 canSeeOverview={canSeeOverview}
+                canOversee={canOversee}
                 branch={branch}
                 onNewPow={goNewPow}
                 onProgress={goProgress}
@@ -214,7 +231,18 @@ export default function App() {
               <PlannerUpload key={user.email} token={token} onBack={goDashboard} />
             )}
 
-            {view === "compare" && isReadOnlyViewer && (
+            {/* Reached by link - ?view=report&branch=Kodathi&embed=1 - so the
+                management page can embed it. */}
+            {view === "report" && canOversee && (
+              <DeliveryReport
+                key={user.email}
+                token={token}
+                initialBranch={deepLink?.view === "report" ? (deepLink.branch || "") : ""}
+                embed={Boolean(deepLink?.embed)}
+              />
+            )}
+
+            {view === "compare" && canOversee && (
               <BranchCompare
                 key={user.email}
                 token={token}
