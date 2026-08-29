@@ -7,6 +7,11 @@ export default function GoalForm({ token, editingGoal, defaultCadence, onDone, o
   const [title, setTitle] = useState(editingGoal?.title || "");
   const [specific, setSpecific] = useState(editingGoal?.specific_text || "");
   const [measurable, setMeasurable] = useState(editingGoal?.measurable_text || "");
+  const [targetDate, setTargetDate] = useState(editingGoal?.target_date || "");
+  // The plan. Each non-empty line becomes a task linked to this goal, dated
+  // so the last lands on the target date. Only offered on a NEW goal - on an
+  // existing one the steps are already tasks, edited from the Tasks tab.
+  const [steps, setSteps] = useState([""]);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -28,11 +33,16 @@ export default function GoalForm({ token, editingGoal, defaultCadence, onDone, o
         // wiping them, new goals simply never set them.
         achievable_text: editingGoal?.achievable_text ?? null,
         relevant_text: editingGoal?.relevant_text ?? null,
+        target_date: targetDate || null,
       };
       if (isEdit) {
         await api.editGoal(token, editingGoal.id, fields);
       } else {
-        await api.createGoal(token, { cadence, ...fields });
+        await api.createGoal(token, {
+          cadence,
+          ...fields,
+          steps: steps.map((x) => x.trim()).filter(Boolean),
+        });
       }
       onDone();
     } catch (err) {
@@ -76,6 +86,68 @@ export default function GoalForm({ token, editingGoal, defaultCadence, onDone, o
             <label className="form-label">Measurable</label>
             <textarea className="form-control" value={measurable} onChange={(e) => setMeasurable(e.target.value)} placeholder="How will you know it's done?" />
           </div>
+
+          <div className="form-group">
+            <label className="form-label">Target date</label>
+            <input
+              type="date"
+              className="form-control"
+              style={{ maxWidth: 220 }}
+              min={new Date().toISOString().slice(0, 10)}
+              value={targetDate ? String(targetDate).slice(0, 10) : ""}
+              onChange={(e) => setTargetDate(e.target.value)}
+            />
+            <div className="hint-text">
+              When you plan to have this achieved. You'll be warned a week before.
+            </div>
+          </div>
+
+          {!isEdit && (
+            <div className="form-group">
+              <label className="form-label">Plan — how will you get there?</label>
+              <div className="hint-text">
+                Each step becomes a task linked to this goal, spread evenly up to the target
+                date. You can re-date, re-assign or edit them later from Tasks.
+              </div>
+              {steps.map((step, i) => (
+                <div className="step-row" key={i}>
+                  <span className="step-num">{i + 1}.</span>
+                  <input
+                    className="form-control"
+                    value={step}
+                    placeholder={i === 0 ? "First thing you'll do" : "Next step"}
+                    onChange={(e) => {
+                      const next = [...steps];
+                      next[i] = e.target.value;
+                      setSteps(next);
+                    }}
+                    onKeyDown={(e) => {
+                      // Enter adds the next step rather than submitting the form
+                      // half-typed - this list is the main thing being filled in.
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        if (step.trim() && i === steps.length - 1) setSteps([...steps, ""]);
+                      }
+                    }}
+                  />
+                  {steps.length > 1 && (
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm"
+                      title="Remove this step"
+                      onClick={() => setSteps(steps.filter((_, k) => k !== i))}
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              ))}
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => setSteps([...steps, ""])}>
+                + Add step
+              </button>
+            </div>
+          )}
+
           {error && <div className="form-error">{error}</div>}
 
           <div className="form-actions">
