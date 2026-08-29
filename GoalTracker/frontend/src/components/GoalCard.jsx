@@ -11,6 +11,12 @@ const STATUS_LABEL = {
   deleted: "Deleted",
 };
 
+const REVIEW_PLACEHOLDER = {
+  approved: "Anything you want the owner to know (optional)",
+  modified: "What did you change, and why?",
+  struck_off: "Why is this goal being struck off?",
+};
+
 const REVIEW_ACTIONS = [
   { key: "approved", icon: "✅", title: "Approve as-is" },
   { key: "modified", icon: "✏️", title: "Modify" },
@@ -18,7 +24,6 @@ const REVIEW_ACTIONS = [
 ];
 
 export default function GoalCard({ goal, token, user, myGoals, isOwner, reviewMode, onChanged, embedded, readOnly }) {
-  const [noteText, setNoteText] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -36,22 +41,9 @@ export default function GoalCard({ goal, token, user, myGoals, isOwner, reviewMo
   const latestAction = goal.review_actions && goal.review_actions[0];
   const pendingOwnerAck = isOwner && goal.status !== "active" && goal.status !== "deleted" && latestAction && !latestAction.owner_ack_at;
   const canDelete = isOwner && goal.status === "struck_off_pending_ack" && latestAction && latestAction.owner_ack_at;
-
-  async function submitLog(e) {
-    e.preventDefault();
-    if (!noteText.trim()) return;
-    setSaving(true);
-    setError("");
-    try {
-      await api.addGoalLog(token, goal.id, { notes: noteText.trim() });
-      setNoteText("");
-      onChanged && onChanged();
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setSaving(false);
-    }
-  }
+  // Set by GoalLinkedTasks once it knows whether this goal has linked tasks:
+  // with a plan, completion is derived rather than ticked by hand.
+  const [hasPlan, setHasPlan] = useState(false);
 
   async function submitOwnerAck() {
     setSaving(true);
@@ -94,8 +86,14 @@ export default function GoalCard({ goal, token, user, myGoals, isOwner, reviewMo
 
   async function submitReview() {
     if (!reviewAction) return;
-    if (reviewAction === "struck_off" && !reviewReason.trim()) {
-      setError("A reason is required to strike off a goal.");
+    // Optional when approving; required when changing or rejecting, since the
+    // owner has to acknowledge those and "why" is the substance of it.
+    if (reviewAction !== "approved" && !reviewReason.trim()) {
+      setError(
+        reviewAction === "struck_off"
+          ? "Please say why you're striking this goal off."
+          : "Please say what you changed and why."
+      );
       return;
     }
     setSaving(true);
@@ -103,7 +101,7 @@ export default function GoalCard({ goal, token, user, myGoals, isOwner, reviewMo
     try {
       await api.reviewGoal(token, goal.id, {
         action_type: reviewAction,
-        reason: reviewAction === "struck_off" ? reviewReason.trim() : null,
+        reason: reviewReason.trim() || null,
         edit: reviewAction === "modified" ? { title: goal.title, ...editFields } : null,
       });
       setReviewReason("");
@@ -156,10 +154,19 @@ export default function GoalCard({ goal, token, user, myGoals, isOwner, reviewMo
       )}
       <div className="goal-card-body">
         {isOwner && (
-          <button type="button" className="completion-toggle" onClick={toggleCompletion} disabled={saving}>
-            <span className="task-complete-icon">{goal.is_completed ? "✅" : "⬜"}</span>
-            {goal.is_completed ? "Marked complete" : "Mark this goal complete"}
-          </button>
+          hasPlan ? (
+            <div className="completion-derived">
+              <span className="task-complete-icon">{goal.is_completed ? "✅" : "⬜"}</span>
+              {goal.is_completed
+                ? "Complete — every task in the plan is done"
+                : "Closes automatically when every task in the plan is done"}
+            </div>
+          ) : (
+            <button type="button" className="completion-toggle" onClick={toggleCompletion} disabled={saving}>
+              <span className="task-complete-icon">{goal.is_completed ? "✅" : "⬜"}</span>
+              {goal.is_completed ? "Marked complete" : "Mark this goal complete"}
+            </button>
+          )
         )}
 
         {goal.status !== "active" && (
@@ -170,6 +177,18 @@ export default function GoalCard({ goal, token, user, myGoals, isOwner, reviewMo
           <tbody>
             {field("Specific", "specific_text", true)}
             {field("Measurable", "measurable_text", true)}
+            {goal.target_date && (
+              <tr className="smart-row smart-row-target">
+                <th scope="row">By when</th>
+                <td>
+                  {new Date(`${String(goal.target_date).slice(0, 10)}T00:00:00`).toLocaleDateString(undefined, {
+                    day: "numeric", month: "long", year: "numeric",
+                  })}
+                  {goal.risk === "overdue" && <span className="risk-inline"> — target date has passed</span>}
+                  {goal.risk === "due_soon" && <span className="risk-inline"> — due within a week</span>}
+                </td>
+              </tr>
+            )}
             {field("Achievable", "achievable_text", false)}
             {field("Relevant", "relevant_text", false)}
           </tbody>
@@ -213,21 +232,26 @@ export default function GoalCard({ goal, token, user, myGoals, isOwner, reviewMo
                   className={`btn btn-ghost btn-sm review-action-btn ${reviewAction === a.key ? "active" : ""}`}
                   title={readOnly ? `${a.title} (preview only)` : a.title}
                   disabled={readOnly}
-                  onClick={readOnly ? undefined : () => setReviewAction(a.key)}
+                  onClick={readOnly ? undefined : () => { setReviewAction(a.key); setReviewReason(""); setError(""); }}
                 >
                   {a.icon}
                 </button>
               ))}
             </div>
 
-            {reviewAction === "struck_off" && (
-              <input
-                className="form-control"
-                placeholder="Reason (required)"
-                value={reviewReason}
-                onChange={(e) => setReviewReason(e.target.value)}
-                style={{ marginTop: 8 }}
-              />
+            {reviewAction && (
+              <div style={{ marginTop: 8 }}>
+                <label className="form-label">
+                  {reviewAction === "approved" ? "Comments (optional)" : "Comments (required)"}
+                </label>
+                <textarea
+                  className="form-control"
+                  rows={3}
+                  placeholder={REVIEW_PLACEHOLDER[reviewAction]}
+                  value={reviewReason}
+                  onChange={(e) => setReviewReason(e.target.value)}
+                />
+              </div>
             )}
 
             {reviewAction && (
@@ -238,29 +262,19 @@ export default function GoalCard({ goal, token, user, myGoals, isOwner, reviewMo
           </div>
         )}
 
-        {isOwner && goal.status === "active" && (
+        {goal.logs.length > 0 && (
           <div className="log-list">
-            <div className="goal-field-label">Progress log</div>
-            {goal.logs.length === 0 && <div className="hint-text">No progress logged yet.</div>}
+            <div className="goal-field-label">Earlier progress notes</div>
             {goal.logs.map((log) => (
               <div className="log-item" key={log.id}>
                 <span className="log-date">{log.log_date}</span>
                 <span>{log.notes}</span>
               </div>
             ))}
-            <form className="log-add-row" onSubmit={submitLog}>
-              <input
-                className="form-control"
-                placeholder="What did you do today/this week?"
-                value={noteText}
-                onChange={(e) => setNoteText(e.target.value)}
-              />
-              <button className="btn btn-primary btn-sm" type="submit" disabled={saving}>Log</button>
-            </form>
           </div>
         )}
 
-        <GoalLinkedTasks token={token} user={user} myGoals={myGoals} goal={goal} onGoalChanged={onChanged} readOnly={readOnly} />
+        <GoalLinkedTasks token={token} user={user} myGoals={myGoals} goal={goal} onGoalChanged={onChanged} readOnly={readOnly} onHasTasks={setHasPlan} />
 
         {error && <div className="form-error" style={{ marginTop: 8 }}>{error}</div>}
       </div>
