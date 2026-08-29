@@ -17,6 +17,7 @@ export default function StaffSearchSelect({ token, value, onChange, disabled, pl
   const [open, setOpen] = useState(false);
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [directoryError, setDirectoryError] = useState("");
   const debounceRef = useRef(null);
 
   useEffect(() => {
@@ -27,8 +28,12 @@ export default function StaffSearchSelect({ token, value, onChange, disabled, pl
       try {
         const staff = await api.searchStaff(token, query, location);
         setResults(staff);
-      } catch {
+        setDirectoryError("");
+      } catch (err) {
+        // The backend returns 503 with an explanation when the whole directory
+        // reads as empty - showing that beats a silent "No match".
         setResults([]);
+        setDirectoryError(err.message || "Couldn't reach the staff directory.");
       } finally {
         setLoading(false);
       }
@@ -70,6 +75,8 @@ export default function StaffSearchSelect({ token, value, onChange, disabled, pl
         <div className="searchable-select-options" onMouseDown={(e) => e.preventDefault()}>
           {loading ? (
             <div className="searchable-select-option searchable-select-none">Searching…</div>
+          ) : directoryError ? (
+            <div className="searchable-select-option searchable-select-error">⚠ {directoryError}</div>
           ) : results.length === 0 ? (
             <div className="searchable-select-option searchable-select-none">No match</div>
           ) : (
