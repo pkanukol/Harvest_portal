@@ -108,6 +108,12 @@ class Goal(Base):
     # the goal was properly set/reviewed, not whether it was accomplished.
     is_completed = Column(Boolean, nullable=False, default=False)
     completed_at = Column(DateTime, nullable=True)
+    # The plan the owner wrote when setting the goal, kept as a list of step
+    # strings until the reviewer approves it. Nothing is scheduled before
+    # then: an unapproved goal creates no tasks and asks nothing of anybody.
+    # Cleared to None once the steps have been turned into tasks, so the same
+    # plan can never be materialised twice.
+    plan_steps = Column(JSON, nullable=True)
     # When the owner plans to have this achieved. Drives the "about to be
     # missed" warning and the due dates of the steps generated from the plan.
     # Nullable: goals created before this existed have none, and it stays
