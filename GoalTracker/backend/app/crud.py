@@ -308,26 +308,49 @@ def create_goal(db: Session, owner_email: str, owner_name: str, req: schemas.Goa
     db.commit()
     db.refresh(goal)
 
-    # Each step of the plan becomes a task linked to this goal, assigned to the
-    # owner and dated so the last one lands on the goal's target date. They are
-    # ordinary tasks from here on: re-datable, re-assignable, editable.
+    # The plan is only a proposal until the reviewer approves it, so it is
+    # stored on the goal rather than scheduled. materialise_plan() turns it
+    # into tasks at the moment of approval - see review_goal.
     steps = [s.strip() for s in (req.steps or []) if s and s.strip()]
     if steps:
-        for step, due in zip(steps, plan_step_dates(len(steps), req.target_date)):
-            db.add(models.Task(
-                goal_id=goal.id,
-                title=step,
-                created_by_email=owner_email,
-                created_by_name=owner_name,
-                assignee_email=owner_email,
-                assignee_name=owner_name,
-                # End of the working day, so a task due "today" is not already
-                # overdue the moment it is created.
-                due_at=datetime.datetime.combine(due, datetime.time(17, 30)) if due else None,
-            ))
+        goal.plan_steps = steps
         db.commit()
         db.refresh(goal)
     return goal
+
+
+def materialise_plan(db: Session, goal: models.Goal, owner_name: str = "") -> int:
+    """Turn an approved goal's stored plan into tasks. Returns how many.
+
+    Dates run from TODAY (the approval date), not from when the goal was
+    written - a plan approved three weeks late should not arrive with three
+    weeks of its schedule already spent. The last step still lands on the
+    goal's target date.
+
+    Clears plan_steps afterwards, so re-approving or approving a goal whose
+    tasks have since been edited can never duplicate the plan.
+    """
+    steps = [s for s in (goal.plan_steps or []) if s and s.strip()]
+    if not steps:
+        return 0
+    owner = db.query(models.User).filter(models.User.email.ilike(goal.owner_email)).first()
+    name = owner.name if owner else (owner_name or goal.owner_email)
+    for step, due in zip(steps, plan_step_dates(len(steps), goal.target_date)):
+        db.add(models.Task(
+            goal_id=goal.id,
+            title=step,
+            created_by_email=goal.owner_email,
+            created_by_name=name,
+            assignee_email=goal.owner_email,
+            assignee_name=name,
+            # End of the working day, so a task due "today" is not already
+            # overdue the moment it is created.
+            due_at=datetime.datetime.combine(due, datetime.time(17, 30)) if due else None,
+        ))
+    goal.plan_steps = None
+    db.commit()
+    db.refresh(goal)
+    return len(steps)
 
 
 def sync_goal_completion_from_tasks(db: Session, goal_id: Optional[int]) -> None:
@@ -448,6 +471,10 @@ def review_goal(db: Session, goal: models.Goal, reviewer_email: str, req: schema
     elif req.action_type == "struck_off":
         goal.status = "struck_off_pending_ack"
     # 'approved' leaves goal.status untouched (stays active)
+
+    if req.action_type == "approved":
+        # Approval is the point at which the plan becomes real work.
+        materialise_plan(db, goal)
 
     action = models.GoalReviewAction(
         goal_id=goal.id,
