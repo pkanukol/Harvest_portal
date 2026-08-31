@@ -103,6 +103,10 @@ class GoalOut(BaseModel):
     is_completed: bool = False
     completed_at: Optional[datetime] = None
     target_date: Optional[date] = None
+    # The plan as written, still awaiting the reviewer's approval. Present
+    # only while unapproved - once approved these become tasks and this is
+    # cleared, so the UI can show "proposed plan" vs "linked tasks".
+    plan_steps: Optional[List[str]] = None
     # Computed per request, not stored - see crud.goal_risk.
     #   on_track   - no target date, already done, or more than a week away
     #   due_soon   - target date is within the next 7 days
