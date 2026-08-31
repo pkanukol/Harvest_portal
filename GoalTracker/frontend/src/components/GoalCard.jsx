@@ -274,6 +274,19 @@ export default function GoalCard({ goal, token, user, myGoals, isOwner, reviewMo
           </div>
         )}
 
+        {goal.plan_steps && goal.plan_steps.length > 0 && (
+          <div className="plan-pending">
+            <div className="goal-field-label">Plan — waiting for approval</div>
+            <ol className="plan-pending-list">
+              {goal.plan_steps.map((step, i) => <li key={i}>{step}</li>)}
+            </ol>
+            <div className="hint-text">
+              These become tasks once your reviewer approves this goal. Nothing is
+              scheduled and nobody is asked to do anything before then.
+            </div>
+          </div>
+        )}
+
         <GoalLinkedTasks token={token} user={user} myGoals={myGoals} goal={goal} onGoalChanged={onChanged} readOnly={readOnly} onHasTasks={setHasPlan} />
 
         {error && <div className="form-error" style={{ marginTop: 8 }}>{error}</div>}
