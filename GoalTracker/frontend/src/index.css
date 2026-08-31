@@ -155,6 +155,12 @@ body {
 
 .searchable-select-error { color: #8E2226; background: var(--red-bg); font-size: 12px; line-height: 1.5; white-space: normal; cursor: default; }
 
+/* A plan that has not been approved yet: shown, but explicitly not scheduled */
+.plan-pending { margin-top: 12px; padding: 12px 14px; border: 1px dashed var(--line-2); border-radius: var(--radius-sm); background: var(--bg-soft); }
+.plan-pending-list { margin: 6px 0 8px; padding-left: 22px; font-size: 13px; }
+.plan-pending-list li { margin-bottom: 4px; }
+.plan-pending .hint-text { margin-bottom: 0; }
+
 /* ── Goal plan + deadline risk ──────────────────────────────────────────
    A week's warning is the whole point, so due_soon has to read as a warning
    and not as decoration. */
