@@ -11,6 +11,7 @@ const STATE_LABEL = {
   needs_acknowledgment: "Needs acknowledgment",
   approved: "Approved",
   complete: "Complete",
+  struck_off: "Struck off",
 };
 
 const FILTERS = [
@@ -38,6 +39,9 @@ function Slot({ slot }) {
       {slot.period_label && slot.period_label !== "This year" && (
         <span className="hr-slot-period"> {slot.period_label}</span>
       )}
+      {/* More than one goal in this slot: the badge describes the one that
+          most needs attention, so say how many there are. */}
+      {slot.goal_count > 1 && <span className="hr-slot-period"> +{slot.goal_count - 1} more</span>}
     </span>
   );
 }
@@ -129,6 +133,7 @@ export default function HrReport({ token, onClose }) {
               <div className="hr-tile warn"><b>{t.awaiting_review}</b><span>awaiting review</span></div>
               <div className="hr-tile warn"><b>{t.needs_acknowledgment}</b><span>needs acknowledgment</span></div>
               <div className="hr-tile ok"><b>{t.approved}</b><span>approved</span></div>
+              <div className="hr-tile"><b>{t.struck_off}</b><span>struck off</span></div>
               <div className="hr-tile alert"><b>{t.overdue_goals}</b><span>overdue goals</span></div>
               <div className="hr-tile alert"><b>{t.overdue_tasks}</b><span>overdue tasks</span></div>
               <div className="hr-tile"><b>{t.open_tasks}</b><span>open tasks</span></div>
