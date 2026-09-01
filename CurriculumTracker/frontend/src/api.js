@@ -5,7 +5,7 @@ export const API_ROOT = import.meta.env.VITE_API_URL || "";
 // no login of its own, only the SSO handoff from there. Hard-coded rather than
 // read from VITE_PORTAL_URL, because a build that shipped without that variable
 // sent an expired session to a page that cannot sign anyone back in.
-const PORTAL_URL = "https://his-academy360.netlify.app";
+const PORTAL_URL = "https://elevate360.netlify.app";
 
 const API_BASE = API_ROOT + "/api";
 
@@ -197,9 +197,10 @@ export const api = {
       { token },
     ),
 
-  getLastSectionPlans: (token, subject, grade) =>
+  getLastSectionPlans: (token, subject, grade, branch = "") =>
     request(
-      `/pow/last-plans?subject=${encodeURIComponent(subject)}&grade=${encodeURIComponent(grade)}`,
+      `/pow/last-plans?subject=${encodeURIComponent(subject)}&grade=${encodeURIComponent(grade)}`
+        + (branch ? `&branch=${encodeURIComponent(branch)}` : ""),
       { token },
     ),
 
