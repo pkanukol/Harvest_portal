@@ -231,6 +231,9 @@ class ObservationsResponse(BaseModel):
 
 class TeamResponse(BaseModel):
     reviewees: List[RevieweeOut]
+    # Goals actually waiting on this reviewer - not the number of people
+    # assigned to them. See crud.goals_awaiting_review.
+    goals_to_review: int = 0
 
 
 class StatusCountsOut(BaseModel):
@@ -277,7 +280,11 @@ class RepeatDismissRequest(BaseModel):
 
 class HrGoalSlotOut(BaseModel):
     # not_set | awaiting_review | needs_acknowledgment | approved | complete
+    #        | struck_off  (reviewer struck it off and the owner acknowledged)
     state: str
+    # How many goals this person has in this cadence; the fields above
+    # describe the one most in need of attention.
+    goal_count: int = 0
     title: Optional[str] = None
     target_date: Optional[date] = None
     period_label: Optional[str] = None
@@ -304,6 +311,7 @@ class HrTotalsOut(BaseModel):
     awaiting_review: int
     needs_acknowledgment: int
     approved: int
+    struck_off: int = 0
     overdue_goals: int
     overdue_tasks: int
     open_tasks: int
