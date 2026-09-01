@@ -67,6 +67,12 @@ export default function BackfillPanel({ token, subject, grade, branch = "" }) {
           <button className="btn btn-ghost btn-sm backfill-month-btn" disabled={saving || noCampus} onClick={reopen}>
             Reopen for changes
           </button>
+          {noCampus && (
+            <div className="hint-text">
+              Choose <strong>Kodathi</strong> or <strong>Attibele</strong> at the top of the page to
+              reopen it — each campus is confirmed separately.
+            </div>
+          )}
         </div>
       </div>
     );
