@@ -136,6 +136,11 @@ export default function GoalPanels({
                                   Plan overruns
                                 </span>
                               )}
+                              {g.period && g.period !== "year" && (
+                                <span className={`badge goal-period-chip period-${g.period}`}>
+                                  {g.period_label}
+                                </span>
+                              )}
                               {g.target_date && !g.is_completed && !RISK_BADGE[g.risk] && (
                                 <span className="goal-target-date">by {formatTarget(g.target_date)}</span>
                               )}
