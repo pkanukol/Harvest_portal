@@ -39,6 +39,10 @@ export function AuthProvider({ children }) {
       can_upload_curriculum: Boolean(ssoResponse.can_upload_curriculum),
       can_see_lagging: Boolean(ssoResponse.can_see_lagging),
       can_create_pow: Boolean(ssoResponse.can_create_pow),
+      can_see_overview: Boolean(ssoResponse.can_see_overview),
+      can_mark_coverage: Boolean(ssoResponse.can_mark_coverage),
+      can_oversee: Boolean(ssoResponse.can_oversee),
+      branches: ssoResponse.branches || [],
     };
     setToken(ssoResponse.access_token);
     setUser(nextUser);
