@@ -391,9 +391,39 @@ def get_planner_inventory(db: Session, limit_to: Optional[List[str]] = None) -> 
 # that exact value, so an upload filed under "Maths" would be invisible to
 # every maths teacher.
 CURRICULUM_SUBJECTS = [
-    "English", "Hindi", "Kannada", "Mathematics", "Science",
+    # "Hindi (R3)" is the third language: a subject in its own right, with its
+    # own curriculum, its own POWs and its own progress, listed here so it is
+    # offered whether or not a workbook has been uploaded for it yet. Hindi
+    # proper is untouched by it - they share nothing but a name.
+    "English", "Hindi", "Hindi (R3)", "Kannada", "Mathematics", "Science",
     "Biology", "Physics", "Chemistry", "Social Science",
 ]
+
+
+_LEVEL_SUFFIX = re.compile(r"\s*[\(\[][^)\]]*[\)\]]\s*$")
+
+
+def base_subject(name: str) -> str:
+    """"Hindi (R3)" -> "Hindi". A third language is stored as its own planner
+    subject so its curriculum cannot collide with the main one for the same
+    grade - but it is still Hindi as far as who teaches it, who owns it and
+    which dropdown it belongs in."""
+    return _LEVEL_SUFFIX.sub("", name or "").strip()
+
+
+def planner_levels_of(db: Session, subjects) -> List[str]:
+    """Planner subjects that are a level of one of `subjects`."""
+    if not subjects:
+        return []
+    mine = {str(x).strip().lower() for x in subjects if x}
+    out = []
+    for (name,) in db.query(models.PlannerTopic.subject).distinct().all():
+        if not name:
+            continue
+        base = base_subject(name).lower()
+        if base != name.strip().lower() and base in mine:
+            out.append(name)
+    return sorted(set(out))
 
 
 def allowed_upload_subjects(db: Session, email: str, designation: str, subject: Optional[str]) -> Optional[List[str]]:
@@ -418,6 +448,11 @@ def allowed_upload_subjects(db: Session, email: str, designation: str, subject: 
         for member in subjects_in_group(name):
             if member and member not in allowed:
                 allowed.append(member)
+    # ...and its third-language curriculum, which is a separate planner subject
+    # but the same person's responsibility.
+    for name in planner_levels_of(db, allowed):
+        if name not in allowed:
+            allowed.append(name)
     return allowed
 
 
@@ -463,12 +498,25 @@ def get_known_subjects(db: Session, limit_to: Optional[List[str]] = None) -> dic
     from_planner = {
         s.strip() for (s,) in db.query(models.PlannerTopic.subject).distinct() if s and s.strip()
     }
+    # A level of a curriculum subject IS a curriculum subject - "Hindi (R3)"
+    # belongs beside Hindi, not buried in "Other staff subjects" where nobody
+    # thought to look for it.
     curriculum_lower = {s.lower() for s in CURRICULUM_SUBJECTS}
+    # Any OTHER level found in the planner - Kannada (R3), Sanskrit (R2) - is
+    # picked up the same way without needing to be named above.
+    levels = [s for s in sorted(from_planner, key=str.lower)
+              if s.lower() not in curriculum_lower
+              and base_subject(s).lower() in curriculum_lower]
+    curriculum = []
+    for name in CURRICULUM_SUBJECTS:
+        curriculum.append(name)
+        # Straight after its parent, so the picker reads Hindi, Hindi (R3).
+        curriculum.extend(l for l in levels if base_subject(l).lower() == name.lower())
+    curriculum_lower |= {s.lower() for s in levels}
     other = sorted(
         {s for s in (from_users | from_planner) if s.lower() not in curriculum_lower},
         key=str.lower,
     )
-    curriculum = list(CURRICULUM_SUBJECTS)
 
     if limit_to is not None:
         keep = {s.lower() for s in limit_to}
@@ -2116,6 +2164,15 @@ def compare_branches(db: Session, user_email: str, role: str, subject: str,
     }
 
 
+def _previous_academic_month(current: str) -> str:
+    """The month the year is judged up to - the last one that has ended."""
+    idx = month_position(current, None)
+    if not idx:
+        return ""
+    by_idx = {v: k for k, v in MONTH_INDEX.items()}
+    return by_idx.get(idx - 1, "")
+
+
 def get_annual_progress(db: Session, subject: str, grade: int, discipline: Optional[str] = None,
                         teacher_emails: Optional[set] = None, branch: Optional[str] = None) -> dict:
     """Whole-year progress for one subject+grade, per SECTION - the leadership
@@ -2283,16 +2340,35 @@ def get_annual_progress(db: Session, subject: str, grade: int, discipline: Optio
     chapters_pct_left = round(chapters_left * 100 / total_chapters) if total_chapters else 0
     sessions_pct_left = round(sessions_left * 100 / total_sessions) if total_sessions else 0
 
-    # "More than 50% left by August end" - raised from August onward, since
-    # before that a large remainder is simply the year being young.
+    # ── Against the plan TO DATE, not against the whole year ────────────────
+    # Half the year outstanding in August is not a fault if the other half is
+    # not due until March. What matters is whether everything the mapping
+    # placed in the months already gone has been covered - so a chapter counts
+    # as due once the last month it spans has ENDED - a chapter timetabled for
+    # the month now running cannot be late, and the month tab is where pace
+    # inside the current month is judged.
     today = now_ist()
-    past_august = month_position(today.strftime("%B"), 0) >= month_position("August", 0)
-    behind = past_august and (chapters_pct_left > 50 or sessions_pct_left > 50)
+    cutoff = month_position(today.strftime("%B"), None)
+    due = [
+        c for c in chapters
+        if c["months"] and cutoff is not None
+        and max(month_position(m, 99) for m in c["months"]) < cutoff
+    ]
+    chapters_due = len(due)
+    sessions_due = sum(c["sessions"] for c in due)
+    chapters_done_to_date = min(avg_chapters_done, chapters_due)
+    sessions_done_to_date = min(avg_sessions_done, sessions_due)
+    pct_to_date = round(sessions_done_to_date * 100 / sessions_due) if sessions_due else 100
+
+    chapters_owed = max(0, round(chapters_due - avg_chapters_done, 1))
+    sessions_owed = max(0, round(sessions_due - avg_sessions_done, 1))
+    # One session adrift is rounding, not a warning.
+    behind = sessions_owed > 1 or chapters_owed >= 1
     reasons = []
-    if behind and chapters_pct_left > 50:
-        reasons.append("%s%% of chapters" % chapters_pct_left)
-    if behind and sessions_pct_left > 50:
-        reasons.append("%s%% of sessions" % sessions_pct_left)
+    if behind and chapters_owed >= 1:
+        reasons.append("%g of %d chapters" % (chapters_owed, chapters_due))
+    if behind and sessions_owed > 1:
+        reasons.append("%g of %d sessions" % (sessions_owed, sessions_due))
 
     return {
         "subject": subject,
@@ -2311,6 +2387,16 @@ def get_annual_progress(db: Session, subject: str, grade: int, discipline: Optio
             "sessions_done": avg_sessions_done,
             "sessions_left": sessions_left,
             "sessions_pct_left": sessions_pct_left,
+            # Everything the plan placed in the months already gone.
+            "chapters_due": chapters_due,
+            "sessions_due": sessions_due,
+            "chapters_done_to_date": chapters_done_to_date,
+            "sessions_done_to_date": sessions_done_to_date,
+            "chapters_owed": chapters_owed,
+            "sessions_owed": sessions_owed,
+            "pct_to_date": pct_to_date,
+            "as_at": today.strftime("%B"),
+            "prev_month": _previous_academic_month(today.strftime("%B")),
             "behind": behind,
             "behind_reason": " and ".join(reasons),
         },
