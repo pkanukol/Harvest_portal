@@ -216,7 +216,9 @@ CURRICULUM_UPLOAD_DESIGNATIONS = {
 # whole subject's mapping, so HODs are admitted here without being given the
 # upload screen: they know what their department taught before the app was in
 # use, and were the ones being asked and unable to answer.
-CURRICULUM_COVERAGE_DESIGNATIONS = CURRICULUM_UPLOAD_DESIGNATIONS | {"hod"}
+CURRICULUM_COVERAGE_DESIGNATIONS = CURRICULUM_UPLOAD_DESIGNATIONS | {
+    "hod", "coordinator",
+}
 
 
 def can_upload_curriculum(user: CurrentUser) -> bool:
