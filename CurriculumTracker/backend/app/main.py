@@ -99,15 +99,20 @@ async def sso_login(req: schemas.SSORequest, db: Session = Depends(get_db)):
         ),
         "can_see_lagging": crud.can_see_lagging(app_role, user.designation),
         "can_create_pow": auth.can_author_pow(
-            auth.CurrentUser(user.email, user.name, user.designation, user.subject, app_role)
+            auth.CurrentUser(user.email, user.name, user.designation, user.subject, app_role),
+            crud.pow_author_emails(db),
         ),
         "can_see_overview": auth.can_see_curriculum_overview(
+            auth.CurrentUser(user.email, user.name, user.designation, user.subject, app_role)
+        ),
+        "can_mark_coverage": auth.can_mark_coverage(
             auth.CurrentUser(user.email, user.name, user.designation, user.subject, app_role)
         ),
         "can_oversee": auth.can_oversee_curriculum(
             auth.CurrentUser(user.email, user.name, user.designation, user.subject, app_role)
         ),
-        "branches": crud.viewer_branches(user.location) or crud.BRANCHES,
+        "branches": crud.branches_for_viewer(user.location, auth.can_mark_coverage(
+            auth.CurrentUser(user.email, user.name, user.designation, user.subject, app_role))),
     }
 
 
@@ -153,11 +158,13 @@ def get_me(
         "can_view_as": auth.can_view_as(user.email, user.designation) and not current_user.view_as_actor,
         "can_upload_curriculum": auth.can_upload_curriculum(resolved),
         "can_see_lagging": crud.can_see_lagging(app_role, user.designation),
-        "can_create_pow": auth.can_author_pow(resolved),
+        "can_create_pow": auth.can_author_pow(resolved, crud.pow_author_emails(db)),
         "can_see_overview": auth.can_see_curriculum_overview(resolved),
+        "can_mark_coverage": auth.can_mark_coverage(resolved),
         "can_oversee": auth.can_oversee_curriculum(resolved),
-        # Campuses this account may look at: their own, or both for 'Both'.
-        "branches": crud.viewer_branches(user.location) or crud.BRANCHES,
+        # Campuses this account may look at - both for anyone who owns a
+        # subject across the school, otherwise their own.
+        "branches": crud.branches_for_viewer(user.location, auth.can_mark_coverage(resolved)),
     }
 
 
@@ -223,15 +230,20 @@ def view_as(
         ),
         "can_see_lagging": crud.can_see_lagging(app_role, target.designation),
         "can_create_pow": auth.can_author_pow(
-            auth.CurrentUser(target.email, target.name, target.designation, target.subject, app_role)
+            auth.CurrentUser(target.email, target.name, target.designation, target.subject, app_role),
+            crud.pow_author_emails(db),
         ),
         "can_see_overview": auth.can_see_curriculum_overview(
+            auth.CurrentUser(target.email, target.name, target.designation, target.subject, app_role)
+        ),
+        "can_mark_coverage": auth.can_mark_coverage(
             auth.CurrentUser(target.email, target.name, target.designation, target.subject, app_role)
         ),
         "can_oversee": auth.can_oversee_curriculum(
             auth.CurrentUser(target.email, target.name, target.designation, target.subject, app_role)
         ),
-        "branches": crud.viewer_branches(target.location) or crud.BRANCHES,
+        "branches": crud.branches_for_viewer(target.location, auth.can_mark_coverage(
+            auth.CurrentUser(target.email, target.name, target.designation, target.subject, app_role))),
     }
 
 
@@ -421,7 +433,7 @@ def get_backfill(
     grade: int = Query(...),
     branch: str = Query(""),
     db: Session = Depends(get_db),
-    current_user: auth.CurrentUser = Depends(auth.require_curriculum_uploader),
+    current_user: auth.CurrentUser = Depends(auth.require_coverage_marker),
 ):
     _check_backfill_scope(db, current_user, subject)
     return crud.get_backfill_view(db, subject, grade, branch)
@@ -431,7 +443,7 @@ def get_backfill(
 def save_backfill(
     req: schemas.BackfillSaveRequest,
     db: Session = Depends(get_db),
-    current_user: auth.CurrentUser = Depends(auth.require_curriculum_uploader),
+    current_user: auth.CurrentUser = Depends(auth.require_coverage_marker),
 ):
     """One-time marking. Refused once a POW exists for this subject+grade —
     from that point progress is whatever the POWs say, and re-opening the
@@ -455,7 +467,7 @@ def save_backfill(
 def confirm_backfill(
     req: schemas.BackfillConfirmRequest,
     db: Session = Depends(get_db),
-    current_user: auth.CurrentUser = Depends(auth.require_curriculum_uploader),
+    current_user: auth.CurrentUser = Depends(auth.require_coverage_marker),
 ):
     """The SME saying "past coverage for this teacher is complete". This — not
     the arrival of POWs — is what closes the marking."""
@@ -471,7 +483,7 @@ def confirm_backfill(
 def reopen_backfill(
     req: schemas.BackfillConfirmRequest,
     db: Session = Depends(get_db),
-    current_user: auth.CurrentUser = Depends(auth.require_curriculum_uploader),
+    current_user: auth.CurrentUser = Depends(auth.require_coverage_marker),
 ):
     """Undo a confirmation — the marks are kept, the window just opens again."""
     _check_backfill_scope(db, current_user, req.subject)
@@ -591,12 +603,13 @@ def get_sections_for_grade(
 def get_last_section_plans(
     subject: str = Query(...),
     grade: str = Query(...),
+    branch: str = Query(""),
     db: Session = Depends(get_db),
     _user: auth.CurrentUser = Depends(auth.get_current_user),
 ):
     """Where each section of this subject+grade got to, so a new POW can start
     each one from its own last topic rather than from the grade's."""
-    return {"plans": crud.last_section_plans(db, subject, grade)}
+    return {"plans": crud.last_section_plans(db, subject, grade, branch)}
 
 
 @app.get("/api/pow/{pow_id}")
