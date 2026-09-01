@@ -60,6 +60,30 @@ def designation_can_view_as(designation: str) -> bool:
     return (designation or "").strip().lower() in VIEW_AS_DESIGNATIONS
 
 
+def is_hr(email: str, designation: str) -> bool:
+    """HR gets org-wide read access and the HR report. Designation first so a
+    new HR appointment inherits it; the email list covers an account whose
+    designation is recorded some other way."""
+    if (designation or "").strip().lower() == "hr":
+        return True
+    allowed = {e.strip().lower() for e in settings.HR_EMAILS if e.strip()}
+    return (email or "").strip().lower() in allowed
+
+
+def can_manage_reviewer_assignments(email: str, designation: str) -> bool:
+    """Who may edit who-reviews-whom. The APM plus HR - HR keeps the chain up
+    to date as people join and move. Deliberately separate from the "act as"
+    switch, which stays with one person: editing assignments changes who can
+    approve goals, but it cannot impersonate anyone.
+    """
+    e = (email or "").strip().lower()
+    if e == (settings.REVIEWER_ASSIGNMENTS_ADMIN_EMAIL or "").strip().lower():
+        return True
+    if is_hr(email, designation):
+        return True
+    return e in {x.strip().lower() for x in settings.REVIEWER_ADMIN_EMAILS if x.strip()}
+
+
 def designation_can_view_overview(designation: str) -> bool:
     return (designation or "").strip().lower() in OVERVIEW_DESIGNATIONS
 
@@ -98,7 +122,8 @@ class CurrentUser:
 
     def __init__(self, email: str, name: str, designation: str, is_admin: bool, can_manage_reviewers: bool,
                  can_view_observations: bool, impersonated_by: Optional[str] = None,
-                 can_view_overview: bool = False, can_view_as: bool = False):
+                 can_view_overview: bool = False, can_view_as: bool = False,
+                 is_hr_user: bool = False):
         self.email = email
         self.name = name
         self.designation = designation
@@ -107,6 +132,7 @@ class CurrentUser:
         self.can_view_observations = can_view_observations
         self.can_view_overview = can_view_overview
         self.can_view_as = can_view_as
+        self.is_hr_user = is_hr_user
         # Set when this session came from the "act as" switch: the real person
         # who started it. Kept on the token (not just the login response) so a
         # switched session stays identifiable across reloads and cannot be
@@ -146,6 +172,7 @@ def get_current_user(token: str = Depends(oauth2_scheme)) -> CurrentUser:
         impersonated_by=payload.get("impersonated_by"),
         can_view_overview=bool(payload.get("can_view_overview", False)),
         can_view_as=bool(payload.get("can_view_as", False)),
+        is_hr_user=bool(payload.get("is_hr", False)),
     )
 
 
@@ -163,6 +190,13 @@ def require_overview_access(current_user: CurrentUser = Depends(get_current_user
     return current_user
 
 
+def require_hr(current_user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
+    """The HR report. Read-only: no endpoint behind this gate writes anything."""
+    if not current_user.is_hr_user:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to view the HR report")
+    return current_user
+
+
 def require_view_as(current_user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
     """Reading another person's page (goals + tasks). See VIEW_AS_DESIGNATIONS."""
     if not current_user.can_view_as:
@@ -175,6 +209,14 @@ def require_owner(current_user: CurrentUser = Depends(get_current_user)) -> Curr
     tool rather than a leadership capability: reading anyone's page, and
     triggering an org-wide email."""
     if not current_user.can_manage_reviewers:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+    return current_user
+
+
+def require_owner_or_hr(current_user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
+    """Triggering the reminder emails. HR's job is chasing, so HR gets this as
+    well as the owner - it sends mail but writes no goal or task data."""
+    if not (current_user.can_manage_reviewers or current_user.is_hr_user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
     return current_user
 
