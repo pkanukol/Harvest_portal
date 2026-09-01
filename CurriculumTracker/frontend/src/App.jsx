@@ -125,7 +125,11 @@ export default function App() {
   // Drop a remembered campus this account may no longer view (e.g. after a
   // View as switch to someone on the other campus).
   useEffect(() => {
-    if (branch && myBranches.length && !myBranches.includes(branch)) chooseBranch("");
+    if (branch && myBranches.length && !myBranches.includes(branch)) { chooseBranch(""); return; }
+    // Someone attached to ONE campus has nothing to choose - the header shows
+    // their campus as a label, not a picker - so leaving this empty left them
+    // reading as "All branches" and every coverage button disabled.
+    if (!branch && myBranches.length === 1) chooseBranch(myBranches[0]);
   }, [user?.email, myBranches.join("|")]);
 
   const goDashboard = () => { setView("dashboard"); setLoadError(""); };
@@ -216,7 +220,7 @@ export default function App() {
             )}
 
             {view === "new-pow" && (
-              <POWForm key={user.email} token={token} user={user} mode="new" onDone={goDashboard} onBack={goDashboard} />
+              <POWForm key={user.email} token={token} user={user} mode="new" branch={branch} onDone={goDashboard} onBack={goDashboard} />
             )}
 
             {view === "impl-form" && implPrefillPow && (
