@@ -181,7 +181,8 @@ export default function Progress({ token, user, isReadOnlyViewer, isLeadership =
         />
       )}
 
-      {range === "month" && user.can_upload_curriculum && (
+      {/* Coverage marking is open to HODs too, who have no upload rights. */}
+      {range === "month" && (user.can_mark_coverage ?? user.can_upload_curriculum) && (
         <BackfillPanel
           token={token}
           subject={subject}
