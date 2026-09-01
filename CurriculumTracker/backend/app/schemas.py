@@ -204,6 +204,11 @@ class PowSectionPlanIn(BaseModel):
 class PowCreateRequest(BaseModel):
     subject: str
     grade: str
+    # The campus showing in the header when this was filed. Staff attached to
+    # 'Both' (HODs who teach on one campus) have no single campus on their
+    # record, so without this their POWs were stamped NULL and vanished the
+    # moment anyone filtered by campus.
+    branch: Optional[str] = ""
     week_start: str
     week_end: str
     topic: str  # Chapter Name
