@@ -5,6 +5,7 @@ from typing import Optional, List
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import func, or_, true as sql_true
 from . import models, staff_directory
+from .config import settings
 
 IST_OFFSET = datetime.timedelta(hours=5, minutes=30)
 
@@ -420,6 +421,13 @@ def allowed_upload_subjects(db: Session, email: str, designation: str, subject: 
     return allowed
 
 
+def pow_author_emails(db: Session) -> set:
+    """The SMEs and HODs recorded as teaching. Tiny table, read per request -
+    and the env var stays honoured so an emergency addition needs no SQL."""
+    listed = {e.lower() for (e,) in db.query(models.PowAuthor.email).all() if e}
+    return listed | settings.pow_author_emails
+
+
 def subject_variants(db: Session, subjects: list) -> list:
     """Planner subjects that are a LEVEL of one this person teaches:
     "Hindi (R3)" for a Hindi teacher.
@@ -517,6 +525,19 @@ def normalize_branch(value: str) -> Optional[str]:
         if v == b.lower():
             return b
     return None
+
+
+def branches_for_viewer(location: str, oversees_subject: bool) -> List[str]:
+    """The campuses this account may switch between.
+
+    Normally their own. But an SME or HOD owns a SUBJECT, not a campus - they
+    oversee Kodathi and Attibele separately and mark coverage for both - and
+    their record still names the one campus they sit at. Reading that as a
+    limit left a Kodathi SME unable to touch Attibele at all.
+    """
+    if oversees_subject:
+        return list(BRANCHES)
+    return viewer_branches(location) or list(BRANCHES)
 
 
 def viewer_branches(location: str) -> Optional[List[str]]:
@@ -934,9 +955,12 @@ def teacher_branch(db: Session, email: str) -> Optional[str]:
 
 
 def create_pow(db: Session, teacher_email: str, data) -> models.PowEntry:
+    # What the author had selected wins over what their record says: a 'Both'
+    # account has no single campus to fall back on.
+    chosen = normalize_branch(getattr(data, "branch", "") or "")
     pow_entry = models.PowEntry(
         teacher_email=teacher_email.lower(),
-        branch=teacher_branch(db, teacher_email),
+        branch=chosen if chosen in BRANCHES else teacher_branch(db, teacher_email),
         subject=data.subject,
         grade=data.grade,
         week_start=datetime.date.fromisoformat(data.week_start),
@@ -1006,7 +1030,8 @@ def create_pow(db: Session, teacher_email: str, data) -> models.PowEntry:
     return pow_entry
 
 
-def last_section_plans(db: Session, subject: str, grade: str) -> dict:
+def last_section_plans(db: Session, subject: str, grade: str,
+                       branch: Optional[str] = None) -> dict:
     """Where each section got to, most recent first.
 
     What the new POW form suggests from: 6A finished "Adaptations" last week
@@ -1019,6 +1044,10 @@ def last_section_plans(db: Session, subject: str, grade: str) -> dict:
                 [s.lower() for s in subjects_in_group(subject)]
             ),
             models.PowSectionPlan.grade == str(grade),
+            *( [models.PowSectionPlan.pow_id.in_(
+                   db.query(models.PowEntry.id).filter(
+                       func.lower(models.PowEntry.branch) == branch.lower()))]
+               if normalize_branch(branch or "") in BRANCHES else [] ),
         )
         .order_by(models.PowSectionPlan.week_start.asc(), models.PowSectionPlan.id.asc())
         .all()
@@ -2800,16 +2829,31 @@ def get_month_chart(db: Session, subject: str, grade: int, discipline: Optional[
     wanted_chapters = {r["chapter"] for r in rows}
     planned_by_chapter = {r["chapter"]: r["sessions_planned"] for r in rows}
 
+    # What the chapter table says is covered, and how it knows. A POW carries
+    # the week it was taught; coverage the SME marks carries no date at all -
+    # it is a statement that the chapter WAS covered during its planned month.
+    done_by_chapter = {r["chapter"]: r["sessions_done"] for r in rows}
+    dateless = {r["chapter"] for r in rows if "POW" not in (r["counted_from"] or "")}
+
     labels, planned, actual = [], [], []
     for i, monday in enumerate(weeks):
         week_end = monday + datetime.timedelta(days=6)
         labels.append(monday.strftime("%d %b"))
         # even pace across the month, rounded so the last week lands exactly on
         # the month's total
-        planned.append(round(planned_total * (i + 1) / len(weeks)))
+        pace = round(planned_total * (i + 1) / len(weeks))
+        planned.append(pace)
+
+        # Nothing to plot for a week that hasn't happened: the line should stop
+        # at today rather than run flat to the end of the month, which read as
+        # "covered nothing" for weeks nobody has taught yet.
+        if monday > today.date():
+            actual.append(None)
+            continue
 
         done = 0
         for chapter in wanted_chapters:
+            chapter_planned = planned_by_chapter.get(chapter, 0)
             best = 0
             for p in pows:
                 if (p.topic or "").strip() != chapter:
@@ -2817,16 +2861,21 @@ def get_month_chart(db: Session, subject: str, grade: int, discipline: Optional[
                 if not p.week_start or p.week_start > week_end:
                     continue          # hasn't happened yet as of this week
                 best = max(best, _sessions_completed(p.lp_session_num, p.week_start, p.status))
-            done += min(best, planned_by_chapter.get(chapter, 0))
-        # A week already past also carries whatever the SME marked for the
-        # month; a future week does not.
-        if week_end <= today.date():
-            done = max(done, 0)
+            if chapter in dateless and chapter_planned:
+                # Credited at the plan's own pace, capped by what was actually
+                # marked: a chapter the SME confirms was fully covered tracks
+                # the pace line exactly, and a half-marked one plateaus at half.
+                # Backfilling in September must not read as "behind in August".
+                credited = min(done_by_chapter.get(chapter, 0),
+                               round(chapter_planned * (i + 1) / len(weeks)))
+                best = max(best, credited)
+            done += min(best, chapter_planned)
         actual.append(done)
 
-    # Where we are now, against where the pace line says we should be.
+    # Where we are now, against where the pace line says we should be - the
+    # last week that has actually started.
     idx = max(0, min(len(weeks) - 1, sum(1 for w in weeks if w <= today.date()) - 1))
-    ahead = actual[idx] - planned[idx]
+    ahead = (actual[idx] or 0) - planned[idx]
     verdict = "On track" if abs(ahead) <= 1 else ("Ahead of plan" if ahead > 0 else "Behind plan")
 
     return {
@@ -2839,7 +2888,10 @@ def get_month_chart(db: Session, subject: str, grade: int, discipline: Optional[
         "done_total": summary["sessions_done"],
         "verdict": verdict,
         "note": "Planned is an even pace across the month's weeks - the curriculum "
-                "mapping gives a session count per month, not per week.",
+                "mapping gives a session count per month, not per week. Coverage the "
+                "SME has marked carries no date, so it is credited at that same pace: "
+                "a chapter confirmed covered tracks the plan rather than counting as "
+                "taught on the day it was ticked.",
     }
 
 
