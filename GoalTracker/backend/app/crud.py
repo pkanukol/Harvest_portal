@@ -293,6 +293,8 @@ def plan_step_dates(count: int, target: Optional[datetime.date],
 
 
 def create_goal(db: Session, owner_email: str, owner_name: str, req: schemas.GoalCreate) -> models.Goal:
+    # Teachers' academic year ends in April, so their term dates differ.
+    _owner_teacher = is_teacher(db, owner_email)
     goal = models.Goal(
         owner_email=owner_email,
         cadence=req.cadence,
@@ -303,7 +305,13 @@ def create_goal(db: Session, owner_email: str, owner_name: str, req: schemas.Goa
         achievable_text=req.achievable_text,
         relevant_text=req.relevant_text,
         target_date=req.target_date,
+        period=(req.period if req.period in GOAL_PERIODS else "year"),
+        instance_key=period_instance_key(req.period or "year", teacher=_owner_teacher),
     )
+    # A monthly or termly goal without a date gets the end of its own period:
+    # that is what "monthly" means, and it keeps the overdue warnings honest.
+    if not goal.target_date and goal.period in ("month", "term"):
+        goal.target_date = period_end_date(goal.period, teacher=_owner_teacher)
     db.add(goal)
     db.commit()
     db.refresh(goal)
@@ -413,6 +421,7 @@ def annotate_goal_risk(db: Session, goals: List[models.Goal]) -> None:
             g.risk = "due_soon"
         else:
             g.risk = "on_track"
+        g.period_label = period_label(g.period, g.instance_key)
         last_due = latest_task_due.get(g.id)
         g.plan_overruns_target = bool(
             g.target_date and last_due and last_due > g.target_date and not g.is_completed
@@ -610,6 +619,312 @@ def get_observation_average(observations: List[models.Observation]) -> Optional[
         return None
     return round(sum(o.overall_score for o in observations) / len(observations), 1)
 
+
+
+# ─── Goal periods: month / term / year ───────────────────────────────────────
+# A goal's `period` says how long it runs and therefore whether it comes back.
+# Term 1 is June-October and Term 2 November-May (settings.TERM_*_START_MONTH),
+# so Term 2 spans the new year and every term calculation is done against the
+# ACADEMIC year rather than the calendar one.
+
+GOAL_PERIODS = ("month", "term", "year")
+
+
+def _month_end(d: datetime.date) -> datetime.date:
+    first_next = datetime.date(d.year + (d.month == 12), (d.month % 12) + 1, 1)
+    return first_next - datetime.timedelta(days=1)
+
+
+def is_teacher(db: Session, email: str) -> bool:
+    u = get_user_by_email(db, email)
+    return bool(u) and (u.role or "").strip().lower() == "teacher"
+
+
+def current_term(today: Optional[datetime.date] = None, teacher: bool = False) -> tuple:
+    """(term_number, start_date, end_date) for the term containing `today`.
+
+    Term 1 is June-October for everyone. Term 2 starts in November and ends in
+    MAY, except for teachers, whose academic year finishes in APRIL - so their
+    Term 2 is a month shorter and a termly goal must not be dated past it.
+    """
+    today = today or datetime.date.today()
+    t1, t2 = settings.TERM_1_START_MONTH, settings.TERM_2_START_MONTH
+    end_month = settings.TERM_2_END_MONTH_TEACHER if teacher else settings.TERM_2_END_MONTH
+    if t1 <= today.month < t2:
+        return 1, datetime.date(today.year, t1, 1), datetime.date(today.year, t2, 1) - datetime.timedelta(days=1)
+    # Term 2 crosses into the next calendar year.
+    start_year = today.year if today.month >= t2 else today.year - 1
+    return 2, datetime.date(start_year, t2, 1), _month_end(datetime.date(start_year + 1, end_month, 1))
+
+
+def period_instance_key(period: str, today: Optional[datetime.date] = None,
+                        teacher: bool = False) -> Optional[str]:
+    """A stable label for the month/term a goal copy belongs to, used to ask
+    "does this month's copy already exist?". None for year goals - period_key
+    (the academic year) already identifies those."""
+    today = today or datetime.date.today()
+    if period == "month":
+        return "%04d-%02d" % (today.year, today.month)
+    if period == "term":
+        term, _, _ = current_term(today, teacher)
+        return "%s-T%d" % (current_academic_year_key(today), term)
+    return None
+
+
+def period_end_date(period: str, today: Optional[datetime.date] = None,
+                    teacher: bool = False) -> Optional[datetime.date]:
+    """The last day of the current month/term - the default target date when
+    someone tags a goal monthly or termly without picking one.
+
+    Never returns a date in the past. A teacher setting a termly goal in May
+    is past their April year-end, so the term end has already gone; falling
+    back to the month end gives them something they can actually work to.
+    """
+    today = today or datetime.date.today()
+    if period == "month":
+        return _month_end(today)
+    if period == "term":
+        end = current_term(today, teacher)[2]
+        return end if end >= today else _month_end(today)
+    return None
+
+
+def period_label(period: str, instance_key: Optional[str]) -> str:
+    """Human label for a goal's period, e.g. "August 2026" or "Term 1"."""
+    if period == "month" and instance_key:
+        try:
+            y, m = instance_key.split("-")
+            return datetime.date(int(y), int(m), 1).strftime("%B %Y")
+        except (ValueError, TypeError):
+            return "Monthly"
+    if period == "term" and instance_key:
+        return "Term " + instance_key.rsplit("T", 1)[-1]
+    return {"month": "Monthly", "term": "Termly"}.get(period, "This year")
+
+
+def goal_repeat_suggestions(db: Session, owner_email: str,
+                            today: Optional[datetime.date] = None) -> List[dict]:
+    """Month/term goals whose period has rolled over and which have no copy
+    for the current period yet - offered to the owner to add or ignore.
+
+    Nothing is created here. A goal reappears as a prompt precisely because
+    the owner may well not want it again this month, and auto-creating would
+    quietly fill their list and their reviewer's queue.
+    """
+    today = today or datetime.date.today()
+    teacher = is_teacher(db, owner_email)
+    goals = (
+        db.query(models.Goal)
+        .filter(
+            models.Goal.owner_email.ilike(owner_email),
+            models.Goal.period.in_(("month", "term")),
+            models.Goal.status != "deleted",
+        )
+        .all()
+    )
+    if not goals:
+        return []
+
+    dismissed = {
+        (d.root_goal_id, d.instance_key)
+        for d in db.query(models.GoalRepeatDismissal)
+        .filter(models.GoalRepeatDismissal.owner_email.ilike(owner_email))
+        .all()
+    }
+
+    # Group by chain, so a goal repeated five times suggests once, not five times.
+    chains = {}
+    for g in goals:
+        root = g.repeat_source_id or g.id
+        chains.setdefault(root, []).append(g)
+
+    out = []
+    for root, members in chains.items():
+        period = members[0].period
+        wanted = period_instance_key(period, today, teacher)
+        if any(m.instance_key == wanted for m in members):
+            continue                      # this period's copy already exists
+        if (root, wanted) in dismissed:
+            continue                      # owner said no for this period
+        latest = max(members, key=lambda m: m.id)
+        out.append({
+            "goal_id": latest.id,
+            "root_goal_id": root,
+            "title": latest.title,
+            "cadence": latest.cadence,
+            "period": period,
+            "instance_key": wanted,
+            "period_label": period_label(period, wanted),
+            "suggested_target_date": period_end_date(period, today, teacher),
+        })
+    return out
+
+
+def repeat_goal(db: Session, goal: models.Goal,
+                today: Optional[datetime.date] = None) -> models.Goal:
+    """Copy a month/term goal into the current period, plan included.
+
+    The copy starts unapproved with its plan pending, exactly like a new
+    goal: last month's approval was for last month's work.
+    """
+    today = today or datetime.date.today()
+    teacher = is_teacher(db, goal.owner_email)
+    root = goal.repeat_source_id or goal.id
+    copy = models.Goal(
+        owner_email=goal.owner_email,
+        cadence=goal.cadence,
+        period_key=current_academic_year_key(today),
+        title=goal.title,
+        specific_text=goal.specific_text,
+        measurable_text=goal.measurable_text,
+        achievable_text=goal.achievable_text,
+        relevant_text=goal.relevant_text,
+        period=goal.period,
+        instance_key=period_instance_key(goal.period, today, teacher),
+        repeat_source_id=root,
+        target_date=period_end_date(goal.period, today, teacher),
+        # Carry the plan forward as a proposal, from the original if this
+        # chain's plan has already been turned into tasks.
+        plan_steps=goal.plan_steps or _plan_of_chain(db, root),
+    )
+    db.add(copy)
+    db.commit()
+    db.refresh(copy)
+    return copy
+
+
+def _plan_of_chain(db: Session, root_id: int) -> Optional[list]:
+    """The step titles used by the chain's earlier copy, so a repeat starts
+    with the same plan even though the previous plan became tasks."""
+    earlier = (
+        db.query(models.Goal)
+        .filter((models.Goal.id == root_id) | (models.Goal.repeat_source_id == root_id))
+        .order_by(models.Goal.id.desc())
+        .all()
+    )
+    for g in earlier:
+        if g.plan_steps:
+            return list(g.plan_steps)
+        tasks = (
+            db.query(models.Task)
+            .filter(models.Task.goal_id == g.id, models.Task.parent_id.is_(None))
+            .order_by(models.Task.id)
+            .all()
+        )
+        if tasks:
+            return [t.title for t in tasks]
+    return None
+
+
+def dismiss_repeat(db: Session, owner_email: str, root_goal_id: int, instance_key: str) -> None:
+    exists = (
+        db.query(models.GoalRepeatDismissal)
+        .filter(
+            models.GoalRepeatDismissal.owner_email.ilike(owner_email),
+            models.GoalRepeatDismissal.root_goal_id == root_goal_id,
+            models.GoalRepeatDismissal.instance_key == instance_key,
+        )
+        .first()
+    )
+    if not exists:
+        db.add(models.GoalRepeatDismissal(
+            owner_email=owner_email, root_goal_id=root_goal_id, instance_key=instance_key))
+        db.commit()
+
+
+# ─── HR report ───────────────────────────────────────────────────────────────
+
+def hr_report(db: Session, today: Optional[datetime.date] = None) -> dict:
+    """One row per person: whether each goal is set, where it is in the review
+    chain, and how their tasks are going.
+
+    Deliberately built from four bulk queries rather than per-person lookups -
+    this is the widest read in the app (139 people x 2 goals x N tasks) and the
+    per-person version of it took ~700 round trips.
+    """
+    today = today or datetime.date.today()
+    period_key = current_academic_year_key(today)
+    users = get_all_org_users(db)
+
+    goals = (
+        db.query(models.Goal)
+        .options(selectinload(models.Goal.review_actions))
+        .filter(models.Goal.period_key == period_key, models.Goal.status != "deleted")
+        .all()
+    )
+    by_owner: dict = {}
+    for g in goals:
+        by_owner.setdefault(g.owner_email.lower(), []).append(g)
+
+    tasks = db.query(models.Task).all()
+    tasks_by_assignee: dict = {}
+    for t in tasks:
+        tasks_by_assignee.setdefault(t.assignee_email.lower(), []).append(t)
+
+    reviewers = {a.person_email.lower(): a.reviewer_email for a in db.query(models.ReviewerAssignment).all()}
+    names = {u.email.lower(): u.name for u in users}
+
+    rows = []
+    totals = {
+        "people": 0, "no_goals": 0, "awaiting_review": 0, "needs_acknowledgment": 0,
+        "approved": 0, "overdue_goals": 0, "overdue_tasks": 0, "open_tasks": 0,
+    }
+
+    for u in users:
+        mine = by_owner.get(u.email.lower(), [])
+        mytasks = tasks_by_assignee.get(u.email.lower(), [])
+        open_tasks = [t for t in mytasks if not t.is_completed]
+        overdue_tasks = [t for t in open_tasks if t.due_at and t.due_at.date() < today]
+
+        def slot(cadence):
+            g = next((x for x in mine if x.cadence == cadence), None)
+            if not g:
+                return {"state": "not_set", "title": None, "target_date": None,
+                        "period_label": None, "overdue": False}
+            if g.status in ("modified_pending_ack", "struck_off_pending_ack"):
+                state = "needs_acknowledgment"
+            elif not g.review_actions:
+                state = "awaiting_review"
+            elif g.is_completed:
+                state = "complete"
+            else:
+                state = "approved"
+            return {
+                "state": state,
+                "title": g.title,
+                "target_date": g.target_date,
+                "period_label": period_label(getattr(g, "period", "year"), getattr(g, "instance_key", None)),
+                "overdue": bool(g.target_date and g.target_date < today and not g.is_completed),
+            }
+
+        role_slot, org_slot = slot("mid_term"), slot("annual")
+        rows.append({
+            "email": u.email, "name": u.name, "designation": u.designation,
+            "role": u.role, "location": u.location,
+            "reviewer_name": names.get((reviewers.get(u.email.lower()) or "").lower()),
+            "role_goal": role_slot, "org_goal": org_slot,
+            "open_tasks": len(open_tasks),
+            "overdue_tasks": len(overdue_tasks),
+            "completed_tasks": len(mytasks) - len(open_tasks),
+        })
+
+        totals["people"] += 1
+        if not mine:
+            totals["no_goals"] += 1
+        for sl in (role_slot, org_slot):
+            if sl["state"] == "awaiting_review":
+                totals["awaiting_review"] += 1
+            elif sl["state"] == "needs_acknowledgment":
+                totals["needs_acknowledgment"] += 1
+            elif sl["state"] in ("approved", "complete"):
+                totals["approved"] += 1
+            if sl["overdue"]:
+                totals["overdue_goals"] += 1
+        totals["open_tasks"] += len(open_tasks)
+        totals["overdue_tasks"] += len(overdue_tasks)
+
+    rows.sort(key=lambda r: ((r["role_goal"]["state"] != "not_set" and r["org_goal"]["state"] != "not_set"), r["name"]))
+    return {"generated_on": today, "period_key": period_key, "totals": totals, "people": rows}
 
 # ─── Tasks ───────────────────────────────────────────────────────────────────
 
