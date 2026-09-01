@@ -108,6 +108,18 @@ class Goal(Base):
     # the goal was properly set/reviewed, not whether it was accomplished.
     is_completed = Column(Boolean, nullable=False, default=False)
     completed_at = Column(DateTime, nullable=True)
+    # How long this goal runs for, and therefore whether it comes back:
+    # "year" (the default - set once for the academic year), "term", or
+    # "month". A term or month goal resurfaces as a SUGGESTION when its
+    # period rolls over; nothing is ever created automatically.
+    period = Column(String, nullable=False, default="year")
+    # Which month or term this particular copy is for, e.g. "2026-08" or
+    # "2026-27-T1". Null on year goals, where period_key already says it.
+    instance_key = Column(String, nullable=True, index=True)
+    # The first goal in a repeating chain. Null on that first goal itself;
+    # every later copy points back to it, so "has this month's copy already
+    # been made?" is one query rather than a title comparison.
+    repeat_source_id = Column(Integer, nullable=True, index=True)
     # The plan the owner wrote when setting the goal, kept as a list of step
     # strings until the reviewer approves it. Nothing is scheduled before
     # then: an unapproved goal creates no tasks and asks nothing of anybody.
@@ -238,6 +250,19 @@ class TaskNote(Base):
     author_name = Column(String, nullable=False)
     note = Column(Text, nullable=False)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
+class GoalRepeatDismissal(Base):
+    """A repeat suggestion the owner turned down, so it stops being offered
+    for that month/term. Dismissing September does not affect October - the
+    goal is offered again next time its period rolls over."""
+    __tablename__ = "goal_repeat_dismissals"
+
+    id = Column(Integer, primary_key=True, index=True)
+    owner_email = Column(String, nullable=False, index=True)
+    root_goal_id = Column(Integer, nullable=False, index=True)
+    instance_key = Column(String, nullable=False)
+    dismissed_at = Column(DateTime, default=datetime.datetime.utcnow)
 
 
 class GoalFlagNotification(Base):
