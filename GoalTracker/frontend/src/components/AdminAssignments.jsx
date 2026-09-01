@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
 import SearchablePersonSelect from "./SearchablePersonSelect";
 
@@ -8,6 +8,11 @@ export default function AdminAssignments({ token, onClose }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [savingEmail, setSavingEmail] = useState(null);
+  // Filters apply as you type. With 139 rows, scrolling to find one person is
+  // the slow part of this screen.
+  const [nameFilter, setNameFilter] = useState("");
+  const [designationFilter, setDesignationFilter] = useState("");
+  const [reviewerFilter, setReviewerFilter] = useState("");
 
   async function load() {
     setLoading(true);
@@ -24,6 +29,22 @@ export default function AdminAssignments({ token, onClose }) {
   }
 
   useEffect(() => { load(); }, []);
+
+  const filtered = useMemo(() => {
+    const n = nameFilter.trim().toLowerCase();
+    const d = designationFilter.trim().toLowerCase();
+    const r = reviewerFilter.trim().toLowerCase();
+    return people.filter((p) => {
+      if (n && !(p.person_name || "").toLowerCase().includes(n)) return false;
+      if (d && !(p.designation || "").toLowerCase().includes(d)) return false;
+      if (r) {
+        // "none" finds the people nobody reviews yet - the rows worth fixing.
+        if (r === "none") return !p.reviewer_email;
+        if (!(p.reviewer_name || "").toLowerCase().includes(r)) return false;
+      }
+      return true;
+    });
+  }, [people, nameFilter, designationFilter, reviewerFilter]);
 
   async function saveRow(row, value) {
     const updated = { ...row, reviewer_email: value || null };
@@ -47,6 +68,17 @@ export default function AdminAssignments({ token, onClose }) {
         <div className="section-title" style={{ marginTop: 0 }}>Reviewer assignments</div>
         <p className="hint-text">Reviewer = who reviews this person's own goals.</p>
         {error && <div className="form-error">{error}</div>}
+        {!loading && (
+          <div className="hint-text">
+            Showing {filtered.length} of {people.length} people.
+            {(nameFilter || designationFilter || reviewerFilter) && (
+              <button className="btn btn-ghost btn-sm" style={{ marginLeft: 8 }}
+                      onClick={() => { setNameFilter(""); setDesignationFilter(""); setReviewerFilter(""); }}>
+                Clear filters
+              </button>
+            )}
+          </div>
+        )}
         {loading ? (
           <div className="loading-spinner">Loading…</div>
         ) : (
@@ -58,9 +90,23 @@ export default function AdminAssignments({ token, onClose }) {
                   <th>Designation</th>
                   <th>Reviewer</th>
                 </tr>
+                <tr className="filter-row">
+                  <th>
+                    <input className="form-control form-control-sm" placeholder="Filter name…"
+                           value={nameFilter} onChange={(e) => setNameFilter(e.target.value)} />
+                  </th>
+                  <th>
+                    <input className="form-control form-control-sm" placeholder="Filter designation…"
+                           value={designationFilter} onChange={(e) => setDesignationFilter(e.target.value)} />
+                  </th>
+                  <th>
+                    <input className="form-control form-control-sm" placeholder="Filter reviewer, or 'none'…"
+                           value={reviewerFilter} onChange={(e) => setReviewerFilter(e.target.value)} />
+                  </th>
+                </tr>
               </thead>
               <tbody>
-                {people.map((row) => (
+                {filtered.map((row) => (
                   <tr key={row.person_email}>
                     <td>{row.person_name}</td>
                     <td>{row.designation}</td>
@@ -78,6 +124,9 @@ export default function AdminAssignments({ token, onClose }) {
                     </td>
                   </tr>
                 ))}
+                {filtered.length === 0 && (
+                  <tr><td colSpan={3} className="empty-msg">Nobody matches these filters.</td></tr>
+                )}
               </tbody>
             </table>
           </div>
