@@ -223,6 +223,23 @@ class SmeReview(Base):
     pow = relationship("PowEntry", back_populates="review")
 
 
+class PowAuthor(Base):
+    """SMEs and HODs who teach their own classes.
+
+    staff_roles carries no class rows for any of them, so there is nothing in
+    the shared data that says an SME teaches - and a subject on their account
+    only says which subject they OWN. This is that missing fact, kept here in
+    Project A rather than in staff_roles, and in the database rather than an
+    environment variable so it survives a restart and needs no redeploy.
+    """
+    __tablename__ = "pow_authors"
+
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String, nullable=False, unique=True, index=True)
+    note = Column(String, nullable=True)          # why, in plain words
+    added_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
 class PlannerTopic(Base):
     """One row per (subject, grade, chapter/topic/subtopic) entry, imported
     from the CurriculumMapping_<subject>_2026_27 Google Sheets (one workbook
