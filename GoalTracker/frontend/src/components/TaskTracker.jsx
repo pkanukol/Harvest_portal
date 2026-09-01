@@ -26,6 +26,9 @@ export default function TaskTracker({ token, user, myGoals, onTasksChanged, task
   const [weekOffset, setWeekOffset] = useState(0);
   const [ownershipTab, setOwnershipTab] = useState("all");
   const [showCarried, setShowCarried] = useState(true);
+  // Filter by the period a task inherited from its goal. "None" covers tasks
+  // with no goal at all, which is most standalone tasks.
+  const [periodFilter, setPeriodFilter] = useState("all");
 
   async function load() {
     setLoading(true);
@@ -52,9 +55,16 @@ export default function TaskTracker({ token, user, myGoals, onTasksChanged, task
   const viewWeekEnd = new Date(viewWeekStart);
   viewWeekEnd.setDate(viewWeekEnd.getDate() + 7);
 
+  const matchesPeriod = (t) => {
+    if (periodFilter === "all") return true;
+    if (periodFilter === "none") return !t.goal_period || t.goal_period === "year";
+    return t.goal_period === periodFilter;
+  };
+
   const ownershipFiltered = effectiveTasks.filter((t) => {
     if (ownershipTab === "assigned") return t.assignee_email.toLowerCase() === user.email.toLowerCase();
     if (ownershipTab === "created") return t.created_by_email.toLowerCase() === user.email.toLowerCase();
+    if (!matchesPeriod(t)) return false;
     return true;
   });
 
@@ -87,6 +97,16 @@ export default function TaskTracker({ token, user, myGoals, onTasksChanged, task
         {weekOffset !== 0 && (
           <button type="button" className="btn btn-ghost btn-sm" onClick={() => setWeekOffset(0)}>Today</button>
         )}
+      </div>
+
+      <div className="task-filter-row">
+        <select className="form-control form-control-sm" style={{ maxWidth: 170 }}
+                value={periodFilter} onChange={(e) => setPeriodFilter(e.target.value)}>
+          <option value="all">Every period</option>
+          <option value="month">Monthly goals</option>
+          <option value="term">Termly goals</option>
+          <option value="none">Yearly / no goal</option>
+        </select>
       </div>
 
       <div className="cadence-tabs" style={{ marginTop: 12, marginBottom: 12 }}>
