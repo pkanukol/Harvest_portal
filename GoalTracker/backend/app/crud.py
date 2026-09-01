@@ -184,6 +184,71 @@ def goal_progress(db: Session, owner_email: str, cadence: str, period_key: str) 
     return {"completed": sum(1 for g in goals if g.is_completed), "total": len(goals)}
 
 
+
+# ─── Goal state, shared by the overview and the HR report ────────────────────
+# Ranked most-actionable first: a person with an unacknowledged goal and a
+# settled one needs chasing about the first, so that is what their row shows.
+GOAL_STATE_RANK = {
+    "needs_acknowledgment": 0,
+    "awaiting_review": 1,
+    "approved": 2,
+    "complete": 3,
+    "struck_off": 4,
+    "not_set": 5,
+}
+
+
+def goal_state(goal: models.Goal) -> str:
+    """One goal's position in the review workflow.
+
+    Read the latest review action rather than trusting `status`: a struck-off
+    goal keeps status "struck_off_pending_ack" even after the owner has
+    acknowledged it, because that status is also what allows them to delete
+    it. Only owner_ack_at says whether the owner has actually responded.
+    """
+    latest = goal.review_actions[0] if goal.review_actions else None
+    if goal.status in ("modified_pending_ack", "struck_off_pending_ack"):
+        if latest and not latest.owner_ack_at:
+            return "needs_acknowledgment"
+        # Acknowledged. A struck-off goal is finished with - it is not
+        # outstanding work, and must not be counted as overdue.
+        if goal.status == "struck_off_pending_ack":
+            return "struck_off"
+        return "approved"
+    if not latest:
+        return "awaiting_review"
+    if goal.is_completed:
+        return "complete"
+    return "approved"
+
+
+def goals_awaiting_review(db: Session, reviewer_email: str,
+                          today: Optional[datetime.date] = None) -> int:
+    """How many goals are actually sitting in this reviewer's queue.
+
+    Counts GOALS the reviewer has not acted on, not the people assigned to
+    them: someone with five reviewees who have all been reviewed has nothing
+    to do, and a count of 5 would say otherwise. Goals waiting on the OWNER to
+    acknowledge are excluded - those are not the reviewer's move.
+    """
+    people = {u.email.lower() for u in get_reviewees(db, reviewer_email)}
+    if not people:
+        return 0
+    period_key = current_academic_year_key(today or datetime.date.today())
+    goals = (
+        db.query(models.Goal)
+        .options(selectinload(models.Goal.review_actions))
+        .filter(models.Goal.period_key == period_key, models.Goal.status != "deleted")
+        .all()
+    )
+    return sum(1 for g in goals
+               if g.owner_email.lower() in people and goal_state(g) == "awaiting_review")
+
+
+def state_is_live(state: str) -> bool:
+    """Whether a goal in this state is still real, outstanding work."""
+    return state not in ("struck_off", "not_set", "complete")
+
 def overview_goal_map(db: Session, period_key: str) -> dict:
     """Status + progress for EVERY person and cadence in one pass.
 
@@ -211,11 +276,16 @@ def overview_goal_map(db: Session, period_key: str) -> dict:
         # Same rule as goal_slot_status, applied to the first goal in the
         # slot (that function used .first() with no ordering; ordering by id
         # here at least makes it deterministic).
-        first = gs[0]
-        if not first.review_actions:
-            status = "pending"          # created, nobody has reviewed it yet
-        elif first.status in ("modified_pending_ack", "struck_off_pending_ack"):
-            status = "pending"          # owner hasn't acknowledged the review
+        # Every goal in the slot, not just the first - and via goal_state, so
+        # an acknowledged strike-off stops reading as "pending" forever.
+        states = [goal_state(g) for g in gs]
+        best = min(states, key=lambda st: GOAL_STATE_RANK.get(st, 9))
+        if best in ("needs_acknowledgment", "awaiting_review"):
+            status = "pending"
+        elif best == "struck_off":
+            # Struck off and acknowledged: nothing stands, so the slot is
+            # empty again rather than permanently "pending".
+            status = "not_set"
         else:
             status = "approved"
         out[key] = {
@@ -867,7 +937,7 @@ def hr_report(db: Session, today: Optional[datetime.date] = None) -> dict:
     rows = []
     totals = {
         "people": 0, "no_goals": 0, "awaiting_review": 0, "needs_acknowledgment": 0,
-        "approved": 0, "overdue_goals": 0, "overdue_tasks": 0, "open_tasks": 0,
+        "approved": 0, "struck_off": 0, "overdue_goals": 0, "overdue_tasks": 0, "open_tasks": 0,
     }
 
     for u in users:
@@ -877,24 +947,24 @@ def hr_report(db: Session, today: Optional[datetime.date] = None) -> dict:
         overdue_tasks = [t for t in open_tasks if t.due_at and t.due_at.date() < today]
 
         def slot(cadence):
-            g = next((x for x in mine if x.cadence == cadence), None)
-            if not g:
+            gs = [x for x in mine if x.cadence == cadence]
+            if not gs:
                 return {"state": "not_set", "title": None, "target_date": None,
-                        "period_label": None, "overdue": False}
-            if g.status in ("modified_pending_ack", "struck_off_pending_ack"):
-                state = "needs_acknowledgment"
-            elif not g.review_actions:
-                state = "awaiting_review"
-            elif g.is_completed:
-                state = "complete"
-            else:
-                state = "approved"
+                        "period_label": None, "overdue": False, "goal_count": 0}
+            # Show the goal that most needs attention, not whichever happened
+            # to be created first.
+            ranked = sorted(gs, key=lambda g: GOAL_STATE_RANK.get(goal_state(g), 9))
+            g = ranked[0]
+            state = goal_state(g)
             return {
                 "state": state,
                 "title": g.title,
                 "target_date": g.target_date,
                 "period_label": period_label(getattr(g, "period", "year"), getattr(g, "instance_key", None)),
-                "overdue": bool(g.target_date and g.target_date < today and not g.is_completed),
+                # A struck-off or completed goal is not outstanding work, so it
+                # is never overdue however far past its date it sits.
+                "overdue": bool(g.target_date and g.target_date < today and state_is_live(state)),
+                "goal_count": len(gs),
             }
 
         role_slot, org_slot = slot("mid_term"), slot("annual")
@@ -909,7 +979,7 @@ def hr_report(db: Session, today: Optional[datetime.date] = None) -> dict:
         })
 
         totals["people"] += 1
-        if not mine:
+        if role_slot["state"] in ("not_set", "struck_off") and org_slot["state"] in ("not_set", "struck_off"):
             totals["no_goals"] += 1
         for sl in (role_slot, org_slot):
             if sl["state"] == "awaiting_review":
@@ -918,6 +988,8 @@ def hr_report(db: Session, today: Optional[datetime.date] = None) -> dict:
                 totals["needs_acknowledgment"] += 1
             elif sl["state"] in ("approved", "complete"):
                 totals["approved"] += 1
+            elif sl["state"] == "struck_off":
+                totals["struck_off"] += 1
             if sl["overdue"]:
                 totals["overdue_goals"] += 1
         totals["open_tasks"] += len(open_tasks)
