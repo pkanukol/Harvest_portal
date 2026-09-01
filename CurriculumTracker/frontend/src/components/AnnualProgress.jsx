@@ -119,6 +119,46 @@ function YearLine({ chart }) {
   );
 }
 
+/**
+ * The whole year as one bar, in sessions and nothing else - the picture for
+ * someone who wants the shape of the year rather than a chapter list. The
+ * marker sits where the plan says the class should be by the end of last
+ * month, so "covered" reads against it at a glance.
+ */
+function YearBar({ t }) {
+  if (!t.sessions) return null;
+  const pct = (n) => Math.max(0, Math.min(100, (n * 100) / t.sessions));
+  const covered = pct(t.sessions_done);
+  const dueMark = pct(t.sessions_due);
+  return (
+    <div className="card annual-yearbar">
+      <div className="annual-table-head">
+        The year in sessions — {t.sessions_done} of {t.sessions} covered
+        <span className="hint-text"> · {Math.round(covered)}% of the year</span>
+      </div>
+      <div className="annual-bar-track" role="img"
+           aria-label={`${t.sessions_done} of ${t.sessions} sessions covered`}>
+        <div className={`annual-bar-fill${t.behind ? " annual-bar-behind" : ""}`}
+             style={{ width: `${covered}%` }} />
+        {t.sessions_due > 0 && (
+          <div className="annual-bar-mark" style={{ left: `${dueMark}%` }} />
+        )}
+      </div>
+      {t.sessions_due > 0 && (
+        <div className="annual-bar-caption">
+          The marker is the {t.sessions_due} sessions planned up to the end of{" "}
+          {t.prev_month || "last month"}.
+        </div>
+      )}
+      <div className="annual-bar-legend">
+        <span><strong>{t.sessions_done}</strong> covered</span>
+        <span><strong>{t.sessions_left}</strong> still to teach</span>
+        <span>{t.sessions} planned for the year</span>
+      </div>
+    </div>
+  );
+}
+
 function Ticks({ sections, done }) {
   return (
     <>
@@ -178,12 +218,20 @@ export default function AnnualProgress({ token, subject, grade, discipline, bran
 
   return (
     <div>
-      {t.behind && (
+      {/* Measured against the plan up to the end of last month, never against
+          the whole year: half the year outstanding in September is not a fault
+          when the other half is not due until March. */}
+      {t.behind ? (
         <div className="annual-alert">
-          <strong>Behind schedule.</strong> {t.behind_reason} still to cover with August ending —
-          more than half the year's plan is outstanding.
+          <strong>Behind schedule.</strong> {t.behind_reason} planned up to the end of{" "}
+          {t.prev_month || "last month"} are still to cover.
         </div>
-      )}
+      ) : t.sessions_due > 0 ? (
+        <div className="annual-ontrack">
+          <strong>On track.</strong> Everything planned up to the end of {t.prev_month || "last month"}{" "}
+          is covered — {t.sessions_done_to_date} of {t.sessions_due} sessions.
+        </div>
+      ) : null}
 
       {t.chapters_done === 0 && data.chapters.length > 0 && (
         <div className="hint-text">
@@ -213,6 +261,20 @@ export default function AnnualProgress({ token, subject, grade, discipline, bran
           active={showTable}
           onClick={() => setShowTable(!showTable)}
         />
+        {/* The question leadership actually asks: are we where the plan says
+            we should be BY NOW. The two dials beside it are the year. */}
+        {t.sessions_due > 0 && (
+          <Donut
+            title={`Due by end of ${t.prev_month || "last month"}`}
+            done={t.sessions_done_to_date}
+            left={t.sessions_owed}
+            total={t.sessions_due}
+            unit="sessions due"
+            behind={t.behind}
+            active={showTable}
+            onClick={() => setShowTable(!showTable)}
+          />
+        )}
       </div>
 
       {sections.length > 1 && (
@@ -223,6 +285,7 @@ export default function AnnualProgress({ token, subject, grade, discipline, bran
         </div>
       )}
 
+      <YearBar t={t} />
       <YearLine chart={chart} />
 
       <div className="annual-toggle">
