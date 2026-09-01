@@ -5,6 +5,7 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from .config import settings
 from . import staff_directory
+from .database import get_db
 
 IST = timezone(timedelta(hours=5, minutes=30))
 
@@ -157,7 +158,7 @@ POW_VIEW_ONLY_DESIGNATIONS = {
 }
 
 
-def can_author_pow(user: CurrentUser) -> bool:
+def can_author_pow(user: CurrentUser, extra_authors=None) -> bool:
     """Plenty of staff both review AND teach — Coordinators and HODs with a
     subject, and SMEs like Ms Madhuri Jha. The app resolves each person to ONE
     role, so gating POW authoring on role == Teacher locked those people out of
@@ -168,15 +169,26 @@ def can_author_pow(user: CurrentUser) -> bool:
     A Coordinator with no subject and no assigned class is excluded by the same
     rule that admits Ms Nimisha (Science, teaches Biology G6): there is nothing
     on record saying they teach."""
-    if (user.designation or "").strip().lower() in POW_VIEW_ONLY_DESIGNATIONS:
+    designation = (user.designation or "").strip().lower()
+    if designation in POW_VIEW_ONLY_DESIGNATIONS:
         return False
     if user.role == "Teacher":
         return True
+    # An SME or HOD carries a subject because they OWN it, not because they
+    # teach it — so for them a subject proves nothing and an assigned class is
+    # what counts. Everyone else (Coordinators, and Ms Nimisha in particular)
+    # keeps the older, looser test.
+    if designation in {"subject matter expert", "hod"}:
+        listed = set(extra_authors or ()) | settings.pow_author_emails
+        return (bool(staff_directory.assignments_for(user.email))
+                or (user.email or "").strip().lower() in listed)
     return bool(user.subject) or bool(staff_directory.assignments_for(user.email))
 
 
-def require_pow_author(current_user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
-    if not can_author_pow(current_user):
+def require_pow_author(current_user: CurrentUser = Depends(get_current_user),
+                       db=Depends(get_db)) -> CurrentUser:
+    from . import crud
+    if not can_author_pow(current_user, crud.pow_author_emails(db)):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only staff who teach a subject can create or edit a POW.",
@@ -199,6 +211,12 @@ def require_sme(current_user: CurrentUser = Depends(get_current_user)) -> Curren
 CURRICULUM_UPLOAD_DESIGNATIONS = {
     "subject matter expert", "curriculum head", "dlp manager", "apm",
 }
+
+# Marking what a class has already covered is a lighter act than replacing a
+# whole subject's mapping, so HODs are admitted here without being given the
+# upload screen: they know what their department taught before the app was in
+# use, and were the ones being asked and unable to answer.
+CURRICULUM_COVERAGE_DESIGNATIONS = CURRICULUM_UPLOAD_DESIGNATIONS | {"hod"}
 
 
 def can_upload_curriculum(user: CurrentUser) -> bool:
@@ -255,6 +273,22 @@ def require_oversight(current_user: CurrentUser = Depends(get_current_user)) -> 
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="This view is for staff who oversee curriculum delivery.",
+        )
+    return current_user
+
+
+def can_mark_coverage(user: CurrentUser) -> bool:
+    """Who may record coverage already taught. A superset of the uploaders."""
+    if (user.designation or "").strip().lower() in CURRICULUM_COVERAGE_DESIGNATIONS:
+        return True
+    return can_upload_curriculum(user)
+
+
+def require_coverage_marker(current_user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
+    if not can_mark_coverage(current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only SMEs, HODs and the curriculum administrators can record coverage",
         )
     return current_user
 
