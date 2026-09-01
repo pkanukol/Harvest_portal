@@ -453,6 +453,14 @@ def allowed_upload_subjects(db: Session, email: str, designation: str, subject: 
     for name in planner_levels_of(db, allowed):
         if name not in allowed:
             allowed.append(name)
+
+    # An HOD or Coordinator with no subject anywhere on record oversees across
+    # subjects rather than owning one. Returning [] for them means a screen
+    # that opens and then refuses every save, which is worse than either
+    # allowing or hiding it - so they get the unrestricted list, the same as
+    # the curriculum administrators.
+    if not allowed and (designation or "").strip().lower() in {"hod", "coordinator"}:
+        return None
     return allowed
 
 
