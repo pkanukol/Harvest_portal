@@ -35,6 +35,107 @@ FLAG_LABEL = {
 _SEND_CONCURRENCY = 8
 
 
+def _stale_cutoff(now: datetime.datetime) -> datetime.datetime:
+    return now - datetime.timedelta(days=settings.STALE_ACTION_DAYS)
+
+
+def collect_stalled(db: Session) -> dict:
+    """Who needs chasing, and about what.
+
+    An overdue goal or task only counts once nothing has happened to it for
+    STALE_ACTION_DAYS - somebody who edited it this morning is dealing with
+    it, and emailing them would be noise.
+    """
+    from . import models
+    now = datetime.datetime.utcnow()
+    today = now.date()
+    cutoff = _stale_cutoff(now)
+
+    goals_by_owner = {}
+    goals = (
+        db.query(models.Goal)
+        .filter(
+            models.Goal.status != "deleted",
+            models.Goal.is_completed.is_(False),
+            models.Goal.target_date.isnot(None),
+        )
+        .all()
+    )
+    for g in goals:
+        if g.target_date >= today:
+            continue                                   # not overdue yet
+        touched = g.updated_at or g.created_at
+        if touched and touched > cutoff:
+            continue                                   # worked on recently
+        goals_by_owner.setdefault(g.owner_email.lower(), []).append({
+            "title": g.title,
+            "target_date": g.target_date.strftime("%d %b %Y"),
+            "days_since_action": (now - touched).days if touched else "?",
+        })
+
+    tasks_by_assignee = {}
+    tasks = (
+        db.query(models.Task)
+        .filter(models.Task.is_completed.is_(False), models.Task.due_at.isnot(None))
+        .all()
+    )
+    goal_titles = {g.id: g.title for g in goals}
+    for t in tasks:
+        if t.due_at.date() >= today:
+            continue
+        touched = t.updated_at or t.created_at
+        if touched and touched > cutoff:
+            continue
+        tasks_by_assignee.setdefault(t.assignee_email.lower(), []).append({
+            "title": t.title,
+            "due": t.due_at.strftime("%d %b %Y"),
+            "days_late": (today - t.due_at.date()).days,
+            "goal_title": goal_titles.get(t.goal_id),
+        })
+
+    return {"goals": goals_by_owner, "tasks": tasks_by_assignee}
+
+
+async def stalled_reminders(db: Session) -> dict:
+    """Email people whose overdue goals or tasks have stopped moving."""
+    stalled = collect_stalled(db)
+    users = {u.email.lower(): u for u in crud.get_all_org_users(db)}
+    period_key = crud.current_academic_year_key()
+    now = datetime.datetime.utcnow()
+    window = datetime.timedelta(days=settings.REMINDER_RENOTIFY_DAYS)
+
+    sent = {"goal_overdue": 0, "tasks_pending": 0}
+    skipped = 0
+
+    async def maybe_send(email, flag_type, sender, payload):
+        nonlocal skipped
+        user = users.get(email)
+        if not user:
+            return
+        last = crud.get_last_notified(db, user.email, flag_type, period_key)
+        if last and (now - last.last_notified_at) < window:
+            skipped += 1
+            return
+        if await sender(user.email, user.name, payload):
+            crud.record_notification(db, user.email, flag_type, period_key)
+            sent[flag_type] += 1
+
+    for email, items in stalled["goals"].items():
+        await maybe_send(email, "goal_overdue", email_service.send_overdue_goal_warning, items)
+    for email, items in stalled["tasks"].items():
+        await maybe_send(email, "tasks_pending", email_service.send_pending_tasks_reminder, items)
+
+    logger.info("Stalled reminders: %s sent, %d skipped (already chased within %d days)",
+                sent, skipped, settings.REMINDER_RENOTIFY_DAYS)
+    return {
+        "overdue_goal_emails": sent["goal_overdue"],
+        "pending_task_emails": sent["tasks_pending"],
+        "skipped_recently_chased": skipped,
+        "people_with_stalled_goals": len(stalled["goals"]),
+        "people_with_stalled_tasks": len(stalled["tasks"]),
+    }
+
+
 async def run_flag_check(db: Session) -> dict:
     """One full pass. Returns a summary the API can hand straight back to the
     UI; the cron just logs it. Safe to call repeatedly - the FLAG_RENOTIFY_DAYS
@@ -95,11 +196,14 @@ async def run_flag_check(db: Session) -> dict:
             "flag_label": FLAG_LABEL.get(flag_type, flag_type),
         })
 
+    stalled = await stalled_reminders(db)
+
     logger.info(
         "Flag check done: %d sent, %d skipped (notified within %d days), %d failed",
         sent, skipped_recent, settings.FLAG_RENOTIFY_DAYS, failed,
     )
     return {
+        **stalled,
         "checked": len(users),
         "sent": sent,
         "skipped_recent": skipped_recent,
