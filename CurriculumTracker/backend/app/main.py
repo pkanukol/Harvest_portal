@@ -509,8 +509,12 @@ def get_teachers(
     teachers = crud.get_teachers_for_role(db, current_user.email, current_user.role, branch)
     if current_user.role == "SME":
         # An SME's dashboard is already limited to their mapped teachers, so the
-        # subject list follows from those rather than the whole school.
+        # subject list follows from those rather than the whole school. A
+        # teacher's profile says "Hindi" even when they also take the third
+        # language, so the levels of each subject are added explicitly -
+        # otherwise Hindi (R3) exists in the planner and appears in no dropdown.
         scope = sorted({t["subject"] for t in teachers if t.get("subject")})
+        scope = sorted(set(scope) | set(crud.planner_levels_of(db, scope)))
     else:
         scope = None
     return {
