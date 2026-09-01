@@ -22,6 +22,7 @@ class SSOResponse(BaseModel):
     can_view_observations: bool
     can_view_overview: bool = False
     can_view_as: bool = False
+    is_hr: bool = False
     location: Optional[str] = None
     # Set only on a leadership "act as" switch: the admin who started it.
     # Present so the UI can show a permanent banner and a way back, and so
@@ -54,6 +55,9 @@ class GoalCreate(BaseModel):
     achievable_text: Optional[str] = None
     relevant_text: Optional[str] = None
     target_date: Optional[date] = None
+    # month | term | year. A month or term goal comes back as a suggestion
+    # when its period rolls over; year goals are set once.
+    period: str = "year"
     # Numbered plan. Each entry becomes a task linked to this goal, dated so
     # the last one lands on target_date (see crud.plan_step_dates).
     steps: List[str] = []
@@ -103,6 +107,10 @@ class GoalOut(BaseModel):
     is_completed: bool = False
     completed_at: Optional[datetime] = None
     target_date: Optional[date] = None
+    period: str = "year"
+    instance_key: Optional[str] = None
+    # "August 2026", "Term 1", or "This year" - computed, for display.
+    period_label: str = "This year"
     # The plan as written, still awaiting the reviewer's approval. Present
     # only while unapproved - once approved these become tasks and this is
     # cleared, so the UI can show "proposed plan" vs "linked tasks".
@@ -250,6 +258,64 @@ class GoalsOverviewResponse(BaseModel):
     annual_summary: StatusCountsOut
 
 
+class RepeatSuggestionOut(BaseModel):
+    """A month/term goal offered again for the period that just started."""
+    goal_id: int
+    root_goal_id: int
+    title: str
+    cadence: str
+    period: str
+    instance_key: str
+    period_label: str
+    suggested_target_date: Optional[date] = None
+
+
+class RepeatDismissRequest(BaseModel):
+    root_goal_id: int
+    instance_key: str
+
+
+class HrGoalSlotOut(BaseModel):
+    # not_set | awaiting_review | needs_acknowledgment | approved | complete
+    state: str
+    title: Optional[str] = None
+    target_date: Optional[date] = None
+    period_label: Optional[str] = None
+    overdue: bool = False
+
+
+class HrPersonOut(BaseModel):
+    email: str
+    name: str
+    designation: Optional[str] = None
+    role: Optional[str] = None
+    location: Optional[str] = None
+    reviewer_name: Optional[str] = None
+    role_goal: HrGoalSlotOut
+    org_goal: HrGoalSlotOut
+    open_tasks: int
+    overdue_tasks: int
+    completed_tasks: int
+
+
+class HrTotalsOut(BaseModel):
+    people: int
+    no_goals: int
+    awaiting_review: int
+    needs_acknowledgment: int
+    approved: int
+    overdue_goals: int
+    overdue_tasks: int
+    open_tasks: int
+
+
+class HrReportResponse(BaseModel):
+    generated_on: date
+    period_key: str
+    totals: HrTotalsOut
+    people: List[HrPersonOut]
+
+
 class FlagCheckRecipientOut(BaseModel):
     email: str
     name: str
@@ -258,6 +324,15 @@ class FlagCheckRecipientOut(BaseModel):
 
 
 class FlagCheckResultOut(BaseModel):
+    # True when the run only printed to the server console (local SQLite, no
+    # Resend key) - nothing was actually emailed.
+    simulated: bool = False
+    # Stalled-work reminders (overdue goals / tasks with no action for a day)
+    overdue_goal_emails: int = 0
+    pending_task_emails: int = 0
+    skipped_recently_chased: int = 0
+    people_with_stalled_goals: int = 0
+    people_with_stalled_tasks: int = 0
     checked: int          # org members examined
     sent: int             # reminder emails actually sent
     skipped_recent: int   # flagged, but already emailed within renotify_days
@@ -332,6 +407,11 @@ class TaskOut(BaseModel):
     can_edit: bool = False  # populated per-request: creator or assignee
     goal_id: Optional[int] = None
     goal_title: Optional[str] = None  # populated per-request from the linked Goal, if any
+    # Inherited from the linked goal, never stored on the task: a monthly
+    # goal's steps are monthly tasks by definition, and deriving it means the
+    # two cannot drift apart if the goal's period is changed.
+    goal_period: Optional[str] = None
+    goal_period_label: Optional[str] = None
     subtasks: List["TaskOut"] = []
     notes: List[TaskNoteOut] = []
 
