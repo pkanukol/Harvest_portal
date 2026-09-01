@@ -49,6 +49,10 @@ class Settings(BaseSettings):
     # APM). This is only an extra override for an account whose designation
     # doesn't reflect the job; normally empty.
     CURRICULUM_UPLOAD_EMAILS: str = ""
+    # SMEs and HODs who teach their own classes but whose class rows are
+    # missing from staff_roles. Without this they would lose the New POW
+    # button, since an assignment is the only evidence of teaching we have.
+    POW_AUTHOR_EMAILS: str = ""
 
     # POW notification email (shared Resend account with AuditApp). Leave
     # RESEND_API_KEY blank and sends are simulated into the log instead — a
@@ -58,7 +62,7 @@ class Settings(BaseSettings):
     # Where POW notification emails point: the PORTAL, never the Render URL of
     # this app. A direct Render link carries no SSO token, so anyone following
     # it lands on the sign-in screen instead of the POW.
-    APP_URL: str = "https://his-academy360.netlify.app"
+    APP_URL: str = "https://elevate360.netlify.app"
 
     model_config = {"env_file": _ENV_FILE, "extra": "ignore"}
 
@@ -69,6 +73,10 @@ class Settings(BaseSettings):
     @property
     def curriculum_upload_emails(self) -> set:
         return {e.strip().lower() for e in self.CURRICULUM_UPLOAD_EMAILS.split(",") if e.strip()}
+
+    @property
+    def pow_author_emails(self) -> set:
+        return {e.strip().lower() for e in self.POW_AUTHOR_EMAILS.split(",") if e.strip()}
 
 
 settings = Settings()
