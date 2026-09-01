@@ -8,6 +8,10 @@ export default function GoalForm({ token, editingGoal, defaultCadence, onDone, o
   const [specific, setSpecific] = useState(editingGoal?.specific_text || "");
   const [measurable, setMeasurable] = useState(editingGoal?.measurable_text || "");
   const [targetDate, setTargetDate] = useState(editingGoal?.target_date || "");
+  // How long the goal runs for. A monthly or termly goal comes back as a
+  // suggestion when its period rolls over; the period is fixed once set,
+  // because changing it would orphan the repeat chain.
+  const [period, setPeriod] = useState(editingGoal?.period || "year");
   // The plan. Each non-empty line becomes a task linked to this goal, dated
   // so the last lands on the target date. Only offered on a NEW goal - on an
   // existing one the steps are already tasks, edited from the Tasks tab.
@@ -40,6 +44,7 @@ export default function GoalForm({ token, editingGoal, defaultCadence, onDone, o
       } else {
         await api.createGoal(token, {
           cadence,
+          period,
           ...fields,
           steps: steps.map((x) => x.trim()).filter(Boolean),
         });
@@ -87,6 +92,22 @@ export default function GoalForm({ token, editingGoal, defaultCadence, onDone, o
             <textarea className="form-control" value={measurable} onChange={(e) => setMeasurable(e.target.value)} placeholder="How will you know it's done?" />
           </div>
 
+          {!isEdit && (
+            <div className="form-group">
+              <label className="form-label">How long does this run for?</label>
+              <select className="form-control" style={{ maxWidth: 260 }} value={period} onChange={(e) => setPeriod(e.target.value)}>
+                <option value="year">This year — set once</option>
+                <option value="term">This term — comes back next term</option>
+                <option value="month">This month — comes back next month</option>
+              </select>
+              <div className="hint-text">
+                {period === "year"
+                  ? "A yearly goal is set once for the academic year."
+                  : "When the " + (period === "month" ? "month" : "term") + " ends you'll be asked whether to set it again. Nothing is created automatically."}
+              </div>
+            </div>
+          )}
+
           <div className="form-group">
             <label className="form-label">Target date</label>
             <input
@@ -98,7 +119,9 @@ export default function GoalForm({ token, editingGoal, defaultCadence, onDone, o
               onChange={(e) => setTargetDate(e.target.value)}
             />
             <div className="hint-text">
-              When you plan to have this achieved. You'll be warned a week before.
+              {period === "year"
+                ? "When you plan to have this achieved. You'll be warned a week before."
+                : "Leave it blank and it defaults to the end of this " + (period === "month" ? "month" : "term") + "."}
             </div>
           </div>
 
