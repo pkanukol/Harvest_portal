@@ -44,18 +44,24 @@ app.add_middleware(
 
 def _mint_sso_response(user: models.User, impersonated_by: Optional[str] = None) -> dict:
     is_admin = auth.role_is_leadership(user.role) or auth.designation_is_leadership(user.designation)
-    can_manage_reviewers = user.email.strip().lower() == settings.REVIEWER_ASSIGNMENTS_ADMIN_EMAIL.lower()
+    can_manage_reviewers = auth.can_manage_reviewer_assignments(user.email, user.designation)
     can_view_observations = auth.designation_can_view_observations(user.designation)
     # Org-wide overview is narrower than is_admin: the MD, the branch
     # principals, and the owner - not every leadership designation.
-    can_view_overview = auth.designation_can_view_overview(user.designation) or can_manage_reviewers
-    can_view_as = auth.designation_can_view_as(user.designation) or can_manage_reviewers
+    is_owner = user.email.strip().lower() == (settings.REVIEWER_ASSIGNMENTS_ADMIN_EMAIL or "").strip().lower()
+    can_view_overview = auth.designation_can_view_overview(user.designation) or is_owner
+    can_view_as = auth.designation_can_view_as(user.designation) or is_owner
+    # HR sees everyone, read-only, and gets the printable report.
+    is_hr = auth.is_hr(user.email, user.designation)
+    if is_hr:
+        can_view_overview = True
     claims = {
         "sub": user.email, "name": user.name, "designation": user.designation,
         "is_admin": is_admin, "can_manage_reviewers": can_manage_reviewers,
         "can_view_observations": can_view_observations,
         "can_view_overview": can_view_overview,
         "can_view_as": can_view_as,
+        "is_hr": is_hr,
     }
     # Carried in the token, not just the response, so a switched session stays
     # identifiable across reloads and the client cannot drop the marker.
@@ -70,6 +76,7 @@ def _mint_sso_response(user: models.User, impersonated_by: Optional[str] = None)
         "can_view_observations": can_view_observations, "location": user.location,
         "can_view_overview": can_view_overview,
         "can_view_as": can_view_as,
+        "is_hr": is_hr,
         "impersonated_by": impersonated_by,
         # Lets the UI show the switcher only to the one person who can use it,
         # and hide it inside an already-switched session.
@@ -143,7 +150,9 @@ def create_goal(
     db: Session = Depends(get_db),
     current_user: auth.CurrentUser = Depends(auth.get_current_user),
 ):
-    return crud.create_goal(db, current_user.email, current_user.name, req)
+    goal = crud.create_goal(db, current_user.email, current_user.name, req)
+    crud.annotate_goal_risk(db, [goal])
+    return goal
 
 
 def _require_own_goal(db: Session, goal_id: int, email: str) -> models.Goal:
@@ -191,6 +200,56 @@ def delete_goal(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=block_reason)
     removed = crud.soft_delete_goal(db, goal)
     return {"success": True, "tasks_removed": removed}
+
+
+@app.get("/api/goals/repeat-suggestions", response_model=List[schemas.RepeatSuggestionOut])
+def get_repeat_suggestions(
+    db: Session = Depends(get_db),
+    current_user: auth.CurrentUser = Depends(auth.get_current_user),
+):
+    """Month/term goals whose period has rolled over, offered again."""
+    return crud.goal_repeat_suggestions(db, current_user.email)
+
+
+@app.post("/api/goals/{goal_id}/repeat", response_model=schemas.GoalOut)
+def repeat_goal(
+    goal_id: int,
+    db: Session = Depends(get_db),
+    current_user: auth.CurrentUser = Depends(auth.get_current_user),
+):
+    """Take up a suggestion: copy the goal into the current month/term."""
+    goal = _require_own_goal(db, goal_id, current_user.email)
+    if goal.period not in ("month", "term"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="Only monthly or termly goals repeat")
+    wanted = crud.period_instance_key(goal.period)
+    root = goal.repeat_source_id or goal.id
+    existing = (
+        db.query(models.Goal)
+        .filter(
+            ((models.Goal.id == root) | (models.Goal.repeat_source_id == root)),
+            models.Goal.instance_key == wanted,
+            models.Goal.status != "deleted",
+        )
+        .first()
+    )
+    if existing:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="You already have this goal for the current period")
+    copy = crud.repeat_goal(db, goal)
+    crud.annotate_goal_risk(db, [copy])
+    return copy
+
+
+@app.post("/api/goals/repeat-suggestions/dismiss")
+def dismiss_repeat_suggestion(
+    req: schemas.RepeatDismissRequest,
+    db: Session = Depends(get_db),
+    current_user: auth.CurrentUser = Depends(auth.get_current_user),
+):
+    """Not this month. The goal is offered again next time its period turns."""
+    crud.dismiss_repeat(db, current_user.email, req.root_goal_id, req.instance_key)
+    return {"success": True}
 
 
 @app.post("/api/goals/{goal_id}/logs", response_model=schemas.GoalLogOut)
@@ -383,6 +442,17 @@ def get_overview_people(
     ]
 
 
+@app.get("/api/hr/report", response_model=schemas.HrReportResponse)
+def get_hr_report(
+    db: Session = Depends(get_db),
+    current_user: auth.CurrentUser = Depends(auth.require_hr),
+):
+    """Everyone's goal and task status in one read-only pass, for HR to chase
+    and to print. Writes nothing - approving and editing stay with reviewers
+    and owners."""
+    return crud.hr_report(db)
+
+
 @app.get("/api/admin/people", response_model=List[schemas.OrgPersonOut])
 def list_org_people(
     db: Session = Depends(get_db),
@@ -452,7 +522,7 @@ def view_as(
             "name": user.name,
             "designation": user.designation,
             "is_admin": is_admin,
-            "can_manage_reviewers": user.email.strip().lower() == settings.REVIEWER_ASSIGNMENTS_ADMIN_EMAIL.lower(),
+            "can_manage_reviewers": auth.can_manage_reviewer_assignments(user.email, user.designation),
             "can_view_observations": auth.designation_can_view_observations(user.designation),
             "can_view_overview": auth.designation_can_view_overview(user.designation)
                 or user.email.strip().lower() == settings.REVIEWER_ASSIGNMENTS_ADMIN_EMAIL.lower(),
@@ -471,7 +541,7 @@ def view_as(
 @app.post("/api/admin/flag-check", response_model=schemas.FlagCheckResultOut)
 async def run_flag_check_now(
     db: Session = Depends(get_db),
-    current_user: auth.CurrentUser = Depends(auth.require_owner),
+    current_user: auth.CurrentUser = Depends(auth.require_owner_or_hr),
 ):
     """Manual trigger for the flag-reminder emails, from the leadership Goals
     overview - the same pass the daily cron runs (paid-tier only on Render, so
@@ -483,12 +553,18 @@ async def run_flag_check_now(
     FLAG_RENOTIFY_DAYS window. Harmless in the cron's logs, actively
     misleading behind a button that reports how many emails it sent.
     """
-    if not settings.RESEND_API_KEY or not settings.RESEND_FROM_EMAIL:
+    local_only = settings.DATABASE_URL.startswith("sqlite")
+    if not (settings.RESEND_API_KEY and settings.RESEND_FROM_EMAIL) and not local_only:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Email is not configured on the server (RESEND_API_KEY / RESEND_FROM_EMAIL). No reminders were sent.",
         )
     result = await flag_check.run_flag_check(db)
+    # Locally, email_service prints each message to the server console instead
+    # of sending it. Refusing the run outright would make the rules untestable
+    # without live credentials, and real credentials on a test run would email
+    # real staff. Say plainly that nothing left the building.
+    result["simulated"] = local_only and not settings.RESEND_API_KEY
     logger.info("Manual flag-check run by %s: %s", current_user.email, result)
     return result
 
@@ -529,13 +605,19 @@ def _annotate_tasks(db: Session, tasks: List[models.Task], viewer_email: str) ->
 
     _collect(tasks)
     titles_by_id = {}
+    periods_by_id = {}
     if goal_ids:
-        titles_by_id = {g.id: g.title for g in db.query(models.Goal).filter(models.Goal.id.in_(goal_ids)).all()}
+        for g in db.query(models.Goal).filter(models.Goal.id.in_(goal_ids)).all():
+            titles_by_id[g.id] = g.title
+            periods_by_id[g.id] = (g.period, crud.period_label(g.period, g.instance_key))
 
     def _annotate(ts):
         for t in ts:
             t.can_edit = t.created_by_email.lower() == viewer_email.lower() or t.assignee_email.lower() == viewer_email.lower()
             t.goal_title = titles_by_id.get(t.goal_id)
+            # A task is monthly/termly because its goal is - see TaskOut.
+            period = periods_by_id.get(t.goal_id)
+            t.goal_period, t.goal_period_label = period if period else (None, None)
             _annotate(t.subtasks)
 
     _annotate(tasks)
