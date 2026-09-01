@@ -322,7 +322,10 @@ def get_team(
         }
         for u in reviewees
     ]
-    return {"reviewees": reviewee_out}
+    return {
+        "reviewees": reviewee_out,
+        "goals_to_review": crud.goals_awaiting_review(db, current_user.email),
+    }
 
 
 @app.get("/api/team/{email}/goals", response_model=schemas.GoalsResponse)
