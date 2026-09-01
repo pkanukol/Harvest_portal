@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "../api";
 import GoalForm from "./GoalForm";
 import GoalPanels from "./GoalPanels";
+import RepeatPrompt from "./RepeatPrompt";
 import TeamOverview from "./TeamOverview";
 import TaskTracker from "./TaskTracker";
 import { getWeekStart, collectOverdue, flattenTasks } from "../taskUtils";
@@ -161,6 +162,8 @@ export default function Dashboard({ token, user }) {
           </button>
         </div>
       )}
+
+      <RepeatPrompt token={token} onAdded={loadMyGoals} />
 
       <div className="section-title" style={{ marginTop: 0 }}>My goals</div>
 
