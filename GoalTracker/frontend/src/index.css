@@ -189,6 +189,7 @@ body {
 .hr-slot-needs_acknowledgment { background: var(--warn-bg); color: #8a5a10; }
 .hr-slot-approved, .hr-slot-complete { background: var(--green-bg); color: #3d6e30; }
 .hr-slot-overdue { background: var(--red-bg); color: var(--red); }
+.hr-slot-struck_off { background: var(--bg-soft); color: var(--ink-faint); text-decoration: line-through; }
 .hr-slot-period { font-weight: 600; opacity: .8; }
 
 .hr-sent { padding: 10px 14px; margin-bottom: 14px; border-radius: var(--radius-sm); background: var(--green-bg); color: #3d6e30; font-size: 13px; }
@@ -205,6 +206,10 @@ body {
   .hr-tile { break-inside: avoid; }
   body { background: #fff; }
 }
+
+/* "Goals to review" count: goals awaiting this reviewer, not headcount */
+.review-count { display: inline-block; margin-left: 7px; min-width: 18px; padding: 1px 7px; border-radius: 20px; background: var(--warn); color: #fff; font-size: 10px; font-weight: 700; }
+.review-count-clear { margin-left: 7px; font-size: 11px; font-weight: 600; color: var(--ink-faint); }
 
 /* Monthly / termly goals: the period chip, and the prompt to set one again */
 .goal-period-chip, .task-period-badge { background: var(--brand-050); color: var(--brand-700); border: 1px solid var(--brand-100); }
