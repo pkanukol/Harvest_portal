@@ -24,7 +24,7 @@ export default function Dashboard({ token, user }) {
   // living inside the tab you had to open to see it.
   const [tasks, setTasks] = useState([]);
 
-  const [team, setTeam] = useState({ reviewees: [] });
+  const [team, setTeam] = useState({ reviewees: [], goals_to_review: 0 });
   const [teamLoading, setTeamLoading] = useState(true);
 
   const [selectedMember, setSelectedMember] = useState(null); // { email, name }
@@ -158,7 +158,10 @@ export default function Dashboard({ token, user }) {
       {team.reviewees.length > 0 && (
         <div className="dashboard-actions">
           <button className="btn btn-ghost" onClick={() => setShowReview(true)}>
-            Goals to review ({team.reviewees.length})
+            Goals to review
+            {team.goals_to_review > 0
+              ? <span className="review-count">{team.goals_to_review}</span>
+              : <span className="review-count-clear">nothing waiting</span>}
           </button>
         </div>
       )}
