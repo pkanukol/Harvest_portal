@@ -93,6 +93,12 @@ export default function TaskNode({ task, token, user, myGoals, depth, onChanged,
         {due && <span className={`badge task-due ${overdue ? "task-due-overdue" : ""} ${rolledOver ? "task-due-rolled-over" : ""}`}>{due}</span>}
         {rolledOver && <span className="badge task-rolled-badge" title={`Moved ${task.postpone_count} time${task.postpone_count === 1 ? "" : "s"}`}>↻ Rolled over</span>}
         {lateLabel && <span className="badge task-late-badge">{lateLabel}</span>}
+        {task.goal_period && task.goal_period !== "year" && (
+          <span className={`badge task-period-badge period-${task.goal_period}`}
+                title={`From a ${task.goal_period === "month" ? "monthly" : "termly"} goal`}>
+            {task.goal_period_label}
+          </span>
+        )}
         <span className="task-goal-col" title={task.goal_title ? "Linked goal" : undefined}>
           {task.goal_title ? `🎯 ${task.goal_title}` : "—"}
         </span>
