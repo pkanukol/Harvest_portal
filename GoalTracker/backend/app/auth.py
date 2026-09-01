@@ -46,7 +46,7 @@ def designation_can_view_observations(designation: str) -> bool:
 # Manager and Vice Principal all classify as is_admin but do not get it.
 # Exact-match, so "Principal" does not also let "Vice Principal" through.
 OVERVIEW_DESIGNATIONS = {
-    "managing director", "chairman", "principal", "curriculum head", "dlp manager",
+    "managing director", "chairman", "principal", "dlp manager",
 }
 
 # Reading someone else's whole page. Wider than the owner alone, but far
