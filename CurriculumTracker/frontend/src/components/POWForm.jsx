@@ -5,7 +5,7 @@ import { nextWeekDates, toISO, fmtDate, MONTHS } from "../dateUtils";
 
 // mode: "new" (current/future week, no implementation section) |
 // "impl_only" (past-week fill-in, only the Impl A-F + notes section, everything else locked)
-export default function POWForm({ token, user, mode, prefillPow, onDone, onBack }) {
+export default function POWForm({ token, user, mode, prefillPow, branch = "", onDone, onBack }) {
   const isImplOnly = mode === "impl_only";
   // TBS MOM is filled in after the final save, so it only shows once this POW
   // has been finalised (see POWView for the same rule).
@@ -192,11 +192,11 @@ export default function POWForm({ token, user, mode, prefillPow, onDone, onBack 
   // for a new POW - the implementation-only form is not planning anything.
   useEffect(() => {
     if (isImplOnly || !grade) { setLastPlans({}); return; }
-    api.getSectionsForGrade(token, stream || subject, grade)
+    api.getSectionsForGrade(token, stream || subject, grade, branch)
       .then((res) => setGradeSections(res.sections || []))
       .catch(() => setGradeSections([]));
 
-    api.getLastSectionPlans(token, stream || subject, grade)
+    api.getLastSectionPlans(token, stream || subject, grade, branch)
       .then((res) => {
         const plans = res.plans || {};
         setLastPlans(plans);
@@ -208,7 +208,7 @@ export default function POWForm({ token, user, mode, prefillPow, onDone, onBack 
           : prev));
       })
       .catch(() => setLastPlans({}));
-  }, [token, stream, subject, grade, isImplOnly]);
+  }, [token, stream, subject, grade, branch, isImplOnly]);
 
   // A section may be on a different chapter from the week's headline pick, so
   // its topic and sub-topic lists are derived from ITS chapter, not the form's.
@@ -430,6 +430,7 @@ export default function POWForm({ token, user, mode, prefillPow, onDone, onBack 
         // Science), so the POW records what was actually taught. The dashboard
         // and progress screens still ask by profile subject and match the
         // whole group — see crud._subject_group_filter.
+        branch,
         subject: stream || subject,
         grade,
         week_start: toISO(mon),
