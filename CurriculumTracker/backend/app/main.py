@@ -95,7 +95,8 @@ async def sso_login(req: schemas.SSORequest, db: Session = Depends(get_db)):
         "subject": user.subject, "location": user.location,
         "can_view_as": auth.can_view_as(user.email, user.designation),
         "can_upload_curriculum": auth.can_upload_curriculum(
-            auth.CurrentUser(user.email, user.name, user.designation, user.subject, app_role)
+            auth.CurrentUser(user.email, user.name, user.designation, user.subject, app_role),
+            crud.curriculum_uploader_emails(db),
         ),
         "can_see_lagging": crud.can_see_lagging(app_role, user.designation),
         "can_create_pow": auth.can_author_pow(
@@ -156,7 +157,7 @@ def get_me(
         "subjects": subjects, "location": user.location,
         # No chained impersonation: a previewed session can't switch onward.
         "can_view_as": auth.can_view_as(user.email, user.designation) and not current_user.view_as_actor,
-        "can_upload_curriculum": auth.can_upload_curriculum(resolved),
+        "can_upload_curriculum": auth.can_upload_curriculum(resolved, crud.curriculum_uploader_emails(db)),
         "can_see_lagging": crud.can_see_lagging(app_role, user.designation),
         "can_create_pow": auth.can_author_pow(resolved, crud.pow_author_emails(db)),
         "can_see_overview": auth.can_see_curriculum_overview(resolved),
@@ -226,7 +227,8 @@ def view_as(
         "subject": target.subject, "location": target.location,
         "can_view_as": False,  # no chained impersonation — reset to yourself first
         "can_upload_curriculum": auth.can_upload_curriculum(
-            auth.CurrentUser(target.email, target.name, target.designation, target.subject, app_role)
+            auth.CurrentUser(target.email, target.name, target.designation, target.subject, app_role),
+            crud.curriculum_uploader_emails(db),
         ),
         "can_see_lagging": crud.can_see_lagging(app_role, target.designation),
         "can_create_pow": auth.can_author_pow(
