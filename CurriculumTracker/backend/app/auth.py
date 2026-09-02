@@ -221,12 +221,12 @@ CURRICULUM_COVERAGE_DESIGNATIONS = CURRICULUM_UPLOAD_DESIGNATIONS | {
 }
 
 
-def can_upload_curriculum(user: CurrentUser) -> bool:
+def can_upload_curriculum(user: CurrentUser, extra_uploaders=None) -> bool:
     if (user.designation or "").strip().lower() in CURRICULUM_UPLOAD_DESIGNATIONS:
         return True
-    # Escape hatch for accounts whose designation doesn't say it (empty by
-    # default in config).
-    return (user.email or "").strip().lower() in settings.curriculum_upload_emails
+    # Named individuals: the curriculum_uploaders table, plus the env fallback.
+    listed = set(extra_uploaders or ()) | settings.curriculum_upload_emails
+    return (user.email or "").strip().lower() in listed
 
 
 # Everyone who OVERSEES curriculum delivery rather than filing it: the three
@@ -279,11 +279,11 @@ def require_oversight(current_user: CurrentUser = Depends(get_current_user)) -> 
     return current_user
 
 
-def can_mark_coverage(user: CurrentUser) -> bool:
+def can_mark_coverage(user: CurrentUser, extra_uploaders=None) -> bool:
     """Who may record coverage already taught. A superset of the uploaders."""
     if (user.designation or "").strip().lower() in CURRICULUM_COVERAGE_DESIGNATIONS:
         return True
-    return can_upload_curriculum(user)
+    return can_upload_curriculum(user, extra_uploaders)
 
 
 def require_coverage_marker(current_user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
@@ -295,8 +295,10 @@ def require_coverage_marker(current_user: CurrentUser = Depends(get_current_user
     return current_user
 
 
-def require_curriculum_uploader(current_user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
-    if not can_upload_curriculum(current_user):
+def require_curriculum_uploader(current_user: CurrentUser = Depends(get_current_user),
+                                db=Depends(get_db)) -> CurrentUser:
+    from . import crud
+    if not can_upload_curriculum(current_user, crud.curriculum_uploader_emails(db)):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only Subject Matter Experts and the curriculum administrators can upload curriculum data",
