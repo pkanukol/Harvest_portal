@@ -73,16 +73,62 @@ def get_assignment(db: Session, email: str) -> Optional[models.ReviewerAssignmen
     return db.query(models.ReviewerAssignment).filter(models.ReviewerAssignment.person_email.ilike(email)).first()
 
 
+def get_reviewers_for(db: Session, email: str) -> List[str]:
+    """Every email allowed to review this person's goals. Any one of them
+    acting settles the goal - they are alternatives, not a chain."""
+    rows = (
+        db.query(models.PersonReviewer)
+        .filter(models.PersonReviewer.person_email.ilike(email))
+        .all()
+    )
+    return [r.reviewer_email for r in rows if r.reviewer_email]
+
+
 def get_reviewer_for(db: Session, email: str) -> Optional[str]:
-    a = get_assignment(db, email)
-    return a.reviewer_email if a else None
+    """First reviewer, for the places that still show a single name.
+    Prefer get_reviewers_for; this exists so one-name displays keep working."""
+    reviewers = get_reviewers_for(db, email)
+    return reviewers[0] if reviewers else None
+
+
+def is_reviewer_of(db: Session, reviewer_email: str, person_email: str) -> bool:
+    target = (reviewer_email or "").strip().lower()
+    return any(r.strip().lower() == target for r in get_reviewers_for(db, person_email))
+
+
+def set_reviewers(db: Session, person_email: str, reviewer_emails: List[str], updated_by: str) -> List[str]:
+    """Replace this person's reviewer list wholesale - the screen sends the
+    full set, so anything absent has been removed."""
+    wanted, seen = [], set()
+    for e in reviewer_emails or []:
+        e = (e or "").strip()
+        if not e or e.lower() == (person_email or "").strip().lower():
+            continue                      # nobody reviews themselves
+        if e.lower() in seen:
+            continue
+        seen.add(e.lower())
+        wanted.append(e)
+
+    db.query(models.PersonReviewer).filter(
+        models.PersonReviewer.person_email.ilike(person_email)
+    ).delete(synchronize_session=False)
+    for e in wanted:
+        db.add(models.PersonReviewer(person_email=person_email, reviewer_email=e, added_by=updated_by))
+
+    # Deliberately does NOT mirror into reviewer_assignments.reviewer_email.
+    # That column is legacy: person_reviewers is the only place reviewers are
+    # stored, so the two can never disagree. Nothing reads the old column now.
+    db.commit()
+    return wanted
 
 
 def get_reviewees(db: Session, reviewer_email: str) -> List[models.User]:
+    """Everyone this person may review - now via person_reviewers, so being
+    one of several reviewers still puts them in your queue."""
     person_emails = [
-        a.person_email
-        for a in db.query(models.ReviewerAssignment)
-        .filter(models.ReviewerAssignment.reviewer_email.ilike(reviewer_email))
+        r.person_email
+        for r in db.query(models.PersonReviewer)
+        .filter(models.PersonReviewer.reviewer_email.ilike(reviewer_email))
         .all()
     ]
     if not person_emails:
@@ -94,6 +140,15 @@ def get_reviewees(db: Session, reviewer_email: str) -> List[models.User]:
 
 def list_all_assignments(db: Session) -> dict:
     return {a.person_email.lower(): a for a in db.query(models.ReviewerAssignment).all()}
+
+
+def list_all_reviewers(db: Session) -> dict:
+    """{person_email_lower: [reviewer_email, ...]} for the whole org, in one
+    query - the assignments screen shows 139 rows."""
+    out: dict = {}
+    for r in db.query(models.PersonReviewer).all():
+        out.setdefault(r.person_email.lower(), []).append(r.reviewer_email)
+    return out
 
 
 def upsert_assignment(
@@ -375,6 +430,7 @@ def create_goal(db: Session, owner_email: str, owner_name: str, req: schemas.Goa
         achievable_text=req.achievable_text,
         relevant_text=req.relevant_text,
         target_date=req.target_date,
+        project_id=req.project_id,
         period=(req.period if req.period in GOAL_PERIODS else "year"),
         instance_key=period_instance_key(req.period or "year", teacher=_owner_teacher),
     )
@@ -482,7 +538,15 @@ def annotate_goal_risk(db: Session, goals: List[models.Goal]) -> None:
             if gid not in latest_task_due or d > latest_task_due[gid]:
                 latest_task_due[gid] = d
 
+    project_titles = {}
+    pids = [g.project_id for g in goals if getattr(g, "project_id", None)]
+    if pids:
+        project_titles = {p.id: (p.code, p.title) for p in
+                          db.query(models.Project).filter(models.Project.id.in_(pids)).all()}
+
     for g in goals:
+        code_title = project_titles.get(getattr(g, "project_id", None))
+        g.project_code, g.project_title = code_title if code_title else (None, None)
         if g.is_completed or not g.target_date:
             g.risk = "on_track"
         elif g.target_date < today:
@@ -931,7 +995,9 @@ def hr_report(db: Session, today: Optional[datetime.date] = None) -> dict:
     for t in tasks:
         tasks_by_assignee.setdefault(t.assignee_email.lower(), []).append(t)
 
-    reviewers = {a.person_email.lower(): a.reviewer_email for a in db.query(models.ReviewerAssignment).all()}
+    # From person_reviewers, the source of truth - a person may have several,
+    # and reading the legacy single column here showed only the first.
+    reviewers = list_all_reviewers(db)
     names = {u.email.lower(): u.name for u in users}
 
     rows = []
@@ -971,7 +1037,8 @@ def hr_report(db: Session, today: Optional[datetime.date] = None) -> dict:
         rows.append({
             "email": u.email, "name": u.name, "designation": u.designation,
             "role": u.role, "location": u.location,
-            "reviewer_name": names.get((reviewers.get(u.email.lower()) or "").lower()),
+            "reviewer_name": ", ".join(
+                names.get(e.lower(), e) for e in reviewers.get(u.email.lower(), [])) or None,
             "role_goal": role_slot, "org_goal": org_slot,
             "open_tasks": len(open_tasks),
             "overdue_tasks": len(overdue_tasks),
@@ -997,6 +1064,169 @@ def hr_report(db: Session, today: Optional[datetime.date] = None) -> dict:
 
     rows.sort(key=lambda r: ((r["role_goal"]["state"] != "not_set" and r["org_goal"]["state"] != "not_set"), r["name"]))
     return {"generated_on": today, "period_key": period_key, "totals": totals, "people": rows}
+
+
+# ─── Projects ────────────────────────────────────────────────────────────────
+
+import re as _re
+
+# Words that carry no meaning in a code - dropped before taking letters, so
+# "The Science Fair" becomes SCIFAI rather than THESCI.
+_CODE_STOPWORDS = {"the", "a", "an", "of", "for", "and", "to", "in", "on", "at", "our", "new"}
+
+
+def _code_from_title(title: str) -> str:
+    """Six uppercase letters that read as an abbreviation of the title.
+
+    One word  -> its first six letters      ("Robotics"        -> ROBOTI)
+    Two words -> three from each            ("Science Fair"    -> SCIFAI)
+    Three+    -> two from each, then fill   ("Green School Day"-> GRSCDA)
+    Short titles are padded with X so the code is always six characters.
+    """
+    words = [w for w in _re.findall(r"[A-Za-z]+", title or "")
+             if w.lower() not in _CODE_STOPWORDS] or _re.findall(r"[A-Za-z]+", title or "")
+    if not words:
+        return "PROJXX"
+    if len(words) == 1:
+        code = words[0][:6]
+    elif len(words) == 2:
+        code = words[0][:3] + words[1][:3]
+    else:
+        code = "".join(w[:2] for w in words[:3])
+        i = 0
+        while len(code) < 6 and i < len(words):
+            code += words[i][2:3]
+            i += 1
+    return (code.upper() + "XXXXXX")[:6]
+
+
+def project_code(db: Session, title: str) -> str:
+    """A free six-character code for this title.
+
+    Two similar titles can suggest the same letters ("Science Fair" and
+    "Science Faculty" both give SCIFAI), so the last character is replaced
+    with a digit until the code is free: SCIFAI, SCIFA2, SCIFA3...
+    """
+    base = _code_from_title(title)
+    taken = {c for (c,) in db.query(models.Project.code).all()}
+    if base not in taken:
+        return base
+    for n in range(2, 100):
+        candidate = (base[:5] + str(n))[:6] if n < 10 else (base[:4] + str(n))[:6]
+        if candidate not in taken:
+            return candidate
+    raise ValueError("Could not find a free project code for that title")
+
+
+def create_project(db: Session, title: str, description: Optional[str],
+                   created_by_email: str, owners: List[dict]) -> models.Project:
+    """owners: [{"email","name"}] - at least one, and the creator is added as
+    an owner if they left themselves out."""
+    project = models.Project(
+        code=project_code(db, title), title=title.strip(),
+        description=(description or "").strip() or None,
+        created_by_email=created_by_email,
+    )
+    db.add(project)
+    db.commit()
+    db.refresh(project)
+
+    wanted = {o["email"].strip().lower(): o for o in owners if o.get("email")}
+    if created_by_email.strip().lower() not in wanted:
+        creator = get_user_by_email(db, created_by_email)
+        wanted[created_by_email.strip().lower()] = {
+            "email": created_by_email, "name": creator.name if creator else created_by_email}
+    for o in wanted.values():
+        db.add(models.ProjectPerson(project_id=project.id, email=o["email"],
+                                    name=o.get("name") or o["email"], role="owner",
+                                    added_by=created_by_email))
+    db.commit()
+    db.refresh(project)
+    return project
+
+
+def is_project_owner(db: Session, project_id: int, email: str) -> bool:
+    return db.query(models.ProjectPerson).filter(
+        models.ProjectPerson.project_id == project_id,
+        models.ProjectPerson.email.ilike(email),
+        models.ProjectPerson.role == "owner",
+    ).first() is not None
+
+
+def add_project_person(db: Session, project_id: int, email: str, name: str,
+                       role: str, added_by: str) -> models.ProjectPerson:
+    role = "owner" if role == "owner" else "member"
+    existing = db.query(models.ProjectPerson).filter(
+        models.ProjectPerson.project_id == project_id,
+        models.ProjectPerson.email.ilike(email),
+    ).first()
+    if existing:
+        # Already involved: promoting team -> owner is the common case.
+        existing.role = role
+        existing.name = name or existing.name
+        db.commit()
+        db.refresh(existing)
+        return existing
+    row = models.ProjectPerson(project_id=project_id, email=email, name=name or email,
+                               role=role, added_by=added_by)
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def remove_project_person(db: Session, project_id: int, email: str) -> bool:
+    """Removes someone. Refuses to remove the last owner - a project with no
+    owner cannot be administered by anybody."""
+    row = db.query(models.ProjectPerson).filter(
+        models.ProjectPerson.project_id == project_id,
+        models.ProjectPerson.email.ilike(email),
+    ).first()
+    if not row:
+        return False
+    if row.role == "owner":
+        owners = db.query(models.ProjectPerson).filter(
+            models.ProjectPerson.project_id == project_id,
+            models.ProjectPerson.role == "owner",
+        ).count()
+        if owners <= 1:
+            raise ValueError("A project needs at least one owner")
+    db.delete(row)
+    db.commit()
+    return True
+
+
+def list_projects(db: Session, viewer_email: str) -> List[dict]:
+    """Every active project. Anyone can see them - you have to be able to find
+    a project before you can set a goal against it - with a flag saying
+    whether the viewer owns it, which is what unlocks editing.
+    """
+    projects = (
+        db.query(models.Project)
+        .options(selectinload(models.Project.people))
+        .filter(models.Project.status == "active")
+        .order_by(models.Project.title)
+        .all()
+    )
+    goal_counts: dict = {}
+    for pid, in db.query(models.Goal.project_id).filter(
+            models.Goal.project_id.isnot(None), models.Goal.status != "deleted").all():
+        goal_counts[pid] = goal_counts.get(pid, 0) + 1
+
+    me = (viewer_email or "").strip().lower()
+    out = []
+    for p in projects:
+        owners = [x for x in p.people if x.role == "owner"]
+        members = [x for x in p.people if x.role != "owner"]
+        out.append({
+            "id": p.id, "code": p.code, "title": p.title, "description": p.description,
+            "owners": [{"email": o.email, "name": o.name} for o in owners],
+            "members": [{"email": m.email, "name": m.name} for m in members],
+            "goal_count": goal_counts.get(p.id, 0),
+            "i_own_it": any(o.email.strip().lower() == me for o in owners),
+            "i_am_on_it": any(x.email.strip().lower() == me for x in p.people),
+        })
+    return out
 
 # ─── Tasks ───────────────────────────────────────────────────────────────────
 
@@ -1137,6 +1367,13 @@ def can_view_goal(db: Session, viewer_email: str, goal: models.Goal, viewer_is_a
 
 # ─── Staff directory (staff_roles - a SEPARATE Supabase project, read-only) ─
 
+def _staff_key() -> str:
+    """The key used to read staff_roles. Prefers the service key when one is
+    configured: that project now grants SELECT only to `authenticated`, which
+    a publishable/anon key does not satisfy. Server-side use only."""
+    return settings.STAFF_SUPABASE_SERVICE_KEY.strip() or settings.STAFF_SUPABASE_ANON_KEY
+
+
 class StaffDirectoryUnavailable(RuntimeError):
     """Raised when staff_roles returns nothing at all - which means lost access,
     not an empty search. See the probe in search_staff."""
@@ -1160,8 +1397,8 @@ async def search_staff(query: str, location: Optional[str] = None) -> List[dict]
             f"{settings.STAFF_SUPABASE_URL}/rest/v1/staff_roles",
             params=params,
             headers={
-                "apikey": settings.STAFF_SUPABASE_ANON_KEY,
-                "Authorization": f"Bearer {settings.STAFF_SUPABASE_ANON_KEY}",
+                "apikey": _staff_key(),
+                "Authorization": f"Bearer {_staff_key()}",
             },
             timeout=10,
         )
@@ -1173,9 +1410,9 @@ async def search_staff(query: str, location: Optional[str] = None) -> List[dict]
         body = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {}
         if body.get("code") == "42501" or "permission denied" in (body.get("message") or "").lower():
             raise StaffDirectoryUnavailable(
-                "The staff directory can't be read right now - its access grant has been "
-                "reset again. Re-run the staff_roles GRANT/RLS policy in the shared "
-                "Supabase project."
+                "The staff directory can't be read right now: that project grants access "
+                "only to authenticated clients, and no service key is configured here "
+                "(STAFF_SUPABASE_SERVICE_KEY)."
             )
     resp.raise_for_status()
     rows = resp.json()
@@ -1192,8 +1429,8 @@ async def search_staff(query: str, location: Optional[str] = None) -> List[dict]
             f"{settings.STAFF_SUPABASE_URL}/rest/v1/staff_roles",
             params={"select": "email", "limit": "1"},
             headers={
-                "apikey": settings.STAFF_SUPABASE_ANON_KEY,
-                "Authorization": f"Bearer {settings.STAFF_SUPABASE_ANON_KEY}",
+                "apikey": _staff_key(),
+                "Authorization": f"Bearer {_staff_key()}",
             },
             timeout=10,
         )
