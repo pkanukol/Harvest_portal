@@ -471,6 +471,12 @@ def pow_author_emails(db: Session) -> set:
     return listed | settings.pow_author_emails
 
 
+def curriculum_uploader_emails(db: Session) -> set:
+    """Named uploaders, plus the CURRICULUM_UPLOAD_EMAILS env fallback."""
+    listed = {e.lower() for (e,) in db.query(models.CurriculumUploader.email).all() if e}
+    return listed | settings.curriculum_upload_emails
+
+
 def subject_variants(db: Session, subjects: list) -> list:
     """Planner subjects that are a LEVEL of one this person teaches:
     "Hindi (R3)" for a Hindi teacher.
