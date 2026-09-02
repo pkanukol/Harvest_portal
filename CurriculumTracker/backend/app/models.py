@@ -240,6 +240,23 @@ class PowAuthor(Base):
     added_at = Column(DateTime, default=datetime.datetime.utcnow)
 
 
+class CurriculumUploader(Base):
+    """Named staff who may upload curriculum workbooks beyond the designations
+    that carry the right automatically.
+
+    An upload replaces a whole subject+grade, so this stays a list of people
+    rather than a rule about a designation: some HODs own their subject's
+    mapping, others do not, and only the school knows which. Same shape and
+    same reasoning as PowAuthor.
+    """
+    __tablename__ = "curriculum_uploaders"
+
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String, nullable=False, unique=True, index=True)
+    note = Column(String, nullable=True)
+    added_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
 class PlannerTopic(Base):
     """One row per (subject, grade, chapter/topic/subtopic) entry, imported
     from the CurriculumMapping_<subject>_2026_27 Google Sheets (one workbook
