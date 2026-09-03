@@ -39,7 +39,10 @@ export default function POWForm({ token, user, mode, prefillPow, branch = "", on
   // behind - a holiday on its slot - it moves into a plan of its own, with its
   // own chapter and its own class work, rather than being noted as an
   // exception to somebody else's plan.
-  const [plans, setPlans] = useState([{ sections: [], sessions: [] }]);
+  // `month: ""` means the week's month at the top of the form. A section that
+  // has fallen behind is still working through an EARLIER month's chapter, so
+  // its own plan can name that month and pick from it.
+  const [plans, setPlans] = useState([{ sections: [], sessions: [], month: "" }]);
 
   // Where each section got to last week: seeds the first plan's section list,
   // and tells the teacher what a section is carrying forward.
@@ -125,16 +128,35 @@ export default function POWForm({ token, user, mode, prefillPow, branch = "", on
   // grade tabs are like this) skip that level and go straight to chapters.
   const needsDiscipline = disciplinesThisMonth.length > 0;
 
-  const chaptersForDiscipline = useMemo(() => {
+  // Chapters the sheet plans for a given month. A plan may ask for a month of
+  // its own, so this takes one rather than closing over the form's.
+  function chaptersInMonth(inMonth) {
     const seen = new Set();
     const list = [];
     scopedRows.forEach((r) => {
-      if (r.month !== month) return;
+      if (r.month !== inMonth) return;
       if (needsDiscipline && levelOf(r) !== discipline) return;
       if (!seen.has(r.chapter_name)) { seen.add(r.chapter_name); list.push(r); }
     });
     return list;
-  }, [scopedRows, month, discipline, needsDiscipline, usesStrands]);
+  }
+
+  const chaptersForDiscipline = useMemo(
+    () => chaptersInMonth(month),
+    [scopedRows, month, discipline, needsDiscipline, usesStrands],
+  );
+
+  // Months this sheet actually plans anything in, in academic order - the
+  // choices a behind-schedule section can be pointed at.
+  const monthsWithChapters = useMemo(() => {
+    const present = new Set(scopedRows.map((r) => r.month).filter(Boolean));
+    // The week's own month is always offered, and a sheet that names none at
+    // all (or has not been uploaded yet) falls back to the full year - an
+    // empty dropdown is no use to anybody.
+    present.add(month);
+    const list = MONTHS.filter((m) => present.has(m));
+    return list.length ? list : MONTHS;
+  }, [scopedRows, month]);
 
   // Topic is skipped entirely when blank, or when it's just a restatement of
   // the Chapter Name — some planner rows carry no real Topic-level detail.
@@ -268,15 +290,18 @@ export default function POWForm({ token, user, mode, prefillPow, branch = "", on
 
   // How many sessions a chapter plans, from the mapping - the range the
   // session-number dropdown offers.
-  function sessionsInChapter(chapterName) {
-    const row = chaptersForDiscipline.find((r) => r.chapter_name === chapterName);
+  function sessionsInChapter(chapterName, inMonth) {
+    const list = inMonth && inMonth !== month ? chaptersInMonth(inMonth) : chaptersForDiscipline;
+    const row = list.find((r) => r.chapter_name === chapterName);
     return (row && row.sessions) || 0;
   }
+
+  const planMonth = (pi) => plans[pi].month || month;
 
   // Within a chapter the sessions run in order, so a plan only offers numbers
   // after the ones it has already used for that chapter.
   function availableSessionNos(pi, si, chapterName) {
-    const total = sessionsInChapter(chapterName);
+    const total = sessionsInChapter(chapterName, planMonth(pi));
     if (!total) return [];
     const rows = plans[pi].sessions;
     const takenElsewhere = rows
@@ -293,13 +318,19 @@ export default function POWForm({ token, user, mode, prefillPow, branch = "", on
 
   function addSession(pi) {
     const rows = plans[pi].sessions;
-    const base = (rows.length ? rows[rows.length - 1].chapter : "") || defaultChapter;
+    // A plan working through an earlier month starts from THAT month's first
+    // chapter, not the week's.
+    const own = plans[pi].month;
+    const fallback = own
+      ? (chaptersInMonth(own)[0] || {}).chapter_name || ""
+      : defaultChapter;
+    const base = (rows.length ? rows[rows.length - 1].chapter : "") || fallback;
     const used = rows
       .filter((x) => x.chapter === base)
       .map((x) => Number(x.session_no))
       .filter((n) => !Number.isNaN(n));
     const next = (used.length ? Math.max(...used) : 0) + 1;
-    const cap = sessionsInChapter(base);
+    const cap = sessionsInChapter(base, plans[pi].month || month);
     updatePlan(pi, {
       sessions: [...rows, {
         session_no: String(cap ? Math.min(next, cap) : next),
@@ -316,7 +347,7 @@ export default function POWForm({ token, user, mode, prefillPow, branch = "", on
   }
 
   function addPlan() {
-    setPlans((prev) => [...prev, { sections: [], sessions: [] }]);
+    setPlans((prev) => [...prev, { sections: [], sessions: [], month: "" }]);
   }
 
   function removePlan(pi) {
@@ -567,6 +598,38 @@ export default function POWForm({ token, user, mode, prefillPow, branch = "", on
                   )}
                 </div>
 
+                {/* Only on a separate plan: the first plan is the week's own
+                    month, and offering a picker there would invite the whole
+                    class to be filed against the wrong one. */}
+                {pi > 0 && (
+                  <div className="plan-month">
+                    <label className="form-label">Working through</label>
+                    <select
+                      className="form-control plan-month-select"
+                      value={plan.month || month}
+                      onChange={(e) => {
+                        const chosen = e.target.value === month ? "" : e.target.value;
+                        // The chapters on offer change with the month, so the
+                        // sessions start again rather than keeping a chapter
+                        // that is no longer in the list.
+                        updatePlan(pi, {
+                          month: chosen,
+                          sessions: plan.sessions.map((x) => ({
+                            ...x, chapter: "", topic: "", subtopic: "", session_no: "",
+                          })),
+                        });
+                      }}
+                    >
+                      {monthsWithChapters.map((m) => (
+                        <option key={m} value={m}>{m}{m === month ? " (this week)" : ""}</option>
+                      ))}
+                    </select>
+                    <span className="hint-text">
+                      a section behind schedule is still on an earlier month's chapter
+                    </span>
+                  </div>
+                )}
+
                 <div className="pill-field">
                   <span className="pill-label">
                     Sections on this plan
@@ -618,7 +681,7 @@ export default function POWForm({ token, user, mode, prefillPow, branch = "", on
                           }}
                         >
                           <option value="">Select a chapter…</option>
-                          {chaptersForDiscipline.map((r) => (
+                          {chaptersInMonth(plan.month || month).map((r) => (
                             <option key={r.chapter_name} value={r.chapter_name}>{r.chapter_name}</option>
                           ))}
                         </select>
@@ -636,7 +699,7 @@ export default function POWForm({ token, user, mode, prefillPow, branch = "", on
                           ))}
                         </select>
                         <div className="hint-text">
-                          of {sessionsInChapter(sess.chapter) || "—"} planned for this chapter
+                          of {sessionsInChapter(sess.chapter, plan.month || month) || "—"} planned for this chapter
                         </div>
                       </div>
                     </div>
@@ -716,7 +779,7 @@ export default function POWForm({ token, user, mode, prefillPow, branch = "", on
 
             {levelChosen && (
               <button type="button" className="btn btn-ghost btn-sm plan-add" onClick={addPlan}>
-                + Add a separate plan for sections on a different chapter
+                + Add a separate plan for sections on a different chapter or month
               </button>
             )}
 
