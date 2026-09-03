@@ -228,11 +228,11 @@ export const api = {
   saveSmeReview: (token, id, payload) =>
     request(`/pow/${id}/review`, { method: "PUT", token, body: payload }),
 
-  getProgressSummary: (token, subject, grade, teacherEmail, discipline = "", branch = "") =>
+  getProgressSummary: (token, subject, grade, teacherEmail, discipline = "", branch = "", month = "") =>
     request(
       `/progress/summary?subject=${encodeURIComponent(subject)}&grade=${encodeURIComponent(grade)}` +
         `&teacher_email=${encodeURIComponent(teacherEmail || "")}&discipline=${encodeURIComponent(discipline)}` +
-        `&branch=${encodeURIComponent(branch)}`,
+        `&branch=${encodeURIComponent(branch)}&month=${encodeURIComponent(month)}`,
       { token },
     ),
 
@@ -262,11 +262,13 @@ export const api = {
       { token },
     ),
 
-  // This month, week by week — the This month tab.
-  getMonthChart: (token, subject, grade, discipline = "", branch = "") =>
+  // One month, week by week — the This month tab. Empty month means the
+  // current one; August can still be read back in September.
+  getMonthChart: (token, subject, grade, discipline = "", branch = "", month = "") =>
     request(
       `/progress/month-chart?subject=${encodeURIComponent(subject)}&grade=${encodeURIComponent(grade)}` +
-        `&discipline=${encodeURIComponent(discipline)}&branch=${encodeURIComponent(branch)}`,
+        `&discipline=${encodeURIComponent(discipline)}&branch=${encodeURIComponent(branch)}` +
+        `&month=${encodeURIComponent(month)}`,
       { token },
     ),
 };
