@@ -58,6 +58,12 @@ def run_migrations():
     inspector = inspect(engine)
     existing_tables = set(inspector.get_table_names())
 
+    if "pow_authors" in existing_tables:
+        cols = {c["name"] for c in inspector.get_columns("pow_authors")}
+        if "branch" not in cols:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE pow_authors ADD COLUMN branch VARCHAR"))
+
     if "pow_entries" in existing_tables:
         cols = {c["name"] for c in inspector.get_columns("pow_entries")}
         if "cct_dashboard_updated" not in cols:
