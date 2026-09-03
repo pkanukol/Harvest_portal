@@ -7,10 +7,13 @@ import { api } from "../api";
 const DONE = "#5A9E47";
 const LEFT = "#E5A11E";
 const BEHIND = "#B8272C";
+// Nothing planned this month - a grey ring, not a red one: there is
+// nothing wrong with a month the curriculum leaves empty.
+const EMPTY = "#DEE8F3";
 
 // One doughnut, drawn from a done/left pair. Clicking anywhere on it opens the
 // chapter breakdown below — the chart is the control, as asked.
-function Donut({ title, done, left, total, unit, behind, onClick, active }) {
+export function Donut({ title, done, left, total, unit, behind, empty, onClick, active }) {
   const canvasRef = useRef(null);
   const chartRef = useRef(null);
 
@@ -22,15 +25,17 @@ function Donut({ title, done, left, total, unit, behind, onClick, active }) {
       data: {
         labels: ["Done", "Left"],
         datasets: [{
-          data: [done, left],
-          backgroundColor: [DONE, behind ? BEHIND : LEFT],
+          // An empty ring rather than a missing card: a subject with no
+          // chapters in this month still has a place in the row of four.
+          data: empty ? [0, 1] : [done, left],
+          backgroundColor: [DONE, empty ? EMPTY : behind ? BEHIND : LEFT],
           borderWidth: 0,
         }],
       },
       options: {
         cutout: "62%",
         plugins: {
-          legend: { position: "bottom", labels: { boxWidth: 10, font: { size: 11 } } },
+          legend: { position: "bottom", labels: { boxWidth: 9, font: { size: 10 }, padding: 8 } },
           tooltip: {
             callbacks: {
               label: (ctx) => `${ctx.label}: ${ctx.parsed} of ${total} ${unit}`,
@@ -40,7 +45,7 @@ function Donut({ title, done, left, total, unit, behind, onClick, active }) {
       },
     });
     return () => { if (chartRef.current) chartRef.current.destroy(); };
-  }, [done, left, total, unit, behind]);
+  }, [done, left, total, unit, behind, empty]);
 
   const pctDone = total ? Math.round((done * 100) / total) : 0;
 
@@ -50,14 +55,20 @@ function Donut({ title, done, left, total, unit, behind, onClick, active }) {
       <div className="annual-donut-canvas">
         <canvas ref={canvasRef} />
         <div className="annual-donut-centre">
-          <strong>{pctDone}%</strong>
-          <span>done</span>
+          <strong>{empty ? "—" : `${pctDone}%`}</strong>
+          <span>{empty ? "nothing planned" : "done"}</span>
         </div>
       </div>
       <div className="annual-donut-figures">
-        <span><strong>{done}</strong> done</span>
-        <span className={behind ? "annual-behind-text" : ""}><strong>{left}</strong> left</span>
-        <span className="hint-text">of {total} {unit}</span>
+        {empty ? (
+          <span className="hint-text">No {unit}</span>
+        ) : (
+          <>
+            <span><strong>{done}</strong> done</span>
+            <span className={behind ? "annual-behind-text" : ""}><strong>{left}</strong> left</span>
+            <span className="hint-text">of {total} {unit}</span>
+          </>
+        )}
       </div>
     </div>
   );
@@ -159,6 +170,32 @@ function YearBar({ t }) {
   );
 }
 
+/**
+ * Where one chapter stands against its own months - not against the year.
+ * February's chapter is not late in September; July's unfinished one is.
+ */
+function Pace({ c }) {
+  const pace = c.pace || "upcoming";
+  if (pace === "done") return <span className="pace-chip pace-done">done</span>;
+  if (pace === "upcoming") {
+    return <span className="pace-chip pace-upcoming" title="Not due yet">not due yet</span>;
+  }
+  if (pace === "in_progress") {
+    return (
+      <span className="pace-chip pace-ontrack"
+            title={`Runs to the end of ${(c.months || []).slice(-1)[0] || "its last month"} — ${c.sessions_done} of ${c.sessions} sessions so far`}>
+        under way
+      </span>
+    );
+  }
+  return (
+    <span className="pace-chip pace-behind"
+          title={`Due by the end of ${(c.months || []).slice(-1)[0] || "its last month"} — ${c.sessions_done} of ${c.sessions} covered`}>
+      {c.sessions_owed} behind
+    </span>
+  );
+}
+
 function Ticks({ sections, done }) {
   return (
     <>
@@ -174,6 +211,7 @@ function Ticks({ sections, done }) {
 export default function AnnualProgress({ token, subject, grade, discipline, branch = "", onDisciplineChange }) {
   const [data, setData] = useState(null);
   const [chart, setChart] = useState(null);
+  const [thisMonth, setThisMonth] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [showTable, setShowTable] = useState(true);
@@ -197,6 +235,12 @@ export default function AnnualProgress({ token, subject, grade, discipline, bran
     api.getProgressChart(token, subject, grade, discipline, branch)
       .then(setChart)
       .catch(() => setChart(null));   // the chart is a bonus, not the page
+
+    // The month now running, so the year view answers "and how is this month
+    // going?" without a trip to the other tab.
+    api.getMonthChart(token, subject, grade, discipline, branch)
+      .then(setThisMonth)
+      .catch(() => setThisMonth(null));
   }, [token, subject, grade, discipline, branch]);
 
   if (!subject || !grade) {
@@ -275,6 +319,21 @@ export default function AnnualProgress({ token, subject, grade, discipline, bran
             onClick={() => setShowTable(!showTable)}
           />
         )}
+        {/* Always four, so the row reads the same for every subject. A month
+            with no chapters planned says so rather than vanishing. */}
+        {thisMonth && (
+          <Donut
+            title={`${thisMonth.month} so far`}
+            done={thisMonth.done_total || 0}
+            left={Math.max(0, (thisMonth.planned_total || 0) - (thisMonth.done_total || 0))}
+            total={thisMonth.planned_total || 0}
+            unit={`sessions planned for ${thisMonth.month}`}
+            behind={thisMonth.verdict === "Behind plan"}
+            empty={!thisMonth.planned_total}
+            active={showTable}
+            onClick={() => setShowTable(!showTable)}
+          />
+        )}
       </div>
 
       {sections.length > 1 && (
@@ -307,6 +366,7 @@ export default function AnnualProgress({ token, subject, grade, discipline, bran
                 <th>Chapter / Topic / Sub Topic</th>
                 <th>Months</th>
                 <th>Sessions</th>
+                <th>Pace</th>
                 {sections.map((s) => <th key={s} className="annual-tick-cell">{labelFor(s)}</th>)}
               </tr>
             </thead>
@@ -314,7 +374,7 @@ export default function AnnualProgress({ token, subject, grade, discipline, bran
               {data.chapters.map((c) => (
                 <Fragment key={c.chapter}>
                   <tr
-                    className="annual-chapter-row"
+                    className={`annual-chapter-row annual-pace-${c.pace || "upcoming"}`}
                     onClick={() => setOpenChapters((p) => ({ ...p, [c.chapter]: !p[c.chapter] }))}
                   >
                     <td>
@@ -339,6 +399,7 @@ export default function AnnualProgress({ token, subject, grade, discipline, bran
                     <td>
                       {c.sessions_done ? `${c.sessions_done} / ${c.sessions}` : c.sessions}
                     </td>
+                    <td><Pace c={c} /></td>
                     <Ticks sections={sections} done={c.done_sections} />
                   </tr>
 
@@ -358,12 +419,14 @@ export default function AnnualProgress({ token, subject, grade, discipline, bran
                           </td>
                           <td />
                           <td />
+                          <td />
                           <Ticks sections={sections} done={tp.done_sections} />
                         </tr>
 
                         {openTopics[key] && tp.subtopic_rows.map((st) => (
                           <tr key={st.subtopic} className="annual-sub-row">
                             <td className="annual-indent-2">{st.subtopic}</td>
+                            <td />
                             <td />
                             <td />
                             <Ticks sections={sections} done={st.done_sections} />
@@ -376,7 +439,7 @@ export default function AnnualProgress({ token, subject, grade, discipline, bran
               ))}
               {data.chapters.length === 0 && (
                 <tr>
-                  <td colSpan={3 + sections.length} className="empty-msg">
+                  <td colSpan={4 + sections.length} className="empty-msg">
                     No curriculum has been uploaded for {subject} Grade {grade}.
                   </td>
                 </tr>
