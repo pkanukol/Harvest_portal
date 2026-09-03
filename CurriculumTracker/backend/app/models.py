@@ -236,6 +236,11 @@ class PowAuthor(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     email = Column(String, nullable=False, unique=True, index=True)
+    # The campus they TEACH at. An HOD may oversee both campuses - that is what
+    # users.location = 'Both' means - while taking classes at one of them, and
+    # reading oversight as teaching put their sections on the other campus's
+    # list. Null means "wherever their user record says".
+    branch = Column(String, nullable=True)
     note = Column(String, nullable=True)          # why, in plain words
     added_at = Column(DateTime, default=datetime.datetime.utcnow)
 
