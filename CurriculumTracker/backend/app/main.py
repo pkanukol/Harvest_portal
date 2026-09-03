@@ -784,6 +784,7 @@ def get_progress_summary(
     teacher_email: str = Query(""),
     discipline: str = Query(""),
     branch: str = Query(""),
+    month: str = Query(""),
     db: Session = Depends(get_db),
     current_user: auth.CurrentUser = Depends(auth.get_current_user),
 ):
@@ -802,8 +803,11 @@ def get_progress_summary(
             staff_directory.subjects_for(current_user.email), available
         ) or ""
     scope = crud.progress_scope(db, current_user.email, current_user.role, branch)
-    summary = crud.get_progress_summary(db, subject, int(grade), effective_email, chosen or None, scope, branch)
+    summary = crud.get_progress_summary(db, subject, int(grade), effective_email, chosen or None,
+                                        scope, branch, month.strip() or None)
     summary["discipline_default"] = chosen
+    # The months a reader may look back at, so the picker needs no second call.
+    summary["months_available"] = crud.months_so_far()
     return summary
 
 
@@ -892,14 +896,17 @@ def get_month_chart(
     grade: str = Query(...),
     discipline: str = Query(""),
     branch: str = Query(""),
+    month: str = Query(""),
     db: Session = Depends(get_db),
     current_user: auth.CurrentUser = Depends(auth.get_current_user),
 ):
-    """This month week by week. The cumulative year-to-date chart is
+    """One month week by week - the current one unless another is named, so
+    August can still be read in September. The cumulative year-to-date chart is
     /api/progress/chart, shown on the Full year tab."""
     return crud.get_month_chart(
         db, subject, int(grade), discipline.strip() or None,
         crud.progress_scope(db, current_user.email, current_user.role, branch), branch,
+        month.strip() or None,
     )
 
 
