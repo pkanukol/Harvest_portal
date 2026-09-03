@@ -78,7 +78,12 @@ export default function Progress({ token, user, isReadOnlyViewer, isLeadership =
     setError("");
 
     api.getProgressSummary(token, subject, grade, isReadOnlyViewer ? "" : user.email, discipline, branch, month)
-      .then(setSummary)
+      .then((res) => {
+        setSummary(res);
+        // Name the month in the picker rather than leaving it on a vague
+        // "This month" - it reads as a filter that has not been set.
+        if (!month && res.month) setMonth(res.month);
+      })
       .catch((err) => setError(err.message));
 
     // The month tab gets the month's own week-by-week pace; the cumulative
@@ -135,7 +140,7 @@ export default function Progress({ token, user, isReadOnlyViewer, isLeadership =
       </div>
 
       <div className="filter-bar">
-      <div className="form-row">
+      <div className={`form-row${range === "month" ? " form-row-3" : ""}`}>
         <div className="form-group">
           <label className="form-label">Subject</label>
           {isReadOnlyViewer ? (
@@ -177,7 +182,7 @@ export default function Progress({ token, user, isReadOnlyViewer, isLeadership =
           <div className="form-group">
             <label className="form-label">Month</label>
             <select className="form-control" value={month} onChange={(e) => setMonth(e.target.value)}>
-              <option value="">This month</option>
+              {!month && <option value="">Loading…</option>}
               {(summary?.months_available || []).map((m) => (
                 <option key={m} value={m}>{m}</option>
               ))}
