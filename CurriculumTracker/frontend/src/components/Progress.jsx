@@ -3,6 +3,7 @@ import Chart from "chart.js/auto";
 import { api } from "../api";
 import { fmtDate } from "../dateUtils";
 import BackfillPanel from "./BackfillPanel";
+import { Donut } from "./AnnualProgress";
 import AnnualProgress from "./AnnualProgress";
 import { GRADES } from "../grades";
 
@@ -58,6 +59,10 @@ export default function Progress({ token, user, isReadOnlyViewer, isLeadership =
 
   const [subject, setSubject] = useState(isReadOnlyViewer ? "" : user.subject);
   const [grade, setGrade] = useState("");
+  // "" means the month now running. Any earlier month of this academic year
+  // can be asked for - August read back in September, which is the whole
+  // point of a month view once the month has ended.
+  const [month, setMonth] = useState("");
   const [summary, setSummary] = useState(null);
   const [chartData, setChartData] = useState(null);
   const [error, setError] = useState("");
@@ -72,16 +77,16 @@ export default function Progress({ token, user, isReadOnlyViewer, isLeadership =
     if (!subject || !grade || range !== "month") { setChartData(null); setSummary(null); return; }
     setError("");
 
-    api.getProgressSummary(token, subject, grade, isReadOnlyViewer ? "" : user.email, discipline, branch)
+    api.getProgressSummary(token, subject, grade, isReadOnlyViewer ? "" : user.email, discipline, branch, month)
       .then(setSummary)
       .catch((err) => setError(err.message));
 
     // The month tab gets the month's own week-by-week pace; the cumulative
     // year-to-date chart belongs to the Full year tab and is drawn there.
-    api.getMonthChart(token, subject, grade, discipline, branch)
+    api.getMonthChart(token, subject, grade, discipline, branch, month)
       .then(setChartData)
       .catch((err) => setError(err.message));
-  }, [token, subject, grade, isReadOnlyViewer, user.email, discipline, range, branch]);
+  }, [token, subject, grade, isReadOnlyViewer, user.email, discipline, range, branch, month]);
 
   useEffect(() => {
     if (!chartData || !chartData.labels?.length || !canvasRef.current) return;
@@ -166,6 +171,19 @@ export default function Progress({ token, user, isReadOnlyViewer, isLeadership =
             {GRADES.map((g) => <option key={g} value={g}>Grade {g}</option>)}
           </select>
         </div>
+        {/* Only on the month tab: the year tab is the whole year by definition.
+            The list comes back with the summary, so no extra request. */}
+        {range === "month" && (
+          <div className="form-group">
+            <label className="form-label">Month</label>
+            <select className="form-control" value={month} onChange={(e) => setMonth(e.target.value)}>
+              <option value="">This month</option>
+              {(summary?.months_available || []).map((m) => (
+                <option key={m} value={m}>{m}</option>
+              ))}
+            </select>
+          </div>
+        )}
       </div>
       </div>
 
@@ -305,6 +323,24 @@ export default function Progress({ token, user, isReadOnlyViewer, isLeadership =
             </div>
           )}
         </>
+      )}
+
+      {/* The Full year tab answers "how far through the plan to date"; this is
+          the same question asked of the month now running, so it is drawn the
+          same way rather than left to the line chart alone. */}
+      {range === "month" && chartData && (
+        <div className="annual-donuts annual-donuts-single" style={{ marginTop: 24 }}>
+          <Donut
+            title={`${chartData.month} so far`}
+            done={chartData.done_total}
+            left={Math.max(0, chartData.planned_total - chartData.done_total)}
+            total={chartData.planned_total}
+            unit={`sessions planned for ${chartData.month}`}
+            behind={chartData.verdict === "Behind plan"}
+            empty={!chartData.planned_total}
+            active
+          />
+        </div>
       )}
 
       {range === "month" && chartData && chartData.labels?.length > 0 && (
