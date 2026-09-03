@@ -334,6 +334,10 @@ th { background: var(--bg); color: var(--muted); font-weight: 600; font-size: 11
 }
 .filter-bar { margin-bottom: 16px; }
 .filter-bar .form-row { margin-bottom: 0; }
+/* Subject, Grade and Month read as one filter, so they share one line
+   rather than leaving Month stranded underneath. */
+.filter-bar .form-row-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 700px) { .filter-bar .form-row-3 { grid-template-columns: 1fr; } }
 .lag-panel .card { background: var(--page); }
 
 /* A session's or a section's own block within the POW form and view. Grouped
@@ -371,6 +375,10 @@ th { background: var(--bg); color: var(--muted); font-weight: 600; font-size: 11
    plans in one week read as separate things rather than one long form. */
 .plan-card { border: 1px solid var(--line-2); border-radius: var(--radius); background: var(--card); padding: 14px 16px; margin-bottom: 16px; }
 .plan-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+/* One line: label, a narrow month picker, and the reason it is there. */
+.plan-month { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.plan-month .form-label { margin: 0; white-space: nowrap; }
+.plan-month-select { width: auto; min-width: 140px; padding-block: 6px; }
 .plan-title { font-size: 13px; font-weight: 700; color: var(--brand-700); }
 .plan-card .session-block { background: var(--page); }
 /* A section already on another plan: still clickable, to move it here. */
