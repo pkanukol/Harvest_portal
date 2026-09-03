@@ -468,6 +468,19 @@ def allowed_upload_subjects(db: Session, email: str, designation: str, subject: 
     return allowed
 
 
+def teaching_campus_map(db: Session) -> dict:
+    """{email: campus} for staff whose teaching campus is recorded explicitly.
+
+    Only needed for accounts marked 'Both' - an HOD who OVERSEES Kodathi and
+    Attibele but takes their own classes at one of them. Reading oversight as
+    teaching put their sections on the other campus's list."""
+    out = {}
+    for email, branch in db.query(models.PowAuthor.email, models.PowAuthor.branch).all():
+        if email and branch:
+            out[email.lower()] = normalize_branch(branch)
+    return out
+
+
 def pow_author_emails(db: Session) -> set:
     """The SMEs and HODs recorded as teaching. Tiny table, read per request -
     and the env var stays honoured so an emergency addition needs no SQL."""
@@ -1011,8 +1024,12 @@ def _all_pow_sections(data) -> list:
 
 
 def teacher_branch(db: Session, email: str) -> Optional[str]:
-    """The campus a member of staff is on, normalised. 'Both' resolves to None
-    - it is not a campus a POW can be filed for."""
+    """The campus a member of staff TEACHES at, normalised. 'Both' means they
+    oversee two campuses, so it resolves to the campus they are recorded as
+    teaching at, and to None when even that is unknown."""
+    taught_at = teaching_campus_map(db).get((email or "").lower())
+    if taught_at:
+        return taught_at
     u = db.query(models.User).filter(func.lower(models.User.email) == (email or "").lower()).first()
     # viewer_branches returns None for 'Both' and for an unset location - both
     # mean "not one campus", so there is nothing to stamp.
@@ -1404,15 +1421,34 @@ def sections_for_grade(db: Session, subject: str, grade: str, branch: Optional[s
     to whatever POWs already name if the directory is unreachable.
     """
     wanted_subjects = {x.lower() for x in subjects_in_group(subject)}
-    # The caller may already have the campus's teacher set (the branch
-    # comparison does, for ten grades) - building it per call made that twenty
-    # full staff scans.
-    if allowed is None and branch:
-        allowed = set(_build_teacher_map(db, "", "Leadership", branch).keys())
+
+    # A section is dropped only when its teacher is KNOWN to be at the other
+    # campus. Filtering by the viewer's teacher map instead lost real classes:
+    # 10C at Kodathi is taught by an HOD whose record says 'Both', and 7A at
+    # Attibele by a teacher with no users row at all. A section nobody can file
+    # against is worse than one section too many in the list.
+    campus_of = {}
+    for u in db.query(models.User).all():
+        if u.email:
+            campus_of[u.email.lower()] = viewer_branches(u.location or "")
+    # A recorded teaching campus wins over 'Both': overseeing two campuses is
+    # not teaching at two.
+    for email, taught_at in teaching_campus_map(db).items():
+        if taught_at:
+            campus_of[email] = [taught_at]
+    want = normalize_branch(branch or "")
+
+    def teaches_here(email: str) -> bool:
+        if not want:
+            return True
+        known = campus_of.get(email.lower())
+        if not known:            # not in users, or 'Both' - campus unknown
+            return True
+        return want in known
 
     letters = set()
     for email, entry in staff_directory.get_directory().items():
-        if allowed is not None and email not in allowed:
+        if not teaches_here(email):
             continue
         for a in entry.get("assignments", []):
             if str(a.get("grade")) != str(grade):
