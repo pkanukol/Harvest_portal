@@ -31,6 +31,10 @@ ACADEMIC_MONTHS = [
 ]
 MONTH_INDEX = {m: i for i, m in enumerate(ACADEMIC_MONTHS)}
 
+# Calendar position (April = 4), for the times a month name has to become a
+# real date - which weeks it holds, how many days of it are left.
+MONTH_CALENDAR = {m: (i + 3) % 12 + 1 for i, m in enumerate(ACADEMIC_MONTHS)}
+
 
 # Some sheets write a span rather than a single month - Social Science Grade 8
 # has "Aug-Sep", "May-June-July", "Oct-Nov-Dec". MONTH_INDEX only knows whole
@@ -1443,7 +1447,7 @@ def progress_scope(db: Session, user_email: str, role: str, branch: Optional[str
 
 def get_progress_summary(db: Session, subject: str, grade: int, teacher_email: Optional[str] = None,
                          discipline: Optional[str] = None, teacher_emails: Optional[set] = None,
-                         branch: Optional[str] = None):
+                         branch: Optional[str] = None, month: Optional[str] = None):
     """One table's worth of truth for the month: per chapter, what was planned
     and what has actually been done, with the POW detail behind each row. The
     headline tiles are derived from these same rows, so they cannot disagree.
@@ -1456,9 +1460,13 @@ def get_progress_summary(db: Session, subject: str, grade: int, teacher_email: O
       * an SME's backfill mark.
     """
     today = now_ist()
-    month = today.strftime("%B")
-    last_day = calendar.monthrange(today.year, today.month)[1]
-    days_left = max(0, (datetime.date(today.year, today.month, last_day) - today.date()).days)
+    # A month may be asked for by name - August read back in September - so
+    # the "days left" figure is of THAT month, and is zero once it has ended.
+    month = (month or "").strip() or today.strftime("%B")
+    cal_month = MONTH_CALENDAR.get(month, today.month)
+    cal_year = academic_year_of(month, today)
+    last_day = calendar.monthrange(cal_year, cal_month)[1]
+    days_left = max(0, (datetime.date(cal_year, cal_month, last_day) - today.date()).days)
 
     rows = get_planner_rows(db, subject, grade)
     all_chapters = chapters_from_rows(rows)
@@ -1501,14 +1509,38 @@ def get_progress_summary(db: Session, subject: str, grade: int, teacher_email: O
         models.CurriculumBackfill.grade == int(grade),
         _backfill_branch_filter(models.CurriculumBackfill, branch),
     ).all()
-    # Scoped to THIS month. A chapter spanning July and August, marked covered
-    # for July, is not covered for August - crediting the mark to both months
-    # read "11 of 11 done" in August while the POW said session 9.
-    marked_full = {m.chapter_name for m in marks if not m.subtopic and m.month == month}
+    # A chapter's coverage belongs to the CHAPTER, not to one of its months.
+    # A chapter running August-September, half covered in August, is half
+    # covered when September is read too - showing it as 0 of 11 in September
+    # said no work had been done on something visibly under way.
+    #
+    # A chapter-level tick still only completes the chapter when EVERY month it
+    # spans is ticked; otherwise it counts by its ticked topics. That is what
+    # stops one month's tick reading "11 of 11 done" in the next.
+    marked_months = {}
     marked_items = {}
     for m in marks:
-        if m.subtopic and m.month == month:
+        if m.subtopic:
             marked_items.setdefault(m.chapter_name, set()).add(m.subtopic)
+        else:
+            marked_months.setdefault(m.chapter_name, set()).add(m.month)
+    marked_full = {
+        c.chapter_name for c in scoped
+        if (c.months or []) and set(c.months) <= marked_months.get(c.chapter_name, set())
+    }
+    # Sessions of the months that WERE marked - the same credit
+    # chapter_sessions_done gives on the year view, so a chapter reads the same
+    # on both screens. Split evenly across the chapter's months, as
+    # annual_planner_tree does.
+    month_share = {}
+    for c in scoped:
+        c_months = sorted(c.months or [], key=lambda m: month_position(m, 99))
+        share = {}
+        if c_months and c.sessions:
+            base, extra = divmod(c.sessions, len(c_months))
+            for i, m in enumerate(c_months):
+                share[m] = base + (1 if i < extra else 0)
+        month_share[c.chapter_name] = share
     item_counts = planner_item_counts(rows)
     items_by_chapter = {}
     for (mth, ch), n in item_counts.items():
@@ -1521,10 +1553,15 @@ def get_progress_summary(db: Session, subject: str, grade: int, teacher_email: O
             done = max(done, _sessions_completed(p.lp_session_num, p.week_start, p.status))
         if c.chapter_name in implied_complete or c.chapter_name in marked_full:
             done = max(done, planned)
-        elif c.chapter_name in marked_items:
-            total_items = items_by_chapter.get(c.chapter_name, 0)
-            if total_items:
-                done = max(done, round(planned * len(marked_items[c.chapter_name]) / total_items))
+        else:
+            marked = marked_months.get(c.chapter_name, set())
+            if marked:
+                done = max(done, sum(v for m, v in (month_share.get(c.chapter_name) or {}).items()
+                                     if m in marked))
+            if c.chapter_name in marked_items:
+                total_items = items_by_chapter.get(c.chapter_name, 0)
+                if total_items:
+                    done = max(done, round(planned * len(marked_items[c.chapter_name]) / total_items))
         return min(done, planned) if planned else done
 
     chapter_rows = []
@@ -2178,6 +2215,56 @@ def compare_branches(db: Session, user_email: str, role: str, subject: str,
     }
 
 
+def chapter_due_month(c) -> int:
+    """When a chapter falls due: the position of the LAST month it spans.
+
+    A chapter timetabled across August, September and October is not judged in
+    August. It is one piece of teaching with one deadline, and splitting it by
+    month made a class look behind for work that was never due yet - confirmed
+    with the SMEs, who read the plan the same way.
+    """
+    months = c.get("months") or list((c.get("month_sessions") or {}).keys())
+    if not months:
+        return 99
+    return max(month_position(m, 99) for m in months)
+
+
+def sessions_to_date(chapters, cutoff) -> tuple:
+    """(planned, covered) for the chapters that have fallen due.
+
+    Whole chapters, never fractions of one - the same rule get_progress_chart
+    draws its cumulative lines by, so the year bar and the graph beneath it
+    cannot tell different stories.
+    """
+    planned = covered = 0
+    if cutoff is None:
+        return 0, 0
+    for c in chapters:
+        if chapter_due_month(c) < cutoff:
+            planned += c.get("sessions", 0)
+            covered += min(c.get("sessions_done", 0), c.get("sessions", 0))
+    return planned, round(covered)
+
+
+def academic_year_of(month_name: str, today=None) -> int:
+    """The calendar year a month of THIS academic year falls in. April-December
+    sit in the year the session started; January-March in the next one."""
+    today = today or now_ist()
+    start_year = today.year if today.month >= 4 else today.year - 1
+    idx = MONTH_CALENDAR.get(month_name, today.month)
+    return start_year if idx >= 4 else start_year + 1
+
+
+def months_so_far() -> List[str]:
+    """April up to and including the current month - the months a reader can
+    ask to look back at."""
+    cutoff = month_position(now_ist().strftime("%B"), None)
+    if cutoff is None:
+        return []
+    by_idx = {v: k for k, v in MONTH_INDEX.items()}
+    return [by_idx[i] for i in range(cutoff + 1) if i in by_idx]
+
+
 def _previous_academic_month(current: str) -> str:
     """The month the year is judged up to - the last one that has ended."""
     idx = month_position(current, None)
@@ -2333,6 +2420,29 @@ def get_annual_progress(db: Session, subject: str, grade: int, discipline: Optio
                 for sub in t["subtopics"]
             ]
 
+    # ── Each chapter judged against ITS OWN place in the year ───────────────
+    # A chapter timetabled for February is not "lagging" in September; one that
+    # should have finished in July and hasn't is. Same month-share rule the
+    # totals and the cumulative chart use, so a reader comparing the table with
+    # the graph above it sees one story.
+    cutoff_now = month_position(now_ist().strftime("%B"), None)
+    for c in chapters:
+        due_month = chapter_due_month(c)
+        overdue = cutoff_now is not None and due_month < cutoff_now
+        running = cutoff_now is not None and due_month >= cutoff_now and any(
+            month_position(m, 99) <= cutoff_now for m in (c.get("months") or [])
+        )
+        c["sessions_due"] = c["sessions"] if overdue else 0
+        if c["sessions"] and c["sessions_done"] >= c["sessions"]:
+            c["pace"] = "done"                    # finished, whenever it was due
+        elif overdue:
+            c["pace"] = "behind"                  # its last month has passed
+        elif running:
+            c["pace"] = "in_progress"             # under way, not due yet
+        else:
+            c["pace"] = "upcoming"                # its turn hasn't come
+        c["sessions_owed"] = max(0, c["sessions_due"] - c["sessions_done"])
+
     total_chapters = len(chapters)
     total_sessions = sum(c["sessions"] for c in chapters)
     grade_sessions_done = sum(grade_sessions.values())
@@ -2369,13 +2479,14 @@ def get_annual_progress(db: Session, subject: str, grade: int, discipline: Optio
         and max(month_position(m, 99) for m in c["months"]) < cutoff
     ]
     chapters_due = len(due)
-    sessions_due = sum(c["sessions"] for c in due)
+    # Sessions by month share (see sessions_to_date); chapters stay all-or-
+    # nothing, since half a chapter is not a chapter finished.
+    sessions_due, sessions_done_to_date = sessions_to_date(chapters, cutoff)
     chapters_done_to_date = min(avg_chapters_done, chapters_due)
-    sessions_done_to_date = min(avg_sessions_done, sessions_due)
     pct_to_date = round(sessions_done_to_date * 100 / sessions_due) if sessions_due else 100
 
     chapters_owed = max(0, round(chapters_due - avg_chapters_done, 1))
-    sessions_owed = max(0, round(sessions_due - avg_sessions_done, 1))
+    sessions_owed = max(0, round(sessions_due - sessions_done_to_date, 1))
     # One session adrift is rounding, not a warning.
     behind = sessions_owed > 1 or chapters_owed >= 1
     reasons = []
@@ -2892,7 +3003,8 @@ def month_weeks(year: int, month: int) -> list:
 
 
 def get_month_chart(db: Session, subject: str, grade: int, discipline: Optional[str] = None,
-                    teacher_emails: Optional[set] = None, branch: Optional[str] = None) -> dict:
+                    teacher_emails: Optional[set] = None, branch: Optional[str] = None,
+                    month: Optional[str] = None) -> dict:
     """This month, week by week: how far through the month's planned sessions
     the class should be, against how far the POWs say it is.
 
@@ -2906,12 +3018,13 @@ def get_month_chart(db: Session, subject: str, grade: int, discipline: Optional[
     is taught in.
     """
     today = now_ist()
-    month = today.strftime("%B")
-    summary = get_progress_summary(db, subject, int(grade), None, discipline, teacher_emails, branch)
+    month = (month or "").strip() or today.strftime("%B")
+    summary = get_progress_summary(db, subject, int(grade), None, discipline, teacher_emails,
+                                   branch, month)
     rows = summary["chapter_rows"]
     planned_total = sum(r["sessions_planned"] for r in rows)
 
-    weeks = month_weeks(today.year, today.month)
+    weeks = month_weeks(academic_year_of(month, today), MONTH_CALENDAR.get(month, today.month))
     if not weeks or not planned_total:
         return {
             "success": True, "month": month, "labels": [], "planned": [], "actual": [],
@@ -3020,20 +3133,17 @@ def get_progress_chart(db: Session, subject: str, grade: int, discipline: Option
 
     planned_by_month = {m: 0 for m in months}
     done_by_month = {m: 0 for m in months}
+    by_position = {month_position(m, 99): m for m in months}
     for c in chapters:
-        done_left = c.get("sessions_done", 0)
-        # A chapter's progress is recorded against the CHAPTER, not the month
-        # (one session counter per POW), so it is filled into the chapter's
-        # months in academic order - sessions 1..n are taught in sequence, so
-        # the earliest month gets its share first. Spreading it proportionally
-        # instead pushed part of the work already done into months still ahead,
-        # and the year-to-date line then disagreed with the donut.
-        for m in sorted(c["month_sessions"], key=lambda x: month_position(x, 99)):
-            v = c["month_sessions"][m]
-            planned_by_month[m] += v
-            take = min(done_left, v)
-            done_by_month[m] += take
-            done_left -= take
+        # A chapter counts in the month it is DUE - the last one it spans - not
+        # spread across them. Its coverage is credited in the same month, so
+        # the two lines are always measuring the same thing and the bar above
+        # the chart reads the same number as the chart itself.
+        m = by_position.get(chapter_due_month(c))
+        if m is None:
+            continue
+        planned_by_month[m] += c["sessions"]
+        done_by_month[m] += min(c.get("sessions_done", 0), c["sessions"])
 
     today = now_ist()
     this_month_idx = month_position(today.strftime("%B"), 99)
