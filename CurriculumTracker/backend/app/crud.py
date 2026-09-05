@@ -468,6 +468,37 @@ def allowed_upload_subjects(db: Session, email: str, designation: str, subject: 
     return allowed
 
 
+def extra_class_assignments(db: Session) -> list:
+    """Class assignments recorded in Project A, in the same shape staff_roles
+    hands back - so every reader can simply add the two together."""
+    out = []
+    for r in db.query(models.ClassTeacher).all():
+        sec = (r.section or "").strip().upper()[:1]
+        if not sec:
+            continue
+        out.append({
+            "email": (r.email or "").lower(),
+            "name": r.name or r.email,
+            "subject": r.subject or "",
+            "grade": str(r.grade),
+            "section": sec,
+            "branch": normalize_branch(r.branch or ""),
+        })
+    return out
+
+
+def extra_subjects_for(db: Session, email: str) -> list:
+    """Subjects this person is recorded as teaching in class_teachers.
+
+    A staff profile names one subject, and it is not always the one they take:
+    Ms Priyanka Keshri's profile says Computer Science while she teaches Maths
+    to Grade 1. Without this her POW form would offer only the profile's."""
+    rows = db.query(models.ClassTeacher.subject).filter(
+        func.lower(models.ClassTeacher.email) == (email or "").lower()
+    ).distinct().all()
+    return sorted({s for (s,) in rows if s})
+
+
 def teaching_campus_map(db: Session) -> dict:
     """{email: campus} for staff whose teaching campus is recorded explicitly.
 
@@ -482,9 +513,10 @@ def teaching_campus_map(db: Session) -> dict:
 
 
 def pow_author_emails(db: Session) -> set:
-    """The SMEs and HODs recorded as teaching. Tiny table, read per request -
-    and the env var stays honoured so an emergency addition needs no SQL."""
+    """Everyone recorded as teaching a class: the pow_authors list, anyone with
+    a class in class_teachers, and the env var as an emergency hatch."""
     listed = {e.lower() for (e,) in db.query(models.PowAuthor.email).all() if e}
+    listed |= {e.lower() for (e,) in db.query(models.ClassTeacher.email).distinct() if e}
     return listed | settings.pow_author_emails
 
 
@@ -1447,6 +1479,17 @@ def sections_for_grade(db: Session, subject: str, grade: str, branch: Optional[s
         return want in known
 
     letters = set()
+    for a in extra_class_assignments(db):
+        if str(a["grade"]) != str(grade):
+            continue
+        if a["subject"] and a["subject"].lower() not in wanted_subjects:
+            continue
+        if want and a["branch"] and a["branch"] != want:
+            continue
+        if not a["branch"] and not teaches_here(a["email"]):
+            continue
+        letters.add(a["section"])
+
     for email, entry in staff_directory.get_directory().items():
         if not teaches_here(email):
             continue
@@ -2299,6 +2342,224 @@ def months_so_far() -> List[str]:
         return []
     by_idx = {v: k for k, v in MONTH_INDEX.items()}
     return [by_idx[i] for i in range(cutoff + 1) if i in by_idx]
+
+
+def section_progress(db: Session, user_email: str, role: str, subject: str,
+                     branch: Optional[str] = None, fresh: bool = False) -> dict:
+    """One subject, every grade and section on a campus, with the teachers.
+
+    The delivery report answers "how is Grade 8 doing"; this answers "how is
+    8C doing, and who teaches it" - the question a head of department asks
+    before speaking to anybody.
+
+    Built from three bulk queries rather than one annual reading per grade,
+    which took three seconds each and would have made this a thirty-second
+    button.
+    """
+    cache_key = ("sections", subject.lower(), normalize_branch(branch or "") or "", role,
+                 (user_email or "").lower())
+    if not fresh:
+        cached = _report_cache_get(cache_key)
+        if cached is not None:
+            return cached
+
+    rows = get_planner_rows(db, subject)
+    by_grade = {}
+    for r in rows:
+        by_grade.setdefault(int(r.grade), []).append(r)
+
+    pows = db.query(models.PowEntry).filter(_subject_group_filter(subject)).all()
+    marks = db.query(models.CurriculumBackfill).filter(
+        _backfill_subject_filter(subject),
+        _backfill_branch_filter(models.CurriculumBackfill, branch),
+    ).all()
+    scope = set(_build_teacher_map(db, user_email, role, branch).keys())
+
+    # Who teaches each (grade, section) of this subject on this campus.
+    wanted_subjects = {x.lower() for x in subjects_in_group(subject)}
+    campus_of = {}
+    for u in db.query(models.User).all():
+        if u.email:
+            campus_of[u.email.lower()] = viewer_branches(u.location or "")
+    for email, taught_at in teaching_campus_map(db).items():
+        if taught_at:
+            campus_of[email] = [taught_at]
+    want = normalize_branch(branch or "")
+
+    teachers_by_class = {}
+    for a in extra_class_assignments(db):
+        if a["subject"] and a["subject"].lower() not in wanted_subjects:
+            continue
+        if want and a["branch"] and a["branch"] != want:
+            continue
+        key = (a["grade"], a["section"])
+        if a["name"] not in teachers_by_class.setdefault(key, []):
+            teachers_by_class[key].append(a["name"])
+
+    for email, entry in staff_directory.get_directory().items():
+        known = campus_of.get(email.lower())
+        if want and known and want not in known:
+            continue
+        for a in entry.get("assignments", []):
+            if a.get("subject") and a["subject"].lower() not in wanted_subjects:
+                continue
+            sec = (a.get("section") or "").strip().upper()[:1]
+            if not sec:
+                continue
+            key = (str(a.get("grade")), sec)
+            name = entry.get("name") or email
+            if name not in teachers_by_class.setdefault(key, []):
+                teachers_by_class[key].append(name)
+
+    # An SME's explanation of why a class is where it is, keyed on the class.
+    notes = {}
+    for n in db.query(models.TeacherProgressNote).filter(
+        func.lower(models.TeacherProgressNote.subject) == subject.lower(),
+    ).all():
+        if want and normalize_branch(n.branch or "") != want:
+            continue
+        notes[(str(n.grade), (n.section or "").upper())] = {
+            "note": n.note or "",
+            "author": n.author_name or n.author_email or "",
+            "updated_at": n.updated_at.isoformat() if n.updated_at else None,
+        }
+
+    cutoff = month_position(now_ist().strftime("%B"), None)
+    out = []
+    for grade in sorted(by_grade):
+        chapters = annual_planner_tree(by_grade[grade])
+        if not chapters:
+            continue
+        disciplines = []
+        for r in by_grade[grade]:
+            d = r.strands_of_language or r.discipline
+            if d and d not in disciplines:
+                disciplines.append(d)
+
+        pows_by_chapter = {}
+        for p in pows:
+            if str(p.grade) != str(grade):
+                continue
+            if (p.teacher_email or "").lower() not in scope:
+                continue
+            if want and p.branch and normalize_branch(p.branch) != want:
+                continue
+            pows_by_chapter.setdefault((p.topic or "").strip(), []).append(p)
+
+        marked_months, marked_labels = {}, {}
+        for m in marks:
+            if int(m.grade) != grade:
+                continue
+            if m.subtopic:
+                marked_labels.setdefault(m.chapter_name, set()).add(m.subtopic)
+            else:
+                marked_months.setdefault(m.chapter_name, set()).add(m.month)
+        marked_full = {
+            c["chapter"] for c in chapters
+            if c["months"] and set(c["months"]) <= marked_months.get(c["chapter"], set())
+        }
+        implied = implied_complete_chapters(chapters, pows_by_chapter, disciplines)
+        class_done = chapter_sessions_done(
+            chapters, pows_by_chapter, marked_full, marked_months, marked_labels, implied,
+        )
+
+        planned_sessions = sum(c["sessions"] for c in chapters)
+        due_sessions, _ = sessions_to_date(chapters, cutoff)
+
+        # Which sections wrote implementation on which chapter - the only
+        # per-section evidence there is, since a POW's session counter is one
+        # figure for the class.
+        impl_sections = {}
+        for chapter, entries in pows_by_chapter.items():
+            letters = set()
+            for p in entries:
+                for l in SECTION_LETTERS:
+                    if (getattr(p, "impl_" + l.lower(), None) or "").strip()                             or getattr(p, "impl_" + l.lower() + "_date", None):
+                        letters.add(l)
+                for sess in (p.sessions or []):
+                    for row in (sess.impl or []):
+                        if (row.remarks or "").strip() or row.completed_on:
+                            letters.add((row.section or "").upper()[:1])
+            impl_sections[chapter] = {x for x in letters if x}
+
+        # From the class list already built above rather than a fresh
+        # directory pass per grade - that made this a ten-second button.
+        sections = sorted({sec for (g, sec) in teachers_by_class if g == str(grade)})
+        if not sections:
+            sections = sorted({s for v in impl_sections.values() for s in v})
+        if not sections:
+            sections = ["*"]
+
+        for sec in sections:
+            done = 0
+            chapters_done = 0
+            for c in chapters:
+                name = c["chapter"]
+                # A section that recorded implementation on a chapter has
+                # covered it; otherwise it stands where the class does.
+                mine = c["sessions"] if sec in impl_sections.get(name, set()) else class_done.get(name, 0)
+                mine = min(mine, c["sessions"])
+                done += mine
+                if c["sessions"] and mine >= c["sessions"]:
+                    chapters_done += 1
+            out.append({
+                "grade": grade,
+                "section": sec,
+                "label": f"{grade}{sec}" if sec != "*" else f"Grade {grade}",
+                "teachers": teachers_by_class.get((str(grade), sec), []),
+                "chapters": len(chapters),
+                "chapters_done": chapters_done,
+                "sessions": planned_sessions,
+                "sessions_done": done,
+                "sessions_due": due_sessions,
+                "pct": round(done * 100 / planned_sessions) if planned_sessions else 0,
+                "pct_to_date": round(done * 100 / due_sessions) if due_sessions else 100,
+                "behind": max(0, due_sessions - done),
+                "note": notes.get((str(grade), sec), {}).get("note", ""),
+                "note_author": notes.get((str(grade), sec), {}).get("author", ""),
+                "note_updated": notes.get((str(grade), sec), {}).get("updated_at"),
+            })
+
+    result = {
+        "subject": subject,
+        "branch": branch or "",
+        "month": now_ist().strftime("%B"),
+        "prev_month": _previous_academic_month(now_ist().strftime("%B")),
+        "rows": out,
+    }
+    _REPORT_CACHE[cache_key] = (now_ist(), result)
+    return result
+
+
+def save_teacher_note(db: Session, subject: str, grade: str, section: str,
+                      branch: Optional[str], note: str, teacher_email: str,
+                      author_email: str, author_name: str) -> dict:
+    """One note per class - subject, grade, section, campus. Written over
+    rather than appended, so what is on screen is the current explanation."""
+    sec = (section or "").strip().upper()[:1]
+    if not sec:
+        raise ValueError("a note belongs to a section")
+    row = db.query(models.TeacherProgressNote).filter(
+        func.lower(models.TeacherProgressNote.subject) == (subject or "").lower(),
+        models.TeacherProgressNote.grade == str(grade),
+        models.TeacherProgressNote.section == sec,
+    ).first()
+    if not row:
+        row = models.TeacherProgressNote(
+            subject=subject, grade=str(grade), section=sec,
+            branch=normalize_branch(branch or "") or None,
+        )
+        db.add(row)
+    row.teacher_email = (teacher_email or "").lower() or None
+    row.note = (note or "").strip()
+    row.author_email = author_email
+    row.author_name = author_name
+    row.updated_at = datetime.datetime.utcnow()
+    db.commit()
+    # The subject's report is cached; a note must show up at once.
+    for key in [k for k in _REPORT_CACHE if k[0] == "sections"]:
+        _REPORT_CACHE.pop(key, None)
+    return {"saved": True}
 
 
 def _previous_academic_month(current: str) -> str:
