@@ -262,6 +262,57 @@ class CurriculumUploader(Base):
     added_at = Column(DateTime, default=datetime.datetime.utcnow)
 
 
+class ClassTeacher(Base):
+    """A class assignment the school records HERE rather than in staff_roles.
+
+    staff_roles is the master list and is read-only to this app, but it does
+    not carry every class - Kodathi's primary English, Maths and Science had no
+    academic assignments at all, so those sections could not be filed against
+    or reported on. Rows here sit alongside it: same shape, same effect.
+    """
+    __tablename__ = "class_teachers"
+    __table_args__ = (
+        Index("ix_class_teacher_key", "email", "subject", "grade", "section", unique=True),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String, nullable=False, index=True)
+    name = Column(String, nullable=True)          # as the school writes it
+    subject = Column(String, nullable=False)
+    grade = Column(String, nullable=False)
+    section = Column(String(1), nullable=False)
+    branch = Column(String, nullable=True)        # campus this class runs at
+    added_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
+class TeacherProgressNote(Base):
+    """An SME's note against one class: this teacher, this section, this
+    subject, this campus.
+
+    A class ahead of or behind the others is a question, not a verdict - a
+    fortnight lost to exams, a section that arrived weak. The note is where the
+    reason lives, so the figure is read with it rather than on its own.
+    """
+    __tablename__ = "teacher_progress_notes"
+    __table_args__ = (
+        Index("ix_teacher_note_class", "subject", "grade", "section", "branch", unique=True),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    # Who taught it when the note was written. Informational: the note belongs
+    # to the class, so it survives a change of teacher rather than vanishing.
+    teacher_email = Column(String, nullable=True, index=True)
+    subject = Column(String, nullable=False)
+    grade = Column(String, nullable=False)
+    section = Column(String(1), nullable=False)
+    branch = Column(String, nullable=True)
+    note = Column(Text, nullable=True)
+    author_email = Column(String, nullable=True)
+    author_name = Column(String, nullable=True)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow,
+                        onupdate=datetime.datetime.utcnow)
+
+
 class PlannerTopic(Base):
     """One row per (subject, grade, chapter/topic/subtopic) entry, imported
     from the CurriculumMapping_<subject>_2026_27 Google Sheets (one workbook
