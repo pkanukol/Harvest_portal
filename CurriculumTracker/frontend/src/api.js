@@ -57,7 +57,12 @@ async function request(path, { method = "GET", token, body } = {}) {
   }
 
   if (!response.ok) {
-    throw new Error(data.detail || "Request failed");
+    // FastAPI validation errors arrive as a LIST of objects; String()ing one
+    // reads "[object Object]", which tells a user nothing at all.
+    const detail = Array.isArray(data.detail)
+      ? data.detail.map((d) => d.msg || JSON.stringify(d)).join("; ")
+      : data.detail;
+    throw new Error(detail || "Request failed");
   }
 
   return data;
@@ -252,6 +257,16 @@ export const api = {
   compareBranches: (token, subject, discipline = "") =>
     request(
       `/progress/compare?subject=${encodeURIComponent(subject)}&discipline=${encodeURIComponent(discipline)}`,
+      { token },
+    ),
+
+  saveTeacherNote: (token, payload) =>
+    request("/progress/teacher-note", { method: "POST", token, body: payload }),
+
+  // One subject, every section on a campus, with its teachers.
+  getSectionProgress: (token, subject, branch = "") =>
+    request(
+      `/progress/sections?subject=${encodeURIComponent(subject)}&branch=${encodeURIComponent(branch)}`,
       { token },
     ),
 
