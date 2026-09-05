@@ -1,4 +1,4 @@
-from typing import Optional, List
+from typing import Optional, List, Union
 from pydantic import BaseModel, Field
 
 
@@ -46,6 +46,17 @@ class MeResponse(BaseModel):
     can_mark_coverage: bool = False
     can_oversee: bool = False
     branches: List[str] = []
+
+
+class TeacherNoteRequest(BaseModel):
+    """An SME's explanation of why one class is where it is."""
+    teacher_email: Optional[str] = ""
+    section: str
+    subject: str
+    # A number in one caller and a string in another - both mean Grade 3.
+    grade: Union[int, str]
+    branch: Optional[str] = ""
+    note: Optional[str] = ""
 
 
 class ViewAsRequest(BaseModel):
