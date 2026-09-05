@@ -9,6 +9,7 @@ import POWForm from "./components/POWForm";
 import POWView from "./components/POWView";
 import Progress from "./components/Progress";
 import CurriculumOverview from "./components/CurriculumOverview";
+import TeacherProgress from "./components/TeacherProgress";
 import BranchCompare from "./components/BranchCompare";
 import DeliveryReport from "./components/DeliveryReport";
 import PlannerUpload from "./components/PlannerUpload";
@@ -141,6 +142,7 @@ export default function App() {
   const goOverview = () => { setView("overview"); };
 
   const goCompare = () => { setView("compare"); };
+  const goTeachers = () => { setView("teachers"); };
 
   const goPlannerUpload = () => { setView("planner-upload"); };
 
@@ -214,6 +216,7 @@ export default function App() {
                 onProgress={goProgress}
                 onOverview={goOverview}
                 onCompare={goCompare}
+                onTeachers={goTeachers}
                 onPlannerUpload={goPlannerUpload}
                 onOpenPow={openPow}
               />
@@ -254,6 +257,10 @@ export default function App() {
                 embed={Boolean(deepLink?.embed)}
                 onBack={goDashboard}
               />
+            )}
+
+            {view === "teachers" && canOversee && (
+              <TeacherProgress key={user.email} token={token} user={user} branch={branch} onBack={goDashboard} />
             )}
 
             {view === "overview" && canSeeOverview && (
