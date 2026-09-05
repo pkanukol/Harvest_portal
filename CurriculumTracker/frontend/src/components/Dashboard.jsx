@@ -5,7 +5,7 @@ import LaggingPanel from "./LaggingPanel";
 import { fmtDate } from "../dateUtils";
 import { GRADES } from "../grades";
 
-export default function Dashboard({ token, user, isReadOnlyViewer, isLeadership, canUploadCurriculum, canCreatePow, canSeeOverview, canOversee, branch = "", onNewPow, onProgress, onOverview, onCompare, onPlannerUpload, onOpenPow }) {
+export default function Dashboard({ token, user, isReadOnlyViewer, isLeadership, canUploadCurriculum, canCreatePow, canSeeOverview, canOversee, branch = "", onNewPow, onProgress, onOverview, onCompare, onTeachers, onPlannerUpload, onOpenPow }) {
   const [teachersList, setTeachersList] = useState([]);
   const mySubjects = (user.subjects && user.subjects.length ? user.subjects : [user.subject]).filter(Boolean);
   const [subject, setSubject] = useState(isReadOnlyViewer ? "" : (user.subject || mySubjects[0] || ""));
@@ -143,6 +143,9 @@ export default function Dashboard({ token, user, isReadOnlyViewer, isLeadership,
         {/* Spans every grade and both campuses, so it sits beside the others
             rather than inside a grade-scoped screen. */}
         {canOversee && <button className="btn btn-primary btn-sm" onClick={onCompare}>Compare Campuses</button>}
+        {/* Class by class, with the teacher who takes it - the view a head of
+            department reads before speaking to anybody. */}
+        {canOversee && <button className="btn btn-primary btn-sm" onClick={onTeachers}>Teacher Progress</button>}
       </div>
 
       <div className="filter-bar">
