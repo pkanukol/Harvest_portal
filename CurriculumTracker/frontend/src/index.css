@@ -379,6 +379,23 @@ th { background: var(--bg); color: var(--muted); font-weight: 600; font-size: 11
 .plan-month { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
 .plan-month .form-label { margin: 0; white-space: nowrap; }
 .plan-month-select { width: auto; min-width: 140px; padding-block: 6px; }
+
+/* Section Progress - one row per class, grouped by grade. */
+.section-progress table { width: 100%; }
+.section-grade-row td { background: var(--bg); border-top: 1px solid var(--line-2); }
+.section-bar-wrap { display: flex; align-items: center; gap: 10px; min-width: 190px; }
+.section-bar { flex: 1; height: 8px; border-radius: 999px; background: var(--bg); overflow: hidden; }
+.section-bar-fill { height: 100%; background: var(--green); border-radius: 999px; }
+.section-bar-behind { background: var(--warn); }
+.section-progress-note { margin-top: 12px; max-width: 78ch; }
+
+/* Teacher Progress - the note sits in the row it explains. */
+.teacher-progress table { width: 100%; }
+.teacher-note-cell { min-width: 210px; max-width: 300px; }
+.teacher-note-read { cursor: pointer; border-radius: 8px; padding: 4px 6px; margin: -4px -6px; }
+.teacher-note-read:hover { background: var(--bg); }
+.teacher-note-edit textarea { min-height: 64px; font-size: 13px; }
+.teacher-note-actions { display: flex; gap: 8px; margin-top: 6px; }
 .plan-title { font-size: 13px; font-weight: 700; color: var(--brand-700); }
 .plan-card .session-block { background: var(--page); }
 /* A section already on another plan: still clickable, to move it here. */
