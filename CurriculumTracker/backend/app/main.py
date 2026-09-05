@@ -144,6 +144,11 @@ def get_me(
     for s in staff_directory.subjects_for(user.email):
         if s.lower() not in [x.lower() for x in subjects]:
             subjects.append(s)
+    # ...and anything they are recorded as teaching in class_teachers, which
+    # may be a subject their profile does not name.
+    for s in crud.extra_subjects_for(db, user.email):
+        if s.lower() not in [x.lower() for x in subjects]:
+            subjects.append(s)
     # A third language is its own planner subject ("Hindi (R3)"), and
     # staff_roles only ever says "Hindi" - offer the levels to the teachers of
     # the base subject so they can file against them.
@@ -854,6 +859,35 @@ def delivery_report(
     cell is how far ahead or behind the plan that class is, and each grade
     opens into its sections."""
     return crud.delivery_report(db, current_user.email, current_user.role, branch)
+
+
+@app.post("/api/progress/teacher-note")
+def save_teacher_note(
+    req: schemas.TeacherNoteRequest,
+    db: Session = Depends(get_db),
+    current_user: auth.CurrentUser = Depends(auth.require_oversight),
+):
+    """Why a teacher is where they are - written by whoever oversees them."""
+    if not (req.section or "").strip():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="A note has to be against a section.")
+    return crud.save_teacher_note(db, req.subject, str(req.grade), req.section,
+                                  req.branch or None, req.note or "",
+                                  req.teacher_email or "",
+                                  current_user.email, current_user.name)
+
+
+@app.get("/api/progress/sections")
+def get_section_progress(
+    subject: str = Query(...),
+    branch: str = Query(""),
+    fresh: bool = Query(False),
+    db: Session = Depends(get_db),
+    current_user: auth.CurrentUser = Depends(auth.require_oversight),
+):
+    """One subject, every section on a campus, with the teachers who take it."""
+    return crud.section_progress(db, current_user.email, current_user.role,
+                                 subject, branch or None, fresh)
 
 
 @app.get("/api/progress/compare")
