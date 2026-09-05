@@ -58,6 +58,21 @@ def run_migrations():
     inspector = inspect(engine)
     existing_tables = set(inspector.get_table_names())
 
+    if "teacher_progress_notes" in existing_tables:
+        cols = {c["name"] for c in inspector.get_columns("teacher_progress_notes")}
+        if "section" not in cols:
+            # Notes were per teacher+grade and are now per class, so the old
+            # unique index would block the new shape. IF NOT EXISTS rather than
+            # a bare ALTER: two instances booting together both get here.
+            with engine.begin() as conn:
+                conn.execute(text(
+                    "ALTER TABLE teacher_progress_notes ADD COLUMN IF NOT EXISTS section VARCHAR(1)"
+                ))
+                conn.execute(text("DROP INDEX IF EXISTS ix_teacher_note_key"))
+                conn.execute(text(
+                    "ALTER TABLE teacher_progress_notes ALTER COLUMN teacher_email DROP NOT NULL"
+                ))
+
     if "pow_authors" in existing_tables:
         cols = {c["name"] for c in inspector.get_columns("pow_authors")}
         if "branch" not in cols:
