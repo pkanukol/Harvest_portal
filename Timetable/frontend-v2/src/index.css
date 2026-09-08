@@ -1,0 +1,389 @@
+*, *::before, *::after { box-sizing: border-box; }
+
+:root {
+  color-scheme: light;
+
+  /* Brand - Harvest blue (same as CurriculumTracker/AuditApp) */
+  --brand: #4BA3D3;
+  --brand-600: #3893C4;
+  --brand-700: #2A7BAD;
+  --brand-050: #EBF5FB;
+  --brand-100: #CFE7F6;
+  --brand-200: #A8D4EC;
+  --grad: linear-gradient(135deg, #6BB6DE 0%, #4BA3D3 45%, #2A7BAD 100%);
+
+  /* Semantic */
+  --green: #5A9E47; --green-bg: #EBF5E8;
+  --red: #B8272C;   --red-bg: #FBEAEA;
+  --warn: #E5A11E;  --warn-bg: #FBF1D5;
+
+  /* Neutrals */
+  --bg: #F5F6FA;
+  --bg-soft: #F8FAFC;
+  --card: #FFFFFF;
+  --border: #ECEEF3;
+  --line-2: #E2E5EC;
+  --grid-line: #C7CED8;
+  --ink: #1E293B;
+  --muted: #5B6472;
+  --ink-faint: #93A0B4;
+
+  --radius: 16px;
+  --radius-sm: 11px;
+  --shadow: 0 1px 2px rgba(16,24,40,.04), 0 6px 20px rgba(16,24,40,.06);
+  --shadow-lg: 0 10px 40px rgba(42,123,173,.18);
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 13px;
+  color: var(--ink);
+  background: var(--bg);
+}
+
+.app-shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-header {
+  padding: 1rem 1.5rem;
+  background: var(--card);
+  color: var(--ink);
+  border-bottom: 1px solid var(--border);
+}
+
+.app-header h1 {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--brand-700);
+}
+
+.app-main {
+  padding: 1.5rem;
+  max-width: 1100px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.app-tabs {
+  display: flex;
+  gap: 0.4rem;
+  padding: 0.6rem 1.5rem;
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+.app-tab {
+  padding: 0.45rem 0.9rem;
+  border: 1.5px solid var(--border);
+  border-radius: 20px;
+  background: var(--bg-soft);
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.app-tab:hover {
+  border-color: var(--brand-200);
+}
+
+.app-tab-active {
+  background: var(--brand-050);
+  border-color: var(--brand);
+  color: var(--brand-700);
+}
+
+.error-text {
+  color: var(--red);
+}
+
+button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.5rem 0.9rem;
+  border-radius: var(--radius-sm);
+  font: inherit;
+  font-weight: 600;
+  font-size: 0.85rem;
+  border: none;
+  cursor: pointer;
+  background: var(--grad);
+  color: #fff;
+  transition: opacity 0.15s, transform 0.1s;
+}
+
+button:active {
+  transform: scale(0.98);
+}
+
+button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+button.secondary,
+.no-print button[disabled] {
+  background: var(--card);
+  color: var(--ink);
+  border: 1.5px solid var(--border);
+}
+
+button.link-btn {
+  display: inline;
+  padding: 0;
+  margin-right: 0.6rem;
+  border-radius: 0;
+  background: none;
+  color: var(--brand-700);
+  font-weight: 600;
+  font-size: 0.8rem;
+  text-decoration: underline;
+}
+
+button.link-btn:disabled {
+  background: none;
+}
+
+button.link-btn.danger {
+  color: var(--red);
+}
+
+select,
+input[type="text"],
+input[type="date"],
+input[type="email"],
+input[type="password"] {
+  font: inherit;
+  padding: 0.35rem 0.55rem;
+  border-radius: var(--radius-sm);
+  border: 1.5px solid var(--border);
+  background: var(--card);
+  color: var(--ink);
+}
+
+select:focus,
+input:focus {
+  outline: none;
+  border-color: var(--brand);
+}
+
+table {
+  border-collapse: collapse;
+  margin-top: 0.5rem;
+  background: var(--card);
+  color: var(--ink);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+th,
+td {
+  border: 1px solid var(--grid-line);
+  padding: 0.4rem 0.6rem;
+  text-align: left;
+  background: var(--card);
+  color: var(--ink);
+}
+
+th {
+  background: var(--brand-050);
+  color: var(--brand-700);
+}
+
+td.break-cell {
+  background: var(--bg-soft);
+  color: var(--ink-faint);
+  text-align: center;
+}
+
+td.manual-cell {
+  background: var(--warn-bg);
+  color: var(--ink);
+}
+
+td.zero-cell,
+th.zero-cell {
+  background: var(--brand-100);
+  color: var(--brand-700);
+  text-align: center;
+  font-weight: 600;
+}
+
+.cell-pair {
+  padding-bottom: 0.25rem;
+  margin-bottom: 0.25rem;
+  border-bottom: 1px dashed var(--border);
+}
+
+.cell-pair:last-of-type {
+  border-bottom: none;
+}
+
+.cell-pair select {
+  max-width: 8rem;
+}
+
+.cell-pair-row {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  flex-wrap: wrap;
+}
+
+button.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  border-radius: 999px;
+  background: var(--card);
+  color: var(--ink-faint);
+  border: 1.5px solid var(--border);
+  font-size: 0.95rem;
+  line-height: 1;
+  flex: none;
+}
+
+button.icon-btn:hover {
+  background: var(--brand-050);
+  color: var(--brand-700);
+  border-color: var(--brand);
+}
+
+button.icon-btn.danger:hover {
+  background: var(--red-bg);
+  color: var(--red);
+  border-color: var(--red);
+}
+
+td.editable-cell {
+  cursor: pointer;
+}
+
+td.editable-cell:hover {
+  background: var(--brand-050);
+}
+
+td.editing-cell {
+  background: var(--warn-bg);
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(30, 41, 59, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.modal-panel {
+  background: var(--card);
+  color: var(--ink);
+  padding: 1.5rem;
+  border-radius: var(--radius);
+  max-width: 90vw;
+  max-height: 85vh;
+  overflow: auto;
+  box-shadow: var(--shadow-lg);
+}
+
+@media print {
+  .app-header,
+  .app-tabs,
+  .no-print {
+    display: none !important;
+  }
+}
+
+/* ── Sign-in screen (Project B email+password auth) ─────────────────────── */
+.auth-screen {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background: var(--bg);
+  color: var(--muted);
+}
+
+.auth-card {
+  width: 320px;
+  max-width: 100%;
+  padding: 1.5rem;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+.auth-card h1 {
+  margin: 0;
+  font-size: 1.1rem;
+  color: var(--ink);
+}
+
+.auth-hint {
+  margin: 0.35rem 0 1.1rem;
+  color: var(--muted);
+}
+
+.auth-card .field-label {
+  display: block;
+  margin-bottom: 0.25rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.auth-card input {
+  width: 100%;
+  margin-bottom: 0.9rem;
+}
+
+.auth-card button {
+  width: 100%;
+  margin-top: 0.25rem;
+}
+
+/* Signed-in identity + sign out, in the app header */
+.app-user {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 0.5rem;
+  color: var(--muted);
+}
+
+.access-badge {
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.85em;
+  font-weight: 600;
+  background: var(--brand-050);
+  color: var(--brand-700);
+  border: 1px solid var(--brand-100);
+}
+
+.auth-password {
+  margin-top: 0.9rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--border);
+}
+
+/* The "use email and password instead" toggle sits under the Google button */
+.auth-card .link-btn {
+  margin-top: 0.75rem;
+}
+
