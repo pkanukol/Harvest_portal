@@ -4,11 +4,14 @@ function fmtDate(iso) {
   return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
 }
 
-export default function POWCard({ card, onClick }) {
+// isSME only decides what the button on a waiting card is CALLED - the page it
+// opens decides what may actually be done there, from the server's own flags.
+export default function POWCard({ card, onClick, isSME = false }) {
   const badgeClass =
     card.status === "Closed" ? "badge-approved" :
     card.status === "Reviewed" ? "badge-reviewed" :
-    card.status === "To be Reviewed" ? "badge-pending" : "badge-created";
+    card.status === "To be Reviewed" ? "badge-pending" :
+    card.awaiting_approval ? "badge-waiting" : "badge-created";
 
   return (
     <div className={`pow-card${card.tbs_mom_missing ? " pow-card-warning" : ""}`} onClick={() => onClick(card.id)}>
@@ -20,6 +23,22 @@ export default function POWCard({ card, onClick }) {
         <div className="pow-card-meta">{fmtDate(card.week_start)} – {fmtDate(card.week_end)}</div>
         <div className="pow-card-topic">{card.topic || "—"}</div>
         {card.tbs_mom_missing && <div className="pow-card-warning-text">⚠ TBS MOM not filled in</div>}
+        {card.awaiting_approval && (
+          <>
+            <div className="pow-card-waiting-text">
+              ⏳ Implementation opens once the SME approves this plan
+            </div>
+            {/* The card already opens the POW; this says so out loud, because a
+                plan waiting on somebody is the one card that needs an
+                instruction rather than just a status. */}
+            <button
+              className="btn btn-primary btn-sm pow-card-action"
+              onClick={(e) => { e.stopPropagation(); onClick(card.id); }}
+            >
+              {isSME ? "Approve plan" : "Edit plan"}
+            </button>
+          </>
+        )}
       </div>
     </div>
   );
