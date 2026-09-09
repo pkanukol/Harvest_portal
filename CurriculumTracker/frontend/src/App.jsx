@@ -157,7 +157,12 @@ export default function App() {
     }
     try {
       const res = await api.getPow(token, id);
-      if (isPastWeek(res.pow.week_start)) {
+      // A plan still waiting on the SME never opens the implementation form,
+      // however old its week is - there is nothing to implement against yet.
+      if (res.pow.status === "created") {
+        setCurrentPowId(id);
+        setView("pow-view");
+      } else if (isPastWeek(res.pow.week_start)) {
         setImplPrefillPow(res.pow);
         setView("impl-form");
       } else {
@@ -231,7 +236,28 @@ export default function App() {
             )}
 
             {view === "pow-view" && currentPowId && (
-              <POWView token={token} user={user} powId={currentPowId} onBack={goDashboard} onDone={goDashboard} />
+              <POWView
+                token={token}
+                user={user}
+                powId={currentPowId}
+                onBack={goDashboard}
+                onDone={goDashboard}
+                onEditPlan={(p) => { setImplPrefillPow(p); setView("edit-plan"); }}
+              />
+            )}
+
+            {/* Same form as a new POW, rebuilt from the saved one - a plan is
+                revised the way it was written. */}
+            {view === "edit-plan" && implPrefillPow && (
+              <POWForm
+                token={token}
+                user={user}
+                mode="edit"
+                prefillPow={implPrefillPow}
+                branch={branch}
+                onDone={goDashboard}
+                onBack={goDashboard}
+              />
             )}
 
             {view === "planner-upload" && canUploadCurriculum && (
