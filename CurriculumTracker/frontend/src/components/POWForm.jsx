@@ -1,12 +1,15 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
 import { GRADES } from "../grades";
 import { nextWeekDates, toISO, fmtDate, MONTHS } from "../dateUtils";
 
 // mode: "new" (current/future week, no implementation section) |
+// "edit" (revise a plan the SME has not approved yet - same form, same fields,
+//   rebuilt from the saved POW and saved back over it) |
 // "impl_only" (past-week fill-in, only the Impl A-F + notes section, everything else locked)
 export default function POWForm({ token, user, mode, prefillPow, branch = "", onDone, onBack }) {
   const isImplOnly = mode === "impl_only";
+  const isEdit = mode === "edit";
   // TBS MOM is filled in after the final save, so it only shows once this POW
   // has been finalised (see POWView for the same rule).
   const isFinalised = ["final", "reviewed", "approved"].includes(prefillPow?.status);
@@ -18,15 +21,17 @@ export default function POWForm({ token, user, mode, prefillPow, branch = "", on
   // two (Science and English, Maths and Computer Science) — so the subject is
   // a picker for them and a locked field for everyone else.
   const mySubjects = (user.subjects && user.subjects.length ? user.subjects : [user.subject]).filter(Boolean);
-  const [subject, setSubject] = useState(isImplOnly ? (prefillPow?.subject || user.subject) : (user.subject || mySubjects[0] || ""));
+  const [subject, setSubject] = useState(
+    isImplOnly || isEdit ? (prefillPow?.subject || user.subject) : (user.subject || mySubjects[0] || ""),
+  );
   const hasManySubjects = mySubjects.length > 1;
 
-  const [grade, setGrade] = useState(isImplOnly ? (prefillPow?.grade || "") : "");
+  const [grade, setGrade] = useState(isImplOnly || isEdit ? (prefillPow?.grade || "") : "");
   const [month, setMonth] = useState(new Date().toLocaleString("en-US", { month: "long" }));
   const [rows, setRows] = useState([]); // full planner hierarchy rows for subject+grade
   const [stream, setStream] = useState("");
   const [discipline, setDiscipline] = useState("");
-  const [chapter, setChapter] = useState(isImplOnly ? (prefillPow?.topic || "") : "");
+  const [chapter, setChapter] = useState(isImplOnly || isEdit ? (prefillPow?.topic || "") : "");
   const [topicPick, setTopicPick] = useState("");
   const [subtopicPick, setSubtopicPick] = useState("");
 
@@ -106,6 +111,51 @@ export default function POWForm({ token, user, mode, prefillPow, branch = "", on
     () => (hasStreams && stream ? rows.filter((r) => r.subject === stream) : hasStreams ? [] : rows),
     [rows, hasStreams, stream],
   );
+
+  // Rebuilding a saved plan for editing. The pickers above - stream, month,
+  // discipline - are what scope every dropdown below them, so they have to be
+  // put back from the planner row the POW's chapter came from before the
+  // sessions can be shown against them. Once only: after this the teacher is
+  // driving the form as normal.
+  const hydrated = useRef(false);
+  useEffect(() => {
+    if (!isEdit || hydrated.current || rows.length === 0) return;
+    const saved = prefillPow?.sessions || [];
+    const chapterName = (saved[0] || {}).chapter || prefillPow?.topic || "";
+    const row = rows.find((r) => r.chapter_name === chapterName);
+    if (row) {
+      if (streams.length > 1) setStream(row.subject || "");
+      if (row.month) setMonth(row.month);
+      setDiscipline(row.strands_of_language || row.discipline || "");
+    }
+    setChapter(chapterName);
+
+    // Sessions come back flat, each naming its sections; the form works in
+    // plans, so sessions sharing a set of sections go back into one.
+    const groups = new Map();
+    saved.forEach((x) => {
+      const letters = [...(x.sections || [])].sort();
+      const key = letters.join(",");
+      if (!groups.has(key)) groups.set(key, { sections: letters, sessions: [], month: "" });
+      groups.get(key).sessions.push({
+        session_no: String(x.session_no || ""),
+        chapter: x.chapter || chapterName,
+        topic: x.topic || "", subtopic: x.subtopic || "",
+        cw: x.cw || "", binder: x.binder || "",
+        activity: x.activity || "", homework: x.homework || "",
+        lp_link: x.lp_link || "", learning_outcomes: x.learning_outcomes || "",
+      });
+    });
+    const monthOf = (name) => (rows.find((r) => r.chapter_name === name) || {}).month || "";
+    const built = [...groups.values()].map((p) => {
+      // A plan left on an earlier month's chapter keeps that month, so its own
+      // chapter and session-number lists still offer the right things.
+      const own = monthOf((p.sessions[0] || {}).chapter);
+      return { ...p, month: own && own !== (row || {}).month ? own : "" };
+    });
+    if (built.length) setPlans(built);
+    hydrated.current = true;
+  }, [isEdit, rows, streams]);
 
   // English and Hindi sheets carry "Strands of Language" in place of the
   // Discipline column every other subject uses. Same position in the
@@ -455,8 +505,7 @@ export default function POWForm({ token, user, mode, prefillPow, branch = "", on
       plans.flatMap((p) => p.sessions).map((x) => String(x.session_no || "").trim()).filter(Boolean),
     )).join(", ");
 
-    try {
-      await api.createPow(token, {
+    const payload = {
         // The stream when the subject is split into them (Physics rather than
         // Science), so the POW records what was actually taught. The dashboard
         // and progress screens still ask by profile subject and match the
@@ -464,8 +513,8 @@ export default function POWForm({ token, user, mode, prefillPow, branch = "", on
         branch,
         subject: stream || subject,
         grade,
-        week_start: toISO(mon),
-        week_end: toISO(fri),
+        week_start: isEdit ? prefillPow.week_start : toISO(mon),
+        week_end: isEdit ? prefillPow.week_end : toISO(fri),
         topic: primaryChapter,
         subtopic: [primaryTopic, primarySubtopic].filter(Boolean).join(" — "),
         lp_session_num: lpSessionNum,
@@ -486,7 +535,11 @@ export default function POWForm({ token, user, mode, prefillPow, branch = "", on
           activity: x.activity || "", homework: x.homework || "",
           lp_link: x.lp_link || "", learning_outcomes: x.learning_outcomes || "",
         }))),
-      });
+    };
+
+    try {
+      if (isEdit) await api.updatePowPlan(token, prefillPow.id, payload);
+      else await api.createPow(token, payload);
       onDone();
     } catch (err) {
       setError(err.message);
@@ -499,8 +552,17 @@ export default function POWForm({ token, user, mode, prefillPow, branch = "", on
     <div>
       <button className="back-link" onClick={onBack}>← Back</button>
       <div className="section-title">
-        {isImplOnly ? "Add Implementation — Previous Week" : "New Plan of Work"}
+        {isImplOnly ? "Add Implementation — Previous Week"
+          : isEdit ? "Edit Plan of Work" : "New Plan of Work"}
       </div>
+
+      {isEdit && (
+        <div className="hint-text">
+          Week: {fmtDate(prefillPow.week_start)} – {fmtDate(prefillPow.week_end)}. This plan is
+          still with the SME, so you can change it. Once she approves it, it is fixed and
+          implementation opens.
+        </div>
+      )}
 
       {isImplOnly && (
         <div className="hint-text">
@@ -516,7 +578,7 @@ export default function POWForm({ token, user, mode, prefillPow, branch = "", on
             <div className="form-row">
               <div className="form-group">
                 <label className="form-label">Subject</label>
-                {hasManySubjects ? (
+                {hasManySubjects && !isEdit ? (
                   <select
                     className="form-control"
                     value={subject}
@@ -530,10 +592,16 @@ export default function POWForm({ token, user, mode, prefillPow, branch = "", on
               </div>
               <div className="form-group">
                 <label className="form-label">Grade</label>
-                <select className="form-control" value={grade} onChange={(e) => setGrade(e.target.value)}>
-                  <option value="">Select a grade…</option>
-                  {GRADES.map((g) => <option key={g} value={g}>Grade {g}</option>)}
-                </select>
+                {/* Fixed while editing: the POW's sessions, sections and
+                    section plans all belong to this grade. */}
+                {isEdit ? (
+                  <input className="form-control readonly-field" value={`Grade ${grade}`} readOnly />
+                ) : (
+                  <select className="form-control" value={grade} onChange={(e) => setGrade(e.target.value)}>
+                    <option value="">Select a grade…</option>
+                    {GRADES.map((g) => <option key={g} value={g}>Grade {g}</option>)}
+                  </select>
+                )}
               </div>
             </div>
 
@@ -925,7 +993,8 @@ export default function POWForm({ token, user, mode, prefillPow, branch = "", on
 
         <div className="form-actions">
           <button type="submit" className="btn btn-primary" disabled={submitting}>
-            {isImplOnly ? (finalSave ? "Save Final" : "Save as Draft") : "Submit POW"}
+            {isImplOnly ? (finalSave ? "Save Final" : "Save as Draft")
+              : isEdit ? "Save Changes" : "Submit POW"}
           </button>
         </div>
       </form>
