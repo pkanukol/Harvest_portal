@@ -220,7 +220,7 @@ export default function Dashboard({ token, user, isReadOnlyViewer, isLeadership,
                 {!branch && teacherCards[0].branch ? ` · ${teacherCards[0].branch}` : ""}
               </div>
               <div className="cards-grid">
-                {teacherCards.map((c) => <POWCard key={c.id} card={c} onClick={onOpenPow} />)}
+                {teacherCards.map((c) => <POWCard key={c.id} card={c} onClick={onOpenPow} isSME={user.role === "SME"} />)}
               </div>
             </div>
           );
