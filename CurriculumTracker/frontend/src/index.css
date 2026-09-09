@@ -465,3 +465,21 @@ th { background: var(--bg); color: var(--muted); font-weight: 600; font-size: 11
 .report-ahead { color: var(--green); background: var(--green-bg); }
 .report-behind { color: var(--red); background: var(--red-bg); }
 .report-legend { margin-top: 10px; }
+
+/* Where a POW stands in its lifecycle, said once at the top of the detail
+   page - a plan waiting on the SME looks different from one already agreed,
+   because what the reader may do next depends on it. */
+.pow-status-banner {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 4px;
+  border: 1px solid var(--green); background: var(--green-bg); color: var(--green);
+  border-radius: var(--radius); padding: 10px 14px; font-size: 12px; margin-bottom: 16px;
+}
+.pow-status-banner.pow-status-waiting {
+  border-color: var(--warn); background: var(--warn-bg); color: #8a6212;
+}
+
+/* A plan nobody has approved yet: amber like "To be Reviewed", since both are
+   a card waiting on somebody rather than a card in a settled state. */
+.badge-waiting { background: var(--warn-bg); color: #8a6212; }
+.pow-card-waiting-text { color: #8a6212; font-size: 10px; font-weight: 600; margin-top: 6px; }
+.pow-card-action { margin-top: 8px; }
