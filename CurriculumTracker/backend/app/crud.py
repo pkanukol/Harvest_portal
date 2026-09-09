@@ -15,7 +15,11 @@ IST_OFFSET = datetime.timedelta(hours=5, minutes=30)
 #   -> reviewed (SME has saved remarks, but not yet confirmed & closed)
 #   -> approved (SME confirmed & closed — see save_sme_review)
 STATUS_LABELS = {
-    "created": "Created",
+    # A POW is planned, approved, taught, finalised, reviewed, closed. The
+    # first gate is the SME's: nothing is implemented against a plan she has
+    # not signed off, and until she does the teacher may still change it.
+    "created": "Awaiting Plan Approval",
+    "plan_approved": "Plan Approved",
     "final": "To be Reviewed",
     "reviewed": "Reviewed",
     "approved": "Closed",
@@ -759,6 +763,10 @@ def _card_dict(p: models.PowEntry, teacher_map: dict) -> dict:
         # TBS MOM filled in — surfaced as a highlight on the dashboard card,
         # recomputed fresh on every load so it keeps nagging until fixed.
         "tbs_mom_missing": p.status in ("final", "reviewed", "approved") and not (p.tbs_mom or "").strip(),
+        # Still waiting on the SME, so nothing may be implemented against it -
+        # the card says so and offers the way in, rather than leaving a POW
+        # that simply refuses to open its implementation grid.
+        "awaiting_approval": p.status == PLAN_DRAFT_STATUS,
         "status": STATUS_LABELS.get(p.status, "Created"),
     }
 
@@ -1098,7 +1106,19 @@ def create_pow(db: Session, teacher_email: str, data) -> models.PowEntry:
     )
     db.add(pow_entry)
     db.flush()          # need the id before the children can point at it
+    _write_pow_children(db, pow_entry, data)
+    db.commit()
+    db.refresh(pow_entry)
+    return pow_entry
 
+
+def _write_pow_children(db: Session, pow_entry: models.PowEntry, data) -> None:
+    """The sessions of the week and where each section ends it.
+
+    Written from scratch every time, by create_pow and by update_pow_plan
+    alike: an edited plan can drop a session or move a section between plans,
+    and reconciling row by row would leave the orphans behind.
+    """
     for order, s in enumerate(getattr(data, "sessions", []) or []):
         db.add(models.PowSession(
             pow_id=pow_entry.id,
@@ -1140,9 +1160,73 @@ def create_pow(db: Session, teacher_email: str, data) -> models.PowEntry:
             subtopic=(getattr(s, "subtopic", "") or "").strip(),
         ))
 
+
+PLAN_FIELDS = (
+    "subject", "grade", "topic", "subtopic", "lp_session_num", "cw", "binder",
+    "activity", "homework", "cct_topic_yn", "cct_topic_text", "instructions",
+)
+
+
+def update_pow_plan(db: Session, pow_entry: models.PowEntry, data) -> models.PowEntry:
+    """Rewrite a plan that is still waiting on the SME.
+
+    Only what was planned changes - never the implementation columns, and never
+    the status: the POW stays 'created' until the SME approves it, however many
+    times its author revises it.
+    """
+    if pow_entry.status != PLAN_DRAFT_STATUS:
+        raise ValueError("This POW has already been approved, so its plan can no longer be changed.")
+
+    chosen = normalize_branch(getattr(data, "branch", "") or "")
+    if chosen in BRANCHES:
+        pow_entry.branch = chosen
+    for field in PLAN_FIELDS:
+        value = getattr(data, field, None)
+        if value is not None:
+            setattr(pow_entry, field, value)
+    pow_entry.cct_dashboard_updated = bool(getattr(data, "cct_dashboard_updated", False))
+    if getattr(data, "week_start", None):
+        pow_entry.week_start = datetime.date.fromisoformat(data.week_start)
+    if getattr(data, "week_end", None):
+        pow_entry.week_end = datetime.date.fromisoformat(data.week_end)
+
+    for child in list(pow_entry.sessions):
+        db.delete(child)
+    for child in list(pow_entry.section_plans):
+        db.delete(child)
+    db.flush()
+    _write_pow_children(db, pow_entry, data)
     db.commit()
     db.refresh(pow_entry)
     return pow_entry
+
+
+def approve_pow_plan(db: Session, pow_entry: models.PowEntry, sme_email: str,
+                     sme_name: str, remarks: Optional[str] = None) -> models.SmeReview:
+    """The SME signs off the plan, which opens implementation for every section.
+
+    Recorded on the POW's review row rather than a table of its own - it is the
+    same conversation as the review at the end, just its first half - and the
+    approval is stamped with a name so the sheet says who agreed to what."""
+    if pow_entry.status != PLAN_DRAFT_STATUS:
+        raise ValueError("This POW's plan has already been approved.")
+    if not (sme_name or "").strip():
+        raise ValueError("Please type your name to approve this plan.")
+
+    review = pow_entry.review
+    if not review:
+        review = models.SmeReview(pow_id=pow_entry.id, sme_email=sme_email)
+        db.add(review)
+    review.sme_email = sme_email
+    review.plan_approved = True
+    review.plan_approved_by = sme_name.strip()
+    review.plan_approved_at = datetime.datetime.utcnow()
+    if remarks is not None:
+        review.remarks = remarks
+    pow_entry.status = PLAN_APPROVED_STATUS
+    db.commit()
+    db.refresh(review)
+    return review
 
 
 def last_section_plans(db: Session, subject: str, grade: str,
@@ -1311,6 +1395,11 @@ def save_sme_review(db: Session, pow_entry: models.PowEntry, sme_email: str, dat
 
 FINALISED_STATUSES = ("final", "reviewed", "approved")
 
+# Before the SME approves it, a POW is still a draft plan: the author may
+# change it and nobody may record teaching against it.
+PLAN_DRAFT_STATUS = "created"
+PLAN_APPROVED_STATUS = "plan_approved"
+
 
 def teaches_pow_subject(user, pow_entry) -> bool:
     """Does this person teach the POW's subject at all? POWs are shared across
@@ -1326,9 +1415,29 @@ def teaches_pow_subject(user, pow_entry) -> bool:
 
 def can_edit_pow(user, pow_entry) -> bool:
     """Who may fill in a POW's IMPLEMENTATION: any teacher of that subject,
-    until Confirm Final Save locks it. Nobody edits what another teacher
-    planned — an SME reviews through remarks and Confirm & Close."""
-    return teaches_pow_subject(user, pow_entry) and pow_entry.status not in FINALISED_STATUSES
+    once the SME has approved the plan and until Confirm Final Save locks it.
+
+    The approval gate is deliberate — implementation is a record of teaching
+    against an agreed plan, so it cannot start while the plan itself may still
+    change. Nobody edits what another teacher planned; an SME reviews through
+    remarks, plan approval, and Confirm & Close."""
+    return teaches_pow_subject(user, pow_entry) and pow_entry.status == PLAN_APPROVED_STATUS
+
+
+def can_edit_plan(user, pow_entry) -> bool:
+    """Who may change the PLAN itself: the teacher who wrote it, for as long as
+    it is waiting on the SME. Author-scoped rather than subject-scoped, unlike
+    the implementation - a POW is shared so every section teacher can record
+    their own week, not so they can rewrite each other's planning."""
+    return (
+        pow_entry.status == PLAN_DRAFT_STATUS
+        and (user.email or "").lower() == (pow_entry.teacher_email or "").lower()
+    )
+
+
+def can_approve_plan(user, pow_entry) -> bool:
+    """The SME of the subject, while the plan is still waiting."""
+    return user.role == "SME" and pow_entry.status == PLAN_DRAFT_STATUS
 
 
 def can_edit_tbs_mom(user, pow_entry) -> bool:
