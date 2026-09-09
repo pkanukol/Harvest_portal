@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "../api";
 import { fmtDate } from "../dateUtils";
 
-export default function POWView({ token, user, powId, onBack, onDone }) {
+export default function POWView({ token, user, powId, onBack, onDone, onEditPlan }) {
   const [pow, setPow] = useState(null);
   const [review, setReview] = useState(null);
   const [error, setError] = useState("");
@@ -27,6 +27,7 @@ export default function POWView({ token, user, powId, onBack, onDone }) {
   const [cctDiscussed, setCctDiscussed] = useState(false);
   const [approvedClosed, setApprovedClosed] = useState(false);
   const [smeName, setSmeName] = useState(user.name || "");
+  const [approving, setApproving] = useState(false);
   const [confirmedDate, setConfirmedDate] = useState(() => new Date().toISOString().slice(0, 10));
 
   useEffect(() => {
@@ -75,6 +76,11 @@ export default function POWView({ token, user, powId, onBack, onDone }) {
   // work out on its own.
   const canEdit = Boolean(pow.can_edit);
   const canEditTbsMom = Boolean(pow.can_edit_tbs_mom);
+  // The first gate. A POW is a proposal until the SME approves it: its author
+  // may still change it, and nobody may record teaching against it.
+  const awaitingApproval = pow.status === "created";
+  const canEditPlan = Boolean(pow.can_edit_plan);
+  const canApprovePlan = Boolean(pow.can_approve_plan);
   // Who may fill in the implementation, from the server (crud.can_edit_pow):
   // role==Teacher was too narrow — HODs, Coordinators and SMEs who teach their
   // own classes were locked out of their own POWs. This does NOT let an SME
@@ -136,6 +142,23 @@ export default function POWView({ token, user, powId, onBack, onDone }) {
       setError(err.message);
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function approvePlan() {
+    if (!smeName.trim()) {
+      setError("Please enter your name to approve this plan.");
+      return;
+    }
+    setApproving(true);
+    setError("");
+    try {
+      await api.approvePowPlan(token, powId, { sme_name: smeName, remarks: smeRemarks });
+      onDone();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setApproving(false);
     }
   }
 
@@ -219,6 +242,21 @@ export default function POWView({ token, user, powId, onBack, onDone }) {
       <div className="section-title">Plan of Work — Details</div>
       {error && <div className="form-error">{error}</div>}
 
+      <div className={`pow-status-banner${awaitingApproval ? " pow-status-waiting" : ""}`}>
+        <strong>{pow.status_label || "Created"}</strong>
+        {awaitingApproval
+          ? " — the SME has not approved this plan yet, so implementation is not open."
+          : review?.plan_approved_by
+            ? ` — plan approved by ${review.plan_approved_by}.`
+            : ""}
+        {canEditPlan && (
+          <button className="btn btn-ghost btn-sm" style={{ marginLeft: 12 }}
+                  onClick={() => onEditPlan && onEditPlan(pow)}>
+            Edit this plan
+          </button>
+        )}
+      </div>
+
       <table className="kv-table">
         <tbody>
           <tr><th>Week</th><td>{fmtDate(pow.week_start)} – {fmtDate(pow.week_end)}</td></tr>
@@ -247,10 +285,39 @@ export default function POWView({ token, user, powId, onBack, onDone }) {
         </tbody>
       </table>
 
+      {canApprovePlan && (
+        <>
+          <div className="section-title">Approve Plan</div>
+          <div className="hint-text">
+            Approving fixes this plan and opens implementation for every section. Until then its
+            teacher can still change it, so remarks left now are a request for changes.
+          </div>
+          <div className="form-row">
+            <div className="form-group">
+              <label className="form-label">Your Name</label>
+              <input className="form-control" value={smeName} onChange={(e) => setSmeName(e.target.value)} />
+            </div>
+          </div>
+          <div className="form-group">
+            <label className="form-label">Remarks (optional)</label>
+            <textarea className="form-control" value={smeRemarks} onChange={(e) => setSmeRemarks(e.target.value)} />
+          </div>
+          <div className="form-actions">
+            <button className="btn btn-ghost" disabled={saving || approving} onClick={saveSmeRemarksOnly}>
+              Save Remarks Only
+            </button>
+            <button className="btn btn-primary" disabled={saving || approving} onClick={approvePlan}>
+              Approve Plan
+            </button>
+          </div>
+        </>
+      )}
+
       <div className="section-title">Implementation</div>
       <div className="hint-text">
-        Sections sharing a plan are together; each session is recorded per section, since sections
-        finish on different days.
+        {awaitingApproval
+          ? "Nothing can be recorded here until the SME approves the plan above."
+          : "Sections sharing a plan are together; each session is recorded per section, since sections finish on different days."}
       </div>
 
       {sessionGroups.map((group, gi) => (
@@ -381,7 +448,7 @@ export default function POWView({ token, user, powId, onBack, onDone }) {
 
       {/* SME-only review block — gated strictly on role === "SME", never on
           isReadOnlyViewer, so Leadership can never see or touch this. */}
-      {isSME && (
+      {isSME && !awaitingApproval && (
         <>
           <div className="section-title">SME Review</div>
           {cctYes && (
