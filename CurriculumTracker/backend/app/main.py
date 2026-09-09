@@ -5,6 +5,7 @@ from fastapi import FastAPI, BackgroundTasks, Depends, HTTPException, Request, s
 from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 
 from .config import settings
 from .database import engine, Base, get_db, run_migrations
@@ -687,8 +688,16 @@ def get_pow(
             # every field (exactly what happened).
             "can_edit": crud.can_edit_pow(_user, pow_entry),
             "can_edit_tbs_mom": crud.can_edit_tbs_mom(_user, pow_entry),
+            # The plan gate: its author may still revise it, the SME may
+            # approve it, and until she does nothing is implemented.
+            "can_edit_plan": crud.can_edit_plan(_user, pow_entry),
+            "can_approve_plan": crud.can_approve_plan(_user, pow_entry),
+            "status_label": crud.STATUS_LABELS.get(pow_entry.status, pow_entry.status),
         },
         "review": ({
+            "plan_approved": bool(review.plan_approved),
+            "plan_approved_by": review.plan_approved_by,
+            "plan_approved_at": review.plan_approved_at.isoformat() if review.plan_approved_at else None,
             "sme_email": review.sme_email, "cct_discussed": review.cct_discussed,
             "approved_closed": review.approved_closed, "remarks": review.remarks,
             "sme_name": review.sme_name, "confirmed_date": review.confirmed_date.isoformat() if review.confirmed_date else None,
@@ -697,10 +706,19 @@ def get_pow(
 
 
 def _notify_pow(background: BackgroundTasks, db: Session, pow_entry: models.PowEntry,
-                teacher_name: str, action: str) -> None:
+                teacher_name: str, action: str, notify_teacher: bool = False) -> None:
     """Queued as a background task so email latency never delays the save, and
     a Resend outage can't fail the request."""
     recipients = crud.get_pow_notification_recipients(db, pow_entry.teacher_email, pow_entry.subject)
+    if notify_teacher:
+        # An approval is news for the author above anyone else: it is what
+        # tells them they may start recording implementation.
+        author = db.query(models.User).filter(
+            func.lower(models.User.email) == (pow_entry.teacher_email or "").lower()
+        ).first()
+        if author and author.email:
+            recipients.append({"email": author.email, "name": author.name or author.email,
+                               "why": "POW author"})
     background.add_task(
         email_service_resend.send_pow_notification,
         recipients=recipients,
@@ -731,6 +749,55 @@ def create_pow(
     return {"success": True, "id": pow_entry.id}
 
 
+@app.put("/api/pow/{pow_id}")
+def update_pow_plan(
+    pow_id: int,
+    req: schemas.PowCreateRequest,
+    background: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user: auth.CurrentUser = Depends(auth.get_current_user),
+):
+    """Revise a plan the SME has not approved yet. Author-only - see
+    crud.can_edit_plan for why this is narrower than implementation."""
+    pow_entry = crud.get_pow(db, pow_id)
+    if not pow_entry:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="POW not found")
+    if not crud.can_edit_plan(current_user, pow_entry):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Only the teacher who wrote this POW can change its plan, and only "
+                "until the SME approves it."
+            ),
+        )
+    try:
+        crud.update_pow_plan(db, pow_entry, req)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    _notify_pow(background, db, pow_entry, current_user.name, "updated")
+    return {"success": True, "id": pow_entry.id}
+
+
+@app.post("/api/pow/{pow_id}/approve-plan")
+def approve_pow_plan(
+    pow_id: int,
+    req: schemas.PlanApprovalRequest,
+    background: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user: auth.CurrentUser = Depends(auth.require_sme),
+):
+    """The SME approves the plan, which is what opens implementation."""
+    pow_entry = crud.get_pow(db, pow_id)
+    if not pow_entry:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="POW not found")
+    try:
+        crud.approve_pow_plan(db, pow_entry, current_user.email, req.sme_name, req.remarks)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    _notify_pow(background, db, pow_entry, current_user.name, "plan approved", notify_teacher=True)
+    return {"success": True}
+
+
 @app.patch("/api/pow/{pow_id}/implementation")
 def update_pow_implementation(
     pow_id: int,
@@ -754,6 +821,14 @@ def update_pow_implementation(
             req.correction_done, req.instructions, req.teacher_remarks,
         ])
         if not (tbs_mom_only and crud.can_edit_tbs_mom(current_user, pow_entry)):
+            if pow_entry.status == crud.PLAN_DRAFT_STATUS:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=(
+                        "The SME has not approved this plan yet, so implementation cannot "
+                        "be recorded against it."
+                    ),
+                )
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="This POW is finalised — only its TBS MOM can still be updated, and only by a teacher of this subject.",
