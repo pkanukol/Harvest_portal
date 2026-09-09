@@ -86,7 +86,7 @@ class PowEntry(Base):
     correction_f_date = Column(Date, nullable=True)
     instructions = Column(Text, nullable=True)
     teacher_remarks = Column(Text, nullable=True)
-    status = Column(String, nullable=False, default="created", index=True)  # created | final | reviewed | approved — see crud.STATUS_LABELS
+    status = Column(String, nullable=False, default="created", index=True)  # created | plan_approved | final | reviewed | approved — see crud.STATUS_LABELS
     tbs_mom = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
@@ -217,6 +217,12 @@ class SmeReview(Base):
     remarks = Column(Text, nullable=True)
     sme_name = Column(String, nullable=True)     # typed by the SME as part of confirming/closing the POW
     confirmed_date = Column(Date, nullable=True)  # the date she confirmed & closed it, not just when the row was saved
+    # The FIRST gate, before any teaching happens: the SME approves the plan
+    # itself. Until this the teacher may still change what they planned, and
+    # no implementation may be recorded against it.
+    plan_approved = Column(Boolean, default=False)
+    plan_approved_by = Column(String, nullable=True)   # the SME's typed name
+    plan_approved_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
 
