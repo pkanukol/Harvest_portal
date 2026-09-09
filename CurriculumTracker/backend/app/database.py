@@ -73,6 +73,22 @@ def run_migrations():
                     "ALTER TABLE teacher_progress_notes ALTER COLUMN teacher_email DROP NOT NULL"
                 ))
 
+    if "sme_reviews" in existing_tables:
+        cols = {c["name"] for c in inspector.get_columns("sme_reviews")}
+        # The plan-approval gate: the SME signs off what the teacher planned
+        # before any implementation may be recorded against it.
+        if "plan_approved" not in cols:
+            with engine.begin() as conn:
+                conn.execute(text(
+                    "ALTER TABLE sme_reviews ADD COLUMN IF NOT EXISTS plan_approved BOOLEAN DEFAULT FALSE"
+                ))
+                conn.execute(text(
+                    "ALTER TABLE sme_reviews ADD COLUMN IF NOT EXISTS plan_approved_by VARCHAR"
+                ))
+                conn.execute(text(
+                    "ALTER TABLE sme_reviews ADD COLUMN IF NOT EXISTS plan_approved_at TIMESTAMP"
+                ))
+
     if "pow_authors" in existing_tables:
         cols = {c["name"] for c in inspector.get_columns("pow_authors")}
         if "branch" not in cols:
