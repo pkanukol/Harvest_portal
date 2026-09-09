@@ -227,6 +227,15 @@ export const api = {
 
   createPow: (token, payload) => request("/pow", { method: "POST", token, body: payload }),
 
+  // Revise a plan the SME has not approved yet - author only, see
+  // crud.can_edit_plan.
+  updatePowPlan: (token, id, payload) =>
+    request(`/pow/${id}`, { method: "PUT", token, body: payload }),
+
+  // The SME's sign-off on the plan itself. This is what opens implementation.
+  approvePowPlan: (token, id, payload) =>
+    request(`/pow/${id}/approve-plan`, { method: "POST", token, body: payload }),
+
   updatePowImplementation: (token, id, payload) =>
     request(`/pow/${id}/implementation`, { method: "PATCH", token, body: payload }),
 
