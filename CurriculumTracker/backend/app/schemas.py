@@ -107,6 +107,10 @@ class PowCardOut(BaseModel):
     topic: str
     status: str
     tbs_mom_missing: bool
+    # Declared, not just returned by crud: an undeclared field is silently
+    # dropped by the response model, which is how can_mark_coverage went
+    # missing once already.
+    awaiting_approval: bool = False
 
 
 class TeacherOut(BaseModel):
@@ -245,6 +249,14 @@ class PowCreateRequest(BaseModel):
     # older clients; when sessions are sent they are what counts.
     sessions: List[PowSessionIn] = []
     section_plans: List[PowSectionPlanIn] = []
+
+
+class PlanApprovalRequest(BaseModel):
+    """The SME's sign-off on the plan itself, before any teaching is recorded
+    against it. Her typed name is required - the approval is a signature, the
+    same way Confirm & Close is at the other end."""
+    sme_name: str
+    remarks: Optional[str] = None
 
 
 class SessionImplIn(BaseModel):
