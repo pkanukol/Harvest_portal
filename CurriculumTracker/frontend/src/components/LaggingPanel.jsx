@@ -1,12 +1,17 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
 import { fmtDate } from "../dateUtils";
 
 /**
  * Curriculum-lag overview on the dashboard, for SMEs/HODs and leadership.
  *
+ * One row per CLASS - subject, grade, campus - with the teachers assigned to it
+ * named alongside. The curriculum belongs to the class, not to whoever happens
+ * to file the POW, so a grade that is eight sessions behind says so once rather
+ * than once per teacher.
+ *
  * "Behind" means the planner schedules more sessions up to and including this
- * month than the teacher's POWs have reached. Scoped to whoever the viewer
+ * month than any POW for that class has reached. Scoped to whoever the viewer
  * already oversees: an SME sees their mapped teachers, leadership the school.
  */
 export default function LaggingPanel({ token, branch = "", onOpenTeacher }) {
@@ -14,6 +19,11 @@ export default function LaggingPanel({ token, branch = "", onOpenTeacher }) {
   const [error, setError] = useState("");
   const [showAll, setShowAll] = useState(false);
   const [showMissing, setShowMissing] = useState(false);
+  // Narrowing 109 classes down to the one being discussed. No campus filter
+  // here on purpose - the header's campus selector already scopes the fetch,
+  // and a second one in the panel could only disagree with it.
+  const [subjectFilter, setSubjectFilter] = useState("");
+  const [gradeFilter, setGradeFilter] = useState("");
   // Starts collapsed on every page load, whatever it was left as. This report
   // is the heaviest read in the app — it compares every teacher's POWs against
   // the whole planner — and an expanded panel used to fire it during the
@@ -31,10 +41,25 @@ export default function LaggingPanel({ token, branch = "", onOpenTeacher }) {
   // below it always describe the same set of teachers.
   useEffect(() => { setData(null); }, [branch]);
 
+  // A subject that vanished with the campus shouldn't stay selected and hide
+  // every row.
+  useEffect(() => { setSubjectFilter(""); setGradeFilter(""); }, [branch]);
+
   useEffect(() => {
     if (!open || data) return;
     api.getLagging(token, branch).then(setData).catch((err) => setError(err.message));
   }, [token, open, data, branch]);
+
+  // Declared before any early return - hooks can't be called conditionally.
+  const subjects = useMemo(
+    () => [...new Set((data?.rows || []).map((r) => r.subject))].sort(),
+    [data],
+  );
+  const grades = useMemo(
+    () => [...new Set((data?.rows || []).map((r) => String(r.grade)))]
+      .sort((a, b) => Number(a) - Number(b)),
+    [data],
+  );
 
   if (error) return <div className="form-error">{error}</div>;
 
@@ -55,7 +80,14 @@ export default function LaggingPanel({ token, branch = "", onOpenTeacher }) {
   if (!data) return <div className="loading-spinner">Checking curriculum progress…</div>;
 
   const behind = data.rows.filter((r) => r.status === "behind");
-  const visible = showAll ? data.rows : behind;
+  // Every subject+grade is expected to carry at least one POW, so a class with
+  // none is counted separately - it is a different problem from running late.
+  const noPow = data.rows.filter((r) => r.no_pow_yet);
+  const matches = (r) =>
+    (!subjectFilter || r.subject === subjectFilter)
+    && (!gradeFilter || String(r.grade) === gradeFilter);
+  const visible = (showAll ? data.rows : behind).filter(matches);
+  const filtered = Boolean(subjectFilter || gradeFilter);
 
   return (
     <div className="lag-panel">
@@ -70,11 +102,18 @@ export default function LaggingPanel({ token, branch = "", onOpenTeacher }) {
           <span className="lag-summary">
             {behind.length === 0
               ? "all on track"
-              : `${behind.length} ${behind.length === 1 ? "class" : "classes"} behind`}
+              : `${behind.length} ${behind.length === 1 ? "class" : "classes"} behind`
+                + (noPow.length ? ` · ${noPow.length} with no POW` : "")}
           </span>
         </button>
         {open && (
           <div className="lag-actions">
+            {filtered && (
+              <button className="btn btn-ghost btn-sm"
+                      onClick={() => { setSubjectFilter(""); setGradeFilter(""); }}>
+                Clear filter
+              </button>
+            )}
             {data.rows.length > behind.length && (
               <button className="btn btn-ghost btn-sm" onClick={() => setShowAll(!showAll)}>
                 {showAll ? "Only lagging" : `Show all ${data.rows.length}`}
@@ -89,8 +128,9 @@ export default function LaggingPanel({ token, branch = "", onOpenTeacher }) {
 
       {!data.directory_available && (
         <div className="upload-note lag-coverage">
-          Class assignments couldn't be read from staff_roles, so this covers only classes that already have a
-          POW — a teacher who has submitted nothing for a class they teach won't appear here.
+          Class assignments couldn't be read from staff_roles, so this covers only classes that already
+          have a POW, and the teacher column will be thin — a class nobody has filed for won't appear here
+          at all.
         </div>
       )}
 
@@ -98,28 +138,60 @@ export default function LaggingPanel({ token, branch = "", onOpenTeacher }) {
         <div className="empty-msg">
           Nothing to compare yet — a lag shows up once curriculum sheets are uploaded and teachers submit POWs.
         </div>
-      ) : behind.length === 0 && !showAll ? (
-        <div className="lag-clear">✅ Every teacher is on track or ahead this month.</div>
+      ) : visible.length === 0 ? (
+        <div className="lag-clear">
+          {filtered
+            ? "No class matches that filter."
+            : "✅ Every class is on track or ahead this month."}
+        </div>
       ) : (
         <div className="card upload-preview-table">
           <table>
             <thead>
+              {/* The two filters ARE the column headings - a subject column
+                  that filters by subject needs no separate label, and no row of
+                  its own above the table. Options come from the rows
+                  themselves, so a choice can never return nothing. */}
               <tr>
-                <th>Teacher</th><th>Branch</th><th>Subject</th><th>Grade</th>
+                <th>
+                  <select className="lag-th-filter" value={subjectFilter}
+                          onChange={(e) => setSubjectFilter(e.target.value)}>
+                    <option value="">Subject — all</option>
+                    {subjects.map((x) => <option key={x} value={x}>{x}</option>)}
+                  </select>
+                </th>
+                <th>
+                  <select className="lag-th-filter" value={gradeFilter}
+                          onChange={(e) => setGradeFilter(e.target.value)}>
+                    <option value="">Grade — all</option>
+                    {grades.map((x) => <option key={x} value={x}>Grade {x}</option>)}
+                  </select>
+                </th>
+                <th>Teachers</th>
                 <th>Behind by</th><th>Progress</th><th>Last POW</th>
               </tr>
             </thead>
             <tbody>
               {visible.map((r) => (
                 <tr
-                  key={`${r.teacher_email}-${r.subject}-${r.grade}`}
+                  key={`${r.subject}-${r.grade}-${r.branch}`}
                   className={r.status === "behind" ? "lag-row-behind" : ""}
                   onClick={() => onOpenTeacher && onOpenTeacher(r)}
                 >
-                  <td>{r.teacher_name}</td>
-                  <td>{r.branch || "—"}</td>
-                  <td>{r.subject}</td>
+                  <td>
+                    {r.subject}
+                    {/* No campus column - the header picks the campus. But when
+                        it is on ALL campuses, Kodathi's Grade 6 Kannada and
+                        Attibele's are two different classes with two different
+                        lags, and without this they render as identical rows. */}
+                    {!branch && r.branch && <div className="lag-branch-tag">{r.branch}</div>}
+                  </td>
                   <td>{r.grade}</td>
+                  {/* Who to speak to. Everyone staff_roles assigns to the class,
+                      plus anyone who has actually filed a POW for it. */}
+                  <td className={(r.teachers || []).length ? "lag-teachers" : "hint-text"}>
+                    {(r.teachers || []).length ? r.teachers.join(", ") : "nobody assigned"}
+                  </td>
                   <td>
                     {r.sessions_behind > 0 ? (
                       <span className={`badge ${r.no_pow_yet ? "badge-nopow" : "badge-pending"}`}>
@@ -147,7 +219,7 @@ export default function LaggingPanel({ token, branch = "", onOpenTeacher }) {
                     </div>
                   </td>
                   <td className="lag-last">
-                    {r.no_pow_yet ? <span className="lag-stale">nothing submitted</span> : r.last_week ? (
+                    {r.no_pow_yet ? <span className="lag-stale">no POW yet</span> : r.last_week ? (
                       <>
                         {fmtDate(r.last_week)}
                         {r.weeks_since_last_pow > 1 && (
