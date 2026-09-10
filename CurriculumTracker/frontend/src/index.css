@@ -483,3 +483,19 @@ th { background: var(--bg); color: var(--muted); font-weight: 600; font-size: 11
 .badge-waiting { background: var(--warn-bg); color: #8a6212; }
 .pow-card-waiting-text { color: #8a6212; font-size: 10px; font-weight: 600; margin-top: 6px; }
 .pow-card-action { margin-top: 8px; }
+
+/* Several names to a class is normal - two or three section teachers share a
+   grade - so the column wraps rather than stretching the table. */
+.lag-teachers { max-width: 260px; white-space: normal; line-height: 1.4; }
+
+/* The Subject and Grade headings ARE the filters, so they have to read as
+   headings first: same weight and colour as the other <th>, with only the
+   caret giving away that they can be opened. Deliberately no campus filter -
+   the header's own selector already scopes this report. */
+.lag-th-filter {
+  font: inherit; color: inherit; font-weight: inherit;
+  background: transparent; border: 0; padding: 2px 0; cursor: pointer;
+  max-width: 140px;
+}
+.lag-th-filter:focus-visible { outline: 2px solid var(--brand-400, #4BA3D3); outline-offset: 2px; }
+.lag-branch-tag { color: var(--muted); font-size: 10px; font-weight: 400; margin-top: 2px; }
