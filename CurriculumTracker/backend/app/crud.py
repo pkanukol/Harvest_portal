@@ -664,6 +664,42 @@ def viewer_branches(location: str) -> Optional[List[str]]:
 
 # ─── POW cards (dashboard) ──────────────────────────────────────────────────
 
+def _class_teacher_subjects(db: Session) -> dict:
+    """{email: {subjects}} from class_teachers, in one query.
+
+    The per-email extra_subjects_for() is a query each, which is fine for one
+    person and not fine inside a loop over the whole staff list."""
+    out = {}
+    for email, subject in db.query(models.ClassTeacher.email, models.ClassTeacher.subject).all():
+        if email and subject:
+            out.setdefault(email.lower(), set()).add(subject)
+    return out
+
+
+def teaching_subjects_of(email: str, profile_subject: str, extra: dict) -> set:
+    """Every subject a person actually teaches, lowercased and expanded to
+    their subject GROUPS.
+
+    users.subject holds exactly one value and it is not always the one they
+    take: Ms Priyanka Keshri's profile says Computer Science while she teaches
+    Grade 1 Mathematics, so matching on the profile alone hid her POWs from the
+    other Grade 1 Maths teacher. staff_roles' assignments and Project A's
+    class_teachers are the reliable signal; the profile is one more.
+    """
+    named = set()
+    if profile_subject:
+        named.add(profile_subject)
+    named |= set(staff_directory.subjects_for(email) or [])
+    named |= extra.get((email or "").lower(), set())
+
+    out = set()
+    for s in named:
+        # Group-expanded so a Biology-tagged teacher and a Science-tagged one
+        # recognise each other's POWs — the planner treats them as one subject.
+        out |= {x.lower() for x in subjects_in_group(s)}
+    return out
+
+
 def _build_teacher_map(db: Session, user_email: str, role: str, branch: Optional[str] = None) -> dict:
     """email -> {name, subject, location} scoped by role — the set of
     teachers whose POWs this user is allowed to see. Cheap (no pow_entries
@@ -693,16 +729,24 @@ def _build_teacher_map(db: Session, user_email: str, role: str, branch: Optional
         # not just cards this teacher personally created — different section
         # teachers (A-F) need to find and open the same shared POW card to
         # fill in their own section. Confirmed with user 2026-07-22.
+        #
+        # "The same subject" is judged on what people TEACH, not on the single
+        # subject their profile happens to name — see teaching_subjects_of.
         requester = db.query(models.User).filter(func.lower(models.User.email) == user_email.lower()).first()
-        subject = requester.subject if requester else None
         own_branch = normalize_branch(requester.location if requester else "")
-        if subject:
+        extra = _class_teacher_subjects(db)
+        mine = teaching_subjects_of(user_email, (requester.subject if requester else "") or "", extra)
+        if mine:
             for t in db.query(models.User).all():
-                if not t.subject or t.subject.lower() != subject.lower():
+                if not t.email:
                     continue
                 # Shared POWs are shared within a campus: a Kodathi teacher has
                 # no business in an Attibele section's POW.
                 if own_branch and normalize_branch(t.location) != own_branch:
+                    continue
+                if t.email.lower() != user_email.lower() and not (
+                    mine & teaching_subjects_of(t.email, t.subject or "", extra)
+                ):
                     continue
                 teacher_map[t.email.lower()] = {"name": t.name or t.email, "subject": t.subject or "", "location": t.location or ""}
         else:
@@ -940,45 +984,45 @@ def get_curriculum_overview(db: Session, user_email: str, role: str, subject: st
             })
             continue
 
-        for gi, (letters, group) in enumerate(groups):
-            # The topic is stated once for the row, not repeated per section -
-            # every section on the row is doing the same thing.
-            topics = []
-            for x in group:
-                label = " - ".join(y for y in [(x.topic or "").strip(), (x.subtopic or "").strip()] if y)
-                if label and label not in topics:
-                    topics.append(label)
+        # ONE ROW PER SESSION. Sessions that share a set of sections used to be
+        # collapsed onto a single row, which put session 2's sub-topic on a
+        # second line of session 1's cell - where it read as simply missing.
+        # A register has a line per session; the row_index banding still shows
+        # which lines belong to the same week.
+        flat = [x for _, group in groups for x in group]
+        flat.sort(key=lambda y: y.display_order)
+
+        for gi, x in enumerate(flat):
+            letters = [y for y in (x.sections or "").split(",") if y] or sections
 
             section_impl = {}
             for letter in letters:
+                rec = next((i for i in x.implementations if i.section == letter), None)
+                if not rec:
+                    continue
                 entries = []
-                remarks = []
-                for x in group:
-                    rec = next((i for i in x.implementations if i.section == letter), None)
-                    if not rec:
-                        continue
-                    if rec.remarks:
-                        remarks.append("S%s: %s" % (x.session_no or "?", rec.remarks))
-                    if rec.completed_on or rec.correction_on:
-                        entries.append({
-                            "session_no": x.session_no or "",
-                            "completed_on": rec.completed_on.isoformat() if rec.completed_on else None,
-                            "correction_on": rec.correction_on.isoformat() if rec.correction_on else None,
-                        })
-                if entries or remarks:
-                    section_impl[letter] = {"remarks": NEWLINE.join(remarks), "entries": entries}
+                if rec.completed_on or rec.correction_on:
+                    entries.append({
+                        "session_no": x.session_no or "",
+                        "completed_on": rec.completed_on.isoformat() if rec.completed_on else None,
+                        "correction_on": rec.correction_on.isoformat() if rec.correction_on else None,
+                    })
+                if entries or rec.remarks:
+                    section_impl[letter] = {"remarks": (rec.remarks or "").strip(), "entries": entries}
+
+            label = " - ".join(
+                y for y in [(x.topic or "").strip(), (x.subtopic or "").strip()] if y
+            )
 
             rows.append({
                 **base,
-                # Which of several rows for the same POW this is, so the table
-                # can band them together as one week.
+                # Which line of this POW's week this is, so the table can band
+                # a week's sessions together.
                 "row_index": gi,
                 "sections": letters,
-                "lp_session_num": ", ".join(
-                    x.session_no for x in group if (x.session_no or "").strip()
-                ),
-                "topic": next((x.chapter for x in group if x.chapter), p.topic or ""),
-                "subtopic": NEWLINE.join(topics),
+                "lp_session_num": (x.session_no or "").strip(),
+                "topic": (x.chapter or "").strip() or (p.topic or ""),
+                "subtopic": label,
                 "sessions": [
                     {
                         "session_no": x.session_no or "",
@@ -991,20 +1035,12 @@ def get_curriculum_overview(db: Session, user_email: str, role: str, subject: st
                         "lp_link": (x.lp_link or "").strip(),
                         "learning_outcomes": (x.learning_outcomes or "").strip(),
                     }
-                    for x in group
                 ],
-                "classwork": NEWLINE.join(
-                    "S%s: %s" % (x.session_no or "?", _joined(x.cw, x.binder))
-                    for x in group if _joined(x.cw, x.binder)
-                ),
-                "activity": NEWLINE.join(
-                    "S%s: %s" % (x.session_no or "?", (x.activity or "").strip())
-                    for x in group if (x.activity or "").strip()
-                ),
-                "homework": NEWLINE.join(
-                    "S%s: %s" % (x.session_no or "?", (x.homework or "").strip())
-                    for x in group if (x.homework or "").strip()
-                ),
+                # No "S1:" prefix any more - the row IS the session, and its
+                # number is in its own column.
+                "classwork": _joined(x.cw, x.binder),
+                "activity": (x.activity or "").strip(),
+                "homework": (x.homework or "").strip(),
                 "section_impl": section_impl,
             })
 
@@ -3212,35 +3248,94 @@ def _grouped_chapters(all_chapters: dict, subject: str, grade: int) -> List[mode
     return out
 
 
+def _teachers_by_subject_grade(db: Session, teacher_map: dict) -> dict:
+    """{(subject_lower, grade_str): {"subject": as written, "people": [...]}} -
+    who is assigned to teach each class of each grade.
+
+    staff_roles is the source; class_teachers in Project A is merged on top for
+    the assignments it doesn't carry yet. Sections are dropped: the lag is a
+    grade's, and naming 6A, 6B and 6C separately would say the same thing three
+    times.
+    """
+    campus_of = {}
+    for u in db.query(models.User).all():
+        if u.email:
+            # None means 'Both' or unset - no single campus to name, so the
+            # teacher is left unplaced rather than pinned to one.
+            own = viewer_branches(u.location or "") or []
+            campus_of[u.email.lower()] = own[0] if len(own) == 1 else ""
+    for email, taught_at in teaching_campus_map(db).items():
+        if taught_at:
+            campus_of[email] = taught_at
+
+    out = {}
+
+    def add(subject, grade, email, name, branch):
+        if not subject or grade in (None, ""):
+            return
+        key = (str(subject).lower(), str(grade))
+        # The subject as somebody actually wrote it, kept for display - the key
+        # is lowercased so "Maths" and "maths" are one class, not two.
+        entry = out.setdefault(key, {"subject": str(subject), "people": []})
+        if not any(x["email"] == email for x in entry["people"]):
+            entry["people"].append({"name": name or email, "email": email, "branch": branch or ""})
+
+    for a in extra_class_assignments(db):
+        add(a["subject"], a["grade"], a["email"], a["name"],
+            a["branch"] or campus_of.get(a["email"], ""))
+
+    for email, entry in staff_directory.get_directory().items():
+        low = email.lower()
+        name = entry.get("name") or email
+        for a in entry.get("assignments", []):
+            add(a.get("subject"), a.get("grade"), low, name, campus_of.get(low, ""))
+
+    return out
+
+
 def get_lagging_report(db: Session, viewer_email: str, role: str, branch: Optional[str] = None) -> dict:
-    """Where is each teacher against the curriculum mapping, right now.
+    """Where each CLASS is against the curriculum mapping, right now.
 
-    Expected position = every session the planner schedules up to and
-    including the current month. Actual = the furthest point any of that
-    teacher's POWs reaches (sessions accumulated before their chapter, plus
-    the session number they marked). The difference is the lag, in sessions.
+    A row is one subject and one grade on one campus - not one teacher. The
+    curriculum belongs to the class: Grade 6 Science is a single body of work
+    whether one teacher takes it or four, and four rows saying "Grade 6 Science
+    is 8 sessions behind" only made the same lag look like four problems. The
+    teachers assigned to it are named in their own column instead, so the lag
+    still says who to talk to.
 
-    Scoped to (teacher, subject, grade) combinations that actually have POWs —
-    the app has no record of which classes a teacher is assigned, so a teacher
-    who has never submitted a POW for a grade can't be distinguished from one
-    who doesn't teach it. `teachers_without_pows` reports that gap separately
-    rather than silently counting it as on-track.
+    Expected position = every session the planner schedules up to and including
+    the current month. Actual = the furthest point any POW for that class
+    reaches (sessions accumulated before its chapter, plus the session number
+    marked), floored by whatever an SME has recorded as covered by backfill.
+
+    A class with curriculum uploaded and no POW at all is a row too, flagged
+    `no_pow_yet`: every subject+grade is expected to have at least one.
     """
     today = now_ist()
     current_month = today.strftime("%B")
 
     teacher_map = _build_teacher_map(db, viewer_email, role, branch)
     if not teacher_map:
-        return {"generated_month": current_month, "rows": [], "teachers_without_pows": []}
+        return {"generated_month": current_month, "rows": [], "teachers_without_pows": [],
+                "directory_available": staff_directory.is_available()}
 
+    want = normalize_branch(branch or "")
     pows = db.query(models.PowEntry).filter(
         func.lower(models.PowEntry.teacher_email).in_(teacher_map.keys())
     ).order_by(models.PowEntry.week_start.asc()).all()
 
-    # (teacher, subject, grade) -> their POWs
+    # (subject, grade, campus) -> the POWs filed for that class. The campus is
+    # the POW's own, stamped when it was filed, rather than wherever its author
+    # is today - see models.PowEntry.branch.
     buckets = {}
     for p in pows:
-        buckets.setdefault((p.teacher_email.lower(), p.subject, p.grade), []).append(p)
+        p_branch = normalize_branch(p.branch or "") or (
+            teacher_map.get(p.teacher_email.lower(), {}).get("location") or ""
+        )
+        p_branch = normalize_branch(p_branch) or ""
+        if want and p_branch and p_branch != want:
+            continue
+        buckets.setdefault((p.subject, str(p.grade), p_branch), []).append(p)
 
     all_chapters, all_item_counts = _all_planner_chapters(db)   # one query, then all lookups are in memory
 
@@ -3256,9 +3351,37 @@ def get_lagging_report(db: Session, viewer_email: str, role: str, branch: Option
             marks.extend(backfill_by_key.get((member.lower(), int(grade_num)), []))
             items.update(all_item_counts.get((member.lower(), int(grade_num)), {}))
         return backfill_credit(marks, chapters, items) if marks else 0
-    rows = []
 
-    for (email, subject, grade), entries in buckets.items():
+    assigned = _teachers_by_subject_grade(db, teacher_map)
+    directory_available = staff_directory.is_available()
+
+    def teachers_for(subject_name, grade_str, row_branch):
+        """Named on the row so a lag says who to speak to. A teacher whose own
+        campus isn't recorded is included rather than dropped - better a name
+        that needs checking than a class that looks unstaffed."""
+        people = []
+        for member in subjects_in_group(subject_name):
+            for x in assigned.get((member.lower(), str(grade_str)), {}).get("people", []):
+                if row_branch and x["branch"] and x["branch"] != row_branch:
+                    continue
+                if x["name"] not in people:
+                    people.append(x["name"])
+        return sorted(people)
+
+    def expected_to_date(month_cum):
+        """Every session scheduled up to and including this month. Outside the
+        planner's own month range (April, before the year starts) nothing is
+        due yet."""
+        if current_month in month_cum:
+            return month_cum[current_month]
+        elapsed = [m for m in month_cum
+                   if month_position(m, 99) <= month_position(current_month, -1)]
+        return max((month_cum[m] for m in elapsed), default=0)
+
+    rows = []
+    seen = set()
+
+    for (subject, grade, row_branch), entries in buckets.items():
         try:
             grade_int = int(str(grade).strip())
         except (TypeError, ValueError):
@@ -3269,19 +3392,17 @@ def get_lagging_report(db: Session, viewer_email: str, role: str, branch: Option
             continue  # nothing uploaded for this subject+grade — not a lag
 
         month_order, cum_before, month_cum, total_planned = _planner_position(chapters)
-
-        # Everything scheduled up to and including the current month. Outside
-        # the planner's own month range (e.g. April before the year starts)
-        # nothing is due yet, so expected stays 0.
         expected = 0
         if current_month in month_order:
             expected = month_cum[current_month]
         elif month_order:
-            months_elapsed = [m for m in month_order if month_position(m, 99) <= month_position(current_month, -1)]
+            months_elapsed = [m for m in month_order
+                              if month_position(m, 99) <= month_position(current_month, -1)]
             expected = month_cum[months_elapsed[-1]] if months_elapsed else 0
 
         done = 0
         last = None
+        authors = []
         for p in entries:
             if not p.week_start:
                 continue
@@ -3292,21 +3413,32 @@ def get_lagging_report(db: Session, viewer_email: str, role: str, branch: Option
                 done = reached
             if last is None or p.week_start > last.week_start:
                 last = p
+            who = teacher_map.get(p.teacher_email.lower(), {}).get("name") or p.teacher_email
+            if who not in authors:
+                authors.append(who)
 
         # Backfill is a floor, not an addition: it states where the class had
         # already reached before POWs started, so progress is whichever is
         # further along.
         done = max(done, credited(subject, grade_int, chapters))
         behind = max(0, expected - done)
-        info = teacher_map.get(email, {})
         weeks_since = ((today.date() - last.week_start).days // 7) if last and last.week_start else None
 
+        # Whoever staff_roles says teaches it, and whoever has actually filed a
+        # POW for it - the second catches an assignment the directory has not
+        # caught up with.
+        names = teachers_for(subject, grade_int, row_branch)
+        for who in authors:
+            if who not in names:
+                names.append(who)
+
+        seen.add((subject.lower(), str(grade_int), row_branch))
         rows.append({
-            "teacher_email": email,
-            "teacher_name": info.get("name") or email,
-            "branch": info.get("location") or "",
             "subject": subject,
-            "grade": str(grade),
+            "grade": str(grade_int),
+            "branch": row_branch,
+            "teachers": names,
+            "pow_count": len(entries),
             "expected_sessions": expected,
             "done_sessions": done,
             "sessions_behind": behind,
@@ -3316,43 +3448,48 @@ def get_lagging_report(db: Session, viewer_email: str, role: str, branch: Option
             "last_week": last.week_start.isoformat() if last and last.week_start else None,
             "weeks_since_last_pow": weeks_since,
             "status": "behind" if behind > 0 else ("ahead" if done > expected else "on_track"),
+            "no_pow_yet": False,
         })
 
-    # Assigned classes with NO POW at all. Only knowable from staff_roles —
-    # without it a never-submitted class is indistinguishable from one the
-    # teacher doesn't teach, which is why these rows appear only when the
-    # directory is reachable.
-    directory_available = staff_directory.is_available()
+    # Classes with curriculum uploaded and no POW at all. Every subject+grade
+    # is expected to carry at least one, so this is the gap that matters most -
+    # only knowable from staff_roles, which is what says the class exists.
     if directory_available:
-        covered = {(r["teacher_email"], r["subject"].lower(), r["grade"]) for r in rows}
-        for email, info in teacher_map.items():
-            for a in staff_directory.assignments_for(email):
-                subject, grade_int = a["subject"], a["grade"]
-                if (email, subject.lower(), str(grade_int)) in covered:
+        for (subject_low, grade_str), entry in assigned.items():
+            in_scope = [x for x in entry["people"] if x["email"] in teacher_map]
+            if not in_scope:
+                continue
+            try:
+                grade_int = int(str(grade_str).strip())
+            except (TypeError, ValueError):
+                continue
+
+            branches = {x["branch"] for x in in_scope if x["branch"]} or {""}
+            for row_branch in branches:
+                if want and row_branch and row_branch != want:
                     continue
-                chapters = _grouped_chapters(all_chapters, subject, grade_int)
+                subject_name = entry["subject"]
+                if (subject_low, str(grade_int), row_branch) in seen:
+                    continue
+
+                chapters = _grouped_chapters(all_chapters, subject_name, grade_int)
                 if not chapters:
                     continue  # no curriculum uploaded for it — nothing to be behind on
 
                 _, _, month_cum, total_planned = _planner_position(chapters)
-                month_order = [c.month for c in chapters if c.month]
-                expected = 0
-                if current_month in month_cum:
-                    expected = month_cum[current_month]
-                else:
-                    elapsed = [m for m in month_cum if month_position(m, 99) <= month_position(current_month, -1)]
-                    expected = max((month_cum[m] for m in elapsed), default=0)
+                expected = expected_to_date(month_cum)
                 if expected <= 0:
                     continue
 
-                covered.add((email, subject.lower(), str(grade_int)))
-                done_from_backfill = credited(subject, grade_int, chapters)
+                seen.add((subject_low, str(grade_int), row_branch))
+                done_from_backfill = credited(subject_name, grade_int, chapters)
                 rows.append({
-                    "teacher_email": email,
-                    "teacher_name": info.get("name") or email,
-                    "branch": info.get("location") or "",
-                    "subject": subject,
+                    "subject": subject_name,
                     "grade": str(grade_int),
+                    "branch": row_branch,
+                    "teachers": sorted({x["name"] for x in in_scope
+                                        if not row_branch or not x["branch"] or x["branch"] == row_branch}),
+                    "pow_count": 0,
                     "expected_sessions": expected,
                     "done_sessions": done_from_backfill,
                     "sessions_behind": max(0, expected - done_from_backfill),
@@ -3365,24 +3502,25 @@ def get_lagging_report(db: Session, viewer_email: str, role: str, branch: Option
                     "no_pow_yet": True,
                 })
 
-    for r in rows:
-        r.setdefault("no_pow_yet", False)
-    rows.sort(key=lambda r: (-r["sessions_behind"], r["teacher_name"]))
+    # No POW at all first, then the biggest lag: a class nobody has planned for
+    # is a worse problem than one running late.
+    rows.sort(key=lambda r: (not r["no_pow_yet"], -r["sessions_behind"], r["subject"], int(r["grade"])))
 
     # Teachers the viewer oversees who have submitted nothing at all — a
-    # different problem from being behind, and invisible in the rows above.
-    with_pows = {r["teacher_email"] for r in rows if not r["no_pow_yet"]}
+    # different problem from a class being behind, and invisible in the rows
+    # above now that a row belongs to a class rather than to a person.
+    filed = {p.teacher_email.lower() for p in pows}
     without = [
         {"teacher_email": e, "teacher_name": i.get("name") or e, "subject": i.get("subject") or "",
          "branch": i.get("location") or "",
          "assigned_classes": len(staff_directory.assignments_for(e)) if directory_available else None}
         for e, i in teacher_map.items()
-        if e not in with_pows and not any(p.teacher_email.lower() == e for p in pows)
+        if e not in filed
     ]
 
     return {
         "generated_month": current_month,
-        "branch": normalize_branch(branch) or "",
+        "branch": want or "",
         "rows": rows,
         "teachers_without_pows": sorted(without, key=lambda t: t["teacher_name"]),
         # False means class assignments couldn't be read, so the report covers
