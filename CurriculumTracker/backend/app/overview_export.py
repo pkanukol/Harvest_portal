@@ -67,6 +67,10 @@ def _session_lines(row: dict, field: str) -> str:
     sessions = row.get("sessions") or []
     if not sessions:
         return (row.get(field) or "").strip()
+    # A row is one session now, and its number has its own column - so the
+    # "S8:" prefix only earns its place on a legacy row carrying several.
+    if len(sessions) == 1:
+        return (sessions[0].get(field) or "").strip()
     lines = []
     for s in sessions:
         text = (s.get(field) or "").strip()
