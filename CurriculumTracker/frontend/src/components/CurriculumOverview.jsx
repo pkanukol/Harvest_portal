@@ -114,6 +114,9 @@ function implDates(row, section, field) {
 function sessionLines(row, field) {
   const sessions = row.sessions || [];
   if (sessions.length === 0) return row[field] || "";
+  // A row is one session now, and its number sits in its own column, so the
+  // "S1:" prefix is only useful on a legacy row that carries several.
+  if (sessions.length === 1) return (sessions[0][field] || "").trim();
   return sessions
     .map((s) => {
       const text = (s[field] || "").trim();
