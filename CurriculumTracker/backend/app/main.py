@@ -709,7 +709,9 @@ def _notify_pow(background: BackgroundTasks, db: Session, pow_entry: models.PowE
                 teacher_name: str, action: str, notify_teacher: bool = False) -> None:
     """Queued as a background task so email latency never delays the save, and
     a Resend outage can't fail the request."""
-    recipients = crud.get_pow_notification_recipients(db, pow_entry.teacher_email, pow_entry.subject)
+    recipients = crud.get_pow_notification_recipients(
+        db, pow_entry.teacher_email, pow_entry.subject, pow_entry.grade, pow_entry.branch,
+    )
     if notify_teacher:
         # An approval is news for the author above anyone else: it is what
         # tells them they may start recording implementation.
