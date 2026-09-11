@@ -1490,30 +1490,22 @@ def can_edit_tbs_mom(user, pow_entry) -> bool:
 
 # ─── POW notifications ──────────────────────────────────────────────────────
 
-# Which Curriculum Head owns which subject, by the split confirmed with the
-# APM: Vinny Arora takes the languages plus Social Science, Chitra Venkatesh
-# Prasanna takes Science (including its Biology/Physics/Chemistry streams),
-# Mathematics and Kannada. Matched on NAME, not email — an email in the shared
-# users table changed hands once already, and sending a subject's POWs to the
-# wrong person is worse than sending to both.
-CURRICULUM_HEAD_BY_SUBJECT = {
-    "english": "Vinny",
-    "hindi": "Vinny",
-    "social science": "Vinny",
-    "science": "Chitra",
-    "biology": "Chitra",
-    "physics": "Chitra",
-    "chemistry": "Chitra",
-    "mathematics": "Chitra",
-    "kannada": "Chitra",
-}
+def get_pow_notification_recipients(db: Session, teacher_email: str, subject: str = "",
+                                    grade: Optional[str] = None,
+                                    branch: Optional[str] = None) -> List[dict]:
+    """Who hears about a POW: the other teachers of that subject and grade on
+    the same campus, plus the SMEs this teacher is mapped to in teacher_sme.
 
+    Curriculum Heads are deliberately NOT copied. They used to be, on a
+    per-subject split (Vinny Arora the languages and Social Science, Chitra
+    Venkatesh Prasanna Science/Maths/Kannada), which meant one head received an
+    email for every POW every teacher of their subjects filed - confirmed with
+    the APM on 2026-09-11 that this is not wanted. The heads still see everything through
+    Curriculum Overview and the lag panel, which is the right place for a
+    whole-subject view; an inbox is not.
 
-def get_pow_notification_recipients(db: Session, teacher_email: str, subject: str = "") -> List[dict]:
-    """Who hears about a POW: the SMEs this teacher is mapped to in
-    teacher_sme, plus the Curriculum Head who owns that subject. A subject
-    outside the mapping (Computer Science, PE...) goes to every head rather
-    than to nobody. The teacher themselves is excluded — they just saved it."""
+    The author themselves is excluded - they just saved it.
+    """
     recipients = {}
 
     teacher = db.query(models.User).filter(func.lower(models.User.email) == teacher_email.lower()).first()
@@ -1524,14 +1516,24 @@ def get_pow_notification_recipients(db: Session, teacher_email: str, subject: st
                 if sme.email:
                     recipients[sme.email.lower()] = {"email": sme.email, "name": sme.name or sme.email, "why": "SME"}
 
-    heads = db.query(models.User).filter(models.User.designation == "Curriculum Head").all()
-    wanted = CURRICULUM_HEAD_BY_SUBJECT.get((subject or "").strip().lower())
-    if wanted:
-        matched = [h for h in heads if wanted.lower() in (h.name or "").lower()]
-        heads = matched or heads   # never silently drop the notification
-    for head in heads:
-        if head.email:
-            recipients.setdefault(head.email.lower(), {"email": head.email, "name": head.name or head.email, "why": "Curriculum Head"})
+    # The teachers who share this class. A POW is shared across the section
+    # teachers of a subject+grade (see get_pow_cards), so the people who need to
+    # know it changed are exactly the people who may fill in a section of it.
+    if grade not in (None, ""):
+        assigned = _teachers_by_subject_grade(db, {})
+        want_branch = normalize_branch(branch or "")
+        for member in subjects_in_group(subject or ""):
+            entry = assigned.get((member.lower(), str(grade)))
+            if not entry:
+                continue
+            for x in entry["people"]:
+                # A teacher whose own campus isn't recorded still gets it -
+                # a missed notification is worse than a stray one.
+                if want_branch and x["branch"] and x["branch"] != want_branch:
+                    continue
+                recipients.setdefault(x["email"].lower(), {
+                    "email": x["email"], "name": x["name"], "why": "Teaches this class",
+                })
 
     recipients.pop(teacher_email.lower(), None)
     return list(recipients.values())
@@ -2622,7 +2624,12 @@ def section_progress(db: Session, user_email: str, role: str, subject: str,
                     if (getattr(p, "impl_" + l.lower(), None) or "").strip()                             or getattr(p, "impl_" + l.lower() + "_date", None):
                         letters.add(l)
                 for sess in (p.sessions or []):
-                    for row in (sess.impl or []):
+                    # models.PowSession.implementations. "impl" is only the name
+                    # the API serialises it under (see main.get_pow); reading it
+                    # off the ORM object raised AttributeError, which took the
+                    # whole screen down the moment a subject had a POW with
+                    # sessions.
+                    for row in (sess.implementations or []):
                         if (row.remarks or "").strip() or row.completed_on:
                             letters.add((row.section or "").upper()[:1])
             impl_sections[chapter] = {x for x in letters if x}
