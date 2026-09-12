@@ -119,6 +119,28 @@ def _sessions_completed(raw: Optional[str], week_start, status: str) -> int:
     return min(nums) - 1        # the week is still ahead: only what precedes it
 
 
+def teaching_session_nums(p) -> str:
+    """A POW's session numbers with the REVISION ones taken out.
+
+    Progress is read off lp_session_num - "the class has reached session 5 of
+    this chapter". A revision session is a class going back over something
+    already taught, so counting it would claim ground that was not newly
+    covered. Leaving it out is enough to keep it neutral: progress is always
+    taken as a max, so an old chapter revised today can never pull a class
+    backwards either.
+
+    A POW whose sessions are ALL revision yields an empty string, which reads as
+    no advance - correct, and it is still visible on every screen as a session.
+    """
+    sessions = list(getattr(p, "sessions", None) or [])
+    if not sessions or not any(getattr(x, "is_revision", False) for x in sessions):
+        return getattr(p, "lp_session_num", "") or ""   # nothing to strip
+    return ", ".join(
+        (x.session_no or "").strip() for x in sessions
+        if not getattr(x, "is_revision", False) and (x.session_no or "").strip()
+    )
+
+
 def _max_session_num(raw: Optional[str]) -> int:
     """max() over every number found, matching Code.gs's getProgressSummary:
     `lpStr.split(/[,\\s]+/).map(Number).filter(n=>!isNaN(n)&&n>0)`, default 1
@@ -1021,6 +1043,9 @@ def get_curriculum_overview(db: Session, user_email: str, role: str, subject: st
                 "row_index": gi,
                 "sections": letters,
                 "lp_session_num": (x.session_no or "").strip(),
+                # Revision is a fact about the session, so it travels with the
+                # row rather than being buried in the sessions array.
+                "is_revision": bool(x.is_revision),
                 "topic": (x.chapter or "").strip() or (p.topic or ""),
                 "subtopic": label,
                 "sessions": [
@@ -1034,6 +1059,7 @@ def get_curriculum_overview(db: Session, user_email: str, role: str, subject: st
                         "homework": (x.homework or "").strip(),
                         "lp_link": (x.lp_link or "").strip(),
                         "learning_outcomes": (x.learning_outcomes or "").strip(),
+                        "is_revision": bool(x.is_revision),
                     }
                 ],
                 # No "S1:" prefix any more - the row IS the session, and its
@@ -1170,6 +1196,7 @@ def _write_pow_children(db: Session, pow_entry: models.PowEntry, data) -> None:
             activity=s.activity or "", homework=s.homework or "",
             lp_link=(getattr(s, "lp_link", "") or "").strip(),
             learning_outcomes=(getattr(s, "learning_outcomes", "") or "").strip(),
+            is_revision=bool(getattr(s, "is_revision", False)),
         ))
 
     # Where each section ends the week - derived from ITS sessions, so nothing
@@ -1776,7 +1803,7 @@ def get_progress_summary(db: Session, subject: str, grade: int, teacher_email: O
         planned = c.sessions or 0
         done = 0
         for p in pows_by_chapter.get(c.chapter_name, []):
-            done = max(done, _sessions_completed(p.lp_session_num, p.week_start, p.status))
+            done = max(done, _sessions_completed(teaching_session_nums(p), p.week_start, p.status))
         if c.chapter_name in implied_complete or c.chapter_name in marked_full:
             done = max(done, planned)
         else:
@@ -1813,7 +1840,7 @@ def get_progress_summary(db: Session, subject: str, grade: int, teacher_email: O
                 "week_start": p.week_start.isoformat() if p.week_start else None,
                 "subtopic": p.subtopic or "",
                 "sessions_marked": p.lp_session_num or "",
-                "sessions_completed": _sessions_completed(p.lp_session_num, p.week_start, p.status),
+                "sessions_completed": _sessions_completed(teaching_session_nums(p), p.week_start, p.status),
                 "status": STATUS_LABELS.get(p.status, p.status),
                 "sections": sections,
             })
@@ -2044,7 +2071,7 @@ def chapter_sessions_done(chapters: list, pows_by_chapter: dict, marked_full: se
         name, planned = c["chapter"], c["sessions"]
         done = 0
         for p in pows_by_chapter.get(name, []):
-            done = max(done, _sessions_completed(p.lp_session_num, p.week_start, p.status))
+            done = max(done, _sessions_completed(teaching_session_nums(p), p.week_start, p.status))
         if name in marked_full or name in implied:
             done = max(done, planned)
         else:
@@ -2455,6 +2482,39 @@ def chapter_due_month(c) -> int:
     return max(month_position(m, 99) for m in months)
 
 
+def chapter_month_share(c) -> dict:
+    """{month: sessions} for one chapter, split evenly across the months it
+    spans and ordered academically.
+
+    The sheet repeats a chapter's TOTAL on every month it occupies rather than
+    stating a figure per month (see annual_planner_tree), so there is nothing
+    finer to divide by. The same even split annual_planner_tree and the monthly
+    view already use, so a month reads the same wherever it is shown.
+    """
+    months = sorted(c.get("months") or [], key=lambda m: month_position(m, 99))
+    total = c.get("sessions", 0) or 0
+    if not months or not total:
+        return {}
+    base, extra = divmod(total, len(months))
+    return {m: base + (1 if i < extra else 0) for i, m in enumerate(months)}
+
+
+def spread_over_months(c, done: int) -> dict:
+    """Where a chapter's completed sessions fall, month by month.
+
+    Sessions are taught in order, so what is done fills the chapter's earliest
+    months first: 6 of a 10-session chapter spanning August and September is 5
+    in August and 1 in September, not 3 and 3.
+    """
+    out = {}
+    remaining = max(0, done)
+    for month, share in chapter_month_share(c).items():
+        take = min(remaining, share)
+        out[month] = take
+        remaining -= take
+    return out
+
+
 def sessions_to_date(chapters, cutoff) -> tuple:
     """(planned, covered) for the chapters that have fallen due.
 
@@ -2571,7 +2631,11 @@ def section_progress(db: Session, user_email: str, role: str, subject: str,
             "updated_at": n.updated_at.isoformat() if n.updated_at else None,
         }
 
-    cutoff = month_position(now_ist().strftime("%B"), None)
+    this_month = now_ist().strftime("%B")
+    cutoff = month_position(this_month, None)
+    # Last month and this one. Last month is finished, so its figure is a
+    # verdict; this month's is progress so far and is labelled as such.
+    compare_months = [m for m in [_previous_academic_month(this_month), this_month] if m]
     out = []
     for grade in sorted(by_grade):
         chapters = annual_planner_tree(by_grade[grade])
@@ -2624,6 +2688,11 @@ def section_progress(db: Session, user_email: str, role: str, subject: str,
                     if (getattr(p, "impl_" + l.lower(), None) or "").strip()                             or getattr(p, "impl_" + l.lower() + "_date", None):
                         letters.add(l)
                 for sess in (p.sessions or []):
+                    # Revising a chapter is not evidence a section has covered
+                    # it - the same rule teaching_session_nums applies to the
+                    # class figure, applied to the per-section one.
+                    if getattr(sess, "is_revision", False):
+                        continue
                     # models.PowSession.implementations. "impl" is only the name
                     # the API serialises it under (see main.get_pow); reading it
                     # off the ORM object raised AttributeError, which took the
@@ -2645,6 +2714,12 @@ def section_progress(db: Session, user_email: str, role: str, subject: str,
         for sec in sections:
             done = 0
             chapters_done = 0
+            # This month against last month. The cumulative "against plan to
+            # date" answers a different question - it says whether the class is
+            # behind overall, not whether it moved recently. A class can be well
+            # behind for the year and still have had a good September.
+            planned_in = {m: 0 for m in compare_months}
+            done_in = {m: 0 for m in compare_months}
             for c in chapters:
                 name = c["chapter"]
                 # A section that recorded implementation on a chapter has
@@ -2654,6 +2729,13 @@ def section_progress(db: Session, user_email: str, role: str, subject: str,
                 done += mine
                 if c["sessions"] and mine >= c["sessions"]:
                     chapters_done += 1
+
+                share = chapter_month_share(c)
+                spread = spread_over_months(c, mine)
+                for m in compare_months:
+                    if m in share:
+                        planned_in[m] += share[m]
+                        done_in[m] += spread.get(m, 0)
             out.append({
                 "grade": grade,
                 "section": sec,
@@ -2667,6 +2749,16 @@ def section_progress(db: Session, user_email: str, role: str, subject: str,
                 "pct": round(done * 100 / planned_sessions) if planned_sessions else 0,
                 "pct_to_date": round(done * 100 / due_sessions) if due_sessions else 100,
                 "behind": max(0, due_sessions - done),
+                # One entry per month being compared, in academic order.
+                "months": [
+                    {
+                        "month": m,
+                        "planned": planned_in[m],
+                        "done": done_in[m],
+                        "pct": round(done_in[m] * 100 / planned_in[m]) if planned_in[m] else None,
+                    }
+                    for m in compare_months
+                ],
                 "note": notes.get((str(grade), sec), {}).get("note", ""),
                 "note_author": notes.get((str(grade), sec), {}).get("author", ""),
                 "note_updated": notes.get((str(grade), sec), {}).get("updated_at"),
@@ -2675,8 +2767,10 @@ def section_progress(db: Session, user_email: str, role: str, subject: str,
     result = {
         "subject": subject,
         "branch": branch or "",
-        "month": now_ist().strftime("%B"),
-        "prev_month": _previous_academic_month(now_ist().strftime("%B")),
+        "month": this_month,
+        "prev_month": _previous_academic_month(this_month),
+        # The months each row reports on, in the order the columns run.
+        "compare_months": compare_months,
         "rows": out,
     }
     _REPORT_CACHE[cache_key] = (now_ist(), result)
@@ -3414,7 +3508,7 @@ def get_lagging_report(db: Session, viewer_email: str, role: str, branch: Option
             if not p.week_start:
                 continue
             key = ((p.topic or "").strip(), p.week_start.strftime("%B"))
-            reached = cum_before.get(key, 0) + _sessions_completed(p.lp_session_num, p.week_start, p.status) \
+            reached = cum_before.get(key, 0) + _sessions_completed(teaching_session_nums(p), p.week_start, p.status) \
                 if key in cum_before else 0
             if reached > done:
                 done = reached
@@ -3624,7 +3718,7 @@ def get_month_chart(db: Session, subject: str, grade: int, discipline: Optional[
                     continue
                 if not p.week_start or p.week_start > week_end:
                     continue          # hasn't happened yet as of this week
-                best = max(best, _sessions_completed(p.lp_session_num, p.week_start, p.status))
+                best = max(best, _sessions_completed(teaching_session_nums(p), p.week_start, p.status))
             if chapter in dateless and chapter_planned:
                 # Credited at the plan's own pace, capped by what was actually
                 # marked: a chapter the SME confirms was fully covered tracks
