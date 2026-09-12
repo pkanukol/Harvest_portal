@@ -160,6 +160,14 @@ def run_migrations():
                 with engine.begin() as conn:
                     conn.execute(text(f"ALTER TABLE pow_sessions ADD COLUMN {column} {coltype}"))
 
+    if "pow_sessions" in existing_tables:
+        cols = {c["name"] for c in inspector.get_columns("pow_sessions")}
+        if "is_revision" not in cols:
+            with engine.begin() as conn:
+                conn.execute(text(
+                    "ALTER TABLE pow_sessions ADD COLUMN IF NOT EXISTS is_revision BOOLEAN DEFAULT FALSE"
+                ))
+
     if "curriculum_backfill_confirmed" in existing_tables:
         # Confirmations were per teacher; they're per subject+grade now, and the
         # old unique index would block the new shape.
