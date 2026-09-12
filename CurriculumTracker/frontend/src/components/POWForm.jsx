@@ -7,6 +7,12 @@ import { nextWeekDates, toISO, fmtDate, MONTHS } from "../dateUtils";
 // "edit" (revise a plan the SME has not approved yet - same form, same fields,
 //   rebuilt from the saved POW and saved back over it) |
 // "impl_only" (past-week fill-in, only the Impl A-F + notes section, everything else locked)
+// One session can cover several sub-topics; they live in one field, joined by
+// commas. Split defensively - older rows hold a single value with no comma.
+function splitSubtopics(raw) {
+  return String(raw || "").split(",").map((x) => x.trim()).filter(Boolean);
+}
+
 export default function POWForm({ token, user, mode, prefillPow, branch = "", onDone, onBack }) {
   const isImplOnly = mode === "impl_only";
   const isEdit = mode === "edit";
@@ -144,6 +150,7 @@ export default function POWForm({ token, user, mode, prefillPow, branch = "", on
         cw: x.cw || "", binder: x.binder || "",
         activity: x.activity || "", homework: x.homework || "",
         lp_link: x.lp_link || "", learning_outcomes: x.learning_outcomes || "",
+        is_revision: Boolean(x.is_revision),
       });
     });
     const monthOf = (name) => (rows.find((r) => r.chapter_name === name) || {}).month || "";
@@ -330,6 +337,19 @@ export default function POWForm({ token, user, mode, prefillPow, branch = "", on
     }));
   }
 
+  // Sub-topics are stored as one comma-joined string (models.PowSession
+  // .subtopic), which is what every reader already renders.
+  function toggleSubtopic(pi, si, value) {
+    const current = splitSubtopics(plans[pi].sessions[si].subtopic);
+    const next = current.includes(value)
+      ? current.filter((x) => x !== value)
+      // Kept in the planner's own order rather than click order, so two
+      // teachers who tick the same boxes record the same string.
+      : subtopicsForSection(plans[pi].sessions[si].chapter, plans[pi].sessions[si].topic)
+          .filter((x) => current.includes(x) || x === value);
+    setSessionField(pi, si, "subtopic", next.join(", "));
+  }
+
   function setSessionField(pi, si, field, value) {
     setPlans((prev) => prev.map((p, i) => (
       i === pi
@@ -387,7 +407,7 @@ export default function POWForm({ token, user, mode, prefillPow, branch = "", on
         chapter: base,
         topic: "", subtopic: "",
         cw: "", binder: "", activity: "", homework: "",
-        lp_link: "", learning_outcomes: "",
+        lp_link: "", learning_outcomes: "", is_revision: false,
       }],
     });
   }
@@ -534,6 +554,7 @@ export default function POWForm({ token, user, mode, prefillPow, branch = "", on
           cw: x.cw || "", binder: x.binder || "",
           activity: x.activity || "", homework: x.homework || "",
           lp_link: x.lp_link || "", learning_outcomes: x.learning_outcomes || "",
+          is_revision: Boolean(x.is_revision),
         }))),
     };
 
@@ -785,19 +806,39 @@ export default function POWForm({ token, user, mode, prefillPow, branch = "", on
                         </select>
                       </div>
                       <div className="form-group">
-                        <label className="form-label">Sub Topic</label>
-                        <select
-                          className="form-control"
-                          value={sess.subtopic || ""}
-                          onChange={(e) => setSessionField(pi, si, "subtopic", e.target.value)}
-                        >
-                          <option value="">—</option>
-                          {subtopicsForSection(sess.chapter, sess.topic).map((t) => (
-                            <option key={t} value={t}>{t}</option>
-                          ))}
-                        </select>
+                        <label className="form-label">Sub Topics</label>
+                        {/* A session usually covers several, and a single-pick
+                            dropdown kept only the last one chosen. */}
+                        <div className="subtopic-picker">
+                          {subtopicsForSection(sess.chapter, sess.topic).length === 0 ? (
+                            <span className="hint-text">
+                              {sess.chapter ? "None listed for this chapter." : "Choose a chapter first."}
+                            </span>
+                          ) : (
+                            subtopicsForSection(sess.chapter, sess.topic).map((t) => (
+                              <label key={t} className="checkbox-item">
+                                <input
+                                  type="checkbox"
+                                  checked={splitSubtopics(sess.subtopic).includes(t)}
+                                  onChange={() => toggleSubtopic(pi, si, t)}
+                                />
+                                {t}
+                              </label>
+                            ))
+                          )}
+                        </div>
                       </div>
                     </div>
+
+                    <label className="checkbox-item session-revision">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(sess.is_revision)}
+                        onChange={(e) => setSessionField(pi, si, "is_revision", e.target.checked)}
+                      />
+                      Revision — going back over something already taught
+                      <span className="hint-text"> (recorded, but not counted as new progress)</span>
+                    </label>
 
                     <div className="form-row">
                       <div className="form-group">
