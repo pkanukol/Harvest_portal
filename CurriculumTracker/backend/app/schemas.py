@@ -210,6 +210,8 @@ class PowSessionIn(BaseModel):
     homework: Optional[str] = ""
     lp_link: Optional[str] = ""
     learning_outcomes: Optional[str] = ""
+    # Revising something already taught: recorded, but not counted as progress.
+    is_revision: Optional[bool] = False
 
 
 class PowSectionPlanIn(BaseModel):
