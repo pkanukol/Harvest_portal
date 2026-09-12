@@ -667,6 +667,7 @@ def get_pow(
                  "cw": x.cw or "", "binder": x.binder or "",
                  "activity": x.activity or "", "homework": x.homework or "",
                  "lp_link": x.lp_link or "", "learning_outcomes": x.learning_outcomes or "",
+                 "is_revision": bool(x.is_revision),
                  "id": x.id,
                  "impl": {
                      i.section: {
