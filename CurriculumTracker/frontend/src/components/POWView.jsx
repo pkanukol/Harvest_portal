@@ -337,6 +337,9 @@ export default function POWView({ token, user, powId, onBack, onDone, onEditPlan
                 Session {sess.session_no || "—"}
                 {sess.topic ? ` · ${sess.topic}` : ""}
                 {sess.subtopic ? ` — ${sess.subtopic}` : ""}
+                {/* Taught time, but not new ground - see crud
+                    .teaching_session_nums for why it is excluded from progress. */}
+                {sess.is_revision && <span className="badge badge-revision">Revision</span>}
               </div>
 
               <div className="impl-plan-fields">
