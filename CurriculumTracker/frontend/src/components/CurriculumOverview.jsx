@@ -322,7 +322,10 @@ export default function CurriculumOverview({ token, user, branch = "", onBack })
                   <td className="overview-sections">
                     {(r.sections || []).map((x) => `${data.grade}${x}`).join(", ") || "—"}
                   </td>
-                  <td>{r.lp_session_num || "—"}</td>
+                  <td>
+                    {r.lp_session_num || "—"}
+                    {r.is_revision && <div className="badge badge-revision">Revision</div>}
+                  </td>
                   <Cell text={[r.topic, r.subtopic].filter(Boolean).join(" — ")} />
                   {/* Already prefixed per session by the API. */}
                   <Cell text={r.classwork} />
