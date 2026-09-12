@@ -84,7 +84,8 @@ export default function TeacherProgress({ token, user, branch = "", onBack }) {
       <div className="section-title">Teacher Progress</div>
       <div className="hint-text">
         Every class of one subject — teacher, section and campus — against the sessions planned
-        up to the end of {data?.prev_month || "last month"}.
+        up to the end of {data?.prev_month || "last month"}, with {data?.prev_month || "last month"}
+        and {data?.month || "this month"} side by side.
         {!branch && " Choose a campus at the top of the page to narrow this to one."}
       </div>
 
@@ -129,6 +130,16 @@ export default function TeacherProgress({ token, user, branch = "", onBack }) {
                   <th>Teacher</th>
                   <th>Chapters</th>
                   <th>Sessions</th>
+                  {/* Last month is finished, so its figure is a verdict; this
+                      month is still running, so it reads "so far". */}
+                  {(data.compare_months || []).map((m, i) => (
+                    <th key={m}>
+                      {m}
+                      {i === (data.compare_months || []).length - 1 && (
+                        <div className="hint-text">so far</div>
+                      )}
+                    </th>
+                  ))}
                   <th>Against plan to date</th>
                   <th>SME note</th>
                 </tr>
@@ -137,7 +148,7 @@ export default function TeacherProgress({ token, user, branch = "", onBack }) {
                 {grades.map((g) => (
                   <Fragment key={g.grade}>
                     <tr className="section-grade-row">
-                      <td colSpan={6}>
+                      <td colSpan={6 + (data.compare_months || []).length}>
                         <strong>Grade {g.grade}</strong>
                         <span className="hint-text">
                           {" "}· {g.rows[0].sessions} sessions planned for the year,{" "}
@@ -153,6 +164,20 @@ export default function TeacherProgress({ token, user, branch = "", onBack }) {
                         </td>
                         <td>{r.chapters_done} / {r.chapters}</td>
                         <td>{r.sessions_done} / {r.sessions}</td>
+                        {(r.months || []).map((m) => (
+                          <td key={m.month} className="teacher-month-cell">
+                            {m.planned ? (
+                              <>
+                                <strong>{m.done}</strong> / {m.planned}
+                                <div className={m.pct >= 100 ? "" : "annual-behind-text"}>{m.pct}%</div>
+                              </>
+                            ) : (
+                              /* The planner schedules nothing for this class
+                                 this month - not the same as nothing done. */
+                              <span className="hint-text">nothing planned</span>
+                            )}
+                          </td>
+                        ))}
                         <td>
                           <Bar pct={r.pct_to_date} behind={r.behind} />
                         </td>
