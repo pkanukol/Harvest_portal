@@ -134,6 +134,8 @@ class PowSession(Base):
     # the POW's chapter on the form, but is stored per session so it can differ.
     chapter = Column(String, nullable=True)
     topic = Column(String, nullable=True)
+    # One or more sub-topics, comma-joined. A session often covers several, and
+    # storing only the last one picked lost the rest.
     subtopic = Column(Text, nullable=True)
     cw = Column(Text, nullable=True)
     binder = Column(Text, nullable=True)
@@ -141,6 +143,11 @@ class PowSession(Base):
     homework = Column(Text, nullable=True)
     lp_link = Column(Text, nullable=True)             # URL of the lesson plan
     learning_outcomes = Column(Text, nullable=True)
+    # Going back over something already taught. It is real teaching time, so it
+    # belongs on the POW, but it must not count as curriculum progress: a
+    # revision session neither advances the chapter nor, being excluded from the
+    # session numbers progress reads, drags it backwards.
+    is_revision = Column(Boolean, default=False)
 
     pow = relationship("PowEntry", back_populates="sessions")
     implementations = relationship(
