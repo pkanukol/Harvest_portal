@@ -244,3 +244,155 @@ class SpaObservationOut(SpaObservationBase):
 
     class Config:
         from_attributes = True
+
+
+# --- ROLE FITMENT REPORT SCHEMAS ---
+RoleFitmentPeriod = Literal["first_month", "third_month", "sixth_month", "ninth_month"]
+
+class RoleFitmentStaffOption(BaseModel):
+    """One selectable employee for a new report, with header fields pre-resolved."""
+    user_id: int
+    name: str
+    role: Optional[str] = None            # teacher | sme | auditor (drives the category filter)
+    designation: Optional[str] = None
+    department: Optional[str] = None
+    branch: Optional[str] = None
+    employee_code: Optional[str] = None
+    date_of_joining: Optional[date] = None
+    joined_this_year: bool = False
+    principal_name: Optional[str] = None
+
+class RoleFitmentReportCreate(BaseModel):
+    employee_user_id: Optional[int] = None
+    employee_name: str
+    employee_code: Optional[str] = None
+    designation: Optional[str] = None
+    department: Optional[str] = None
+    branch: Optional[str] = None
+    date_of_joining: Optional[date] = None
+    supervisor_name: Optional[str] = None
+    hod_name: Optional[str] = None
+    principal_name: Optional[str] = None
+    academic_year: Optional[str] = None
+
+class RoleFitmentHeaderUpdate(BaseModel):
+    supervisor_name: Optional[str] = None
+    hod_name: Optional[str] = None
+    principal_name: Optional[str] = None
+    date_of_joining: Optional[date] = None
+    academic_year: Optional[str] = None
+    status: Optional[Literal["in_progress", "completed"]] = None
+
+class RoleFitmentFinalRemarkIn(BaseModel):
+    remark_text: str
+    remark_date: Optional[date] = None
+    close: bool = False  # HR/management can close (mark completed) with their remark
+
+class RoleFitmentScoreIn(BaseModel):
+    parameter_key: str
+    score: Optional[int] = None  # 0..5
+
+class RoleFitmentRemarkIn(BaseModel):
+    remark_type: str
+    remark_text: str
+
+class RoleFitmentBlockIn(BaseModel):
+    """Save one observer's block for a period: their date, the 3 parameter scores, and
+    their remark — all together (one Save button per observer block)."""
+    period: RoleFitmentPeriod
+    observer_type: str  # hod | principal | block_head
+    evaluation_date: Optional[date] = None
+    scores: List[RoleFitmentScoreIn] = []
+    remark_text: Optional[str] = None
+
+# --- Out ---
+class RoleFitmentScoreOut(BaseModel):
+    parameter_key: str
+    score: Optional[int] = None
+
+    class Config:
+        from_attributes = True
+
+class RoleFitmentRemarkOut(BaseModel):
+    id: int
+    remark_type: str
+    remark_text: str
+    remark_date: Optional[date] = None
+    author_name: Optional[str] = None
+    created_at: datetime
+
+    @field_serializer("created_at")
+    def _ser_created_at(self, dt, _info):
+        return _utc_iso(dt)
+
+    class Config:
+        from_attributes = True
+
+class RoleFitmentEvaluationOut(BaseModel):
+    id: int
+    period: str
+    observer_type: Optional[str] = None
+    evaluation_date: Optional[date] = None
+    average_score: Optional[float] = None
+    scores: List[RoleFitmentScoreOut] = []
+    remarks: List[RoleFitmentRemarkOut] = []
+
+    class Config:
+        from_attributes = True
+
+class RoleFitmentFinalRemarkOut(BaseModel):
+    id: int
+    remark_text: str
+    remark_date: Optional[date] = None
+    author_name: Optional[str] = None
+    author_designation: Optional[str] = None
+    created_at: datetime
+
+    @field_serializer("created_at")
+    def _ser_created_at(self, dt, _info):
+        return _utc_iso(dt)
+
+    class Config:
+        from_attributes = True
+
+class RoleFitmentReportOut(BaseModel):
+    id: int
+    employee_user_id: Optional[int] = None
+    employee_name: str
+    employee_code: Optional[str] = None
+    designation: Optional[str] = None
+    department: Optional[str] = None
+    branch: Optional[str] = None
+    date_of_joining: Optional[date] = None
+    supervisor_name: Optional[str] = None
+    hod_name: Optional[str] = None
+    principal_name: Optional[str] = None
+    academic_year: Optional[str] = None
+    status: str
+    created_by: int
+    created_at: datetime
+    creator: UserMinimal
+    evaluations: List[RoleFitmentEvaluationOut] = []
+    final_remarks: List[RoleFitmentFinalRemarkOut] = []
+
+    @field_serializer("created_at")
+    def _ser_created_at(self, dt, _info):
+        return _utc_iso(dt)
+
+    class Config:
+        from_attributes = True
+
+class RoleFitmentListItem(BaseModel):
+    id: int
+    employee_name: str
+    designation: Optional[str] = None
+    department: Optional[str] = None
+    branch: Optional[str] = None
+    status: str
+    created_at: datetime
+    creator_name: str
+    periods_done: int
+
+    @field_serializer("created_at")
+    def _ser_created_at(self, dt, _info):
+        return _utc_iso(dt)
