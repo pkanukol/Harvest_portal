@@ -736,6 +736,30 @@ def _build_teacher_map(db: Session, user_email: str, role: str, branch: Optional
             if mapped_ids:
                 for t in db.query(models.User).filter(models.User.id.in_(mapped_ids)).all():
                     teacher_map[t.email.lower()] = {"name": t.name or t.email, "subject": t.subject or "", "location": t.location or ""}
+
+            # ...and EVERY teacher of the subject they own, mapped or not.
+            #
+            # teacher_sme is a hand-maintained list and it is incomplete: Ms
+            # Sujata Sengupta, HOD for Social Science, had seven teachers mapped
+            # and so could not see the POWs of Grades 5, 6 and 7, whose teachers
+            # happened to be missing from it. An HOD or SME owns the SUBJECT, so
+            # a teacher of it appearing in staff_roles is enough - the mapping
+            # only ever adds to that now, it no longer limits it.
+            allowed = viewer_branches(sme.location or "")
+            extra = _class_teacher_subjects(db)
+            mine = teaching_subjects_of(sme.email, sme.subject or "", extra)
+            if mine:
+                for t in db.query(models.User).all():
+                    if not t.email or t.email.lower() in teacher_map:
+                        continue
+                    if allowed and normalize_branch(t.location) not in allowed:
+                        continue
+                    if not (mine & teaching_subjects_of(t.email, t.subject or "", extra)):
+                        continue
+                    teacher_map[t.email.lower()] = {
+                        "name": t.name or t.email, "subject": t.subject or "",
+                        "location": t.location or "",
+                    }
     elif role == "Leadership":
         # Leadership sees every subject teacher on the campuses their own
         # account covers ('Both' covers all).
@@ -1519,7 +1543,8 @@ def can_edit_tbs_mom(user, pow_entry) -> bool:
 
 def get_pow_notification_recipients(db: Session, teacher_email: str, subject: str = "",
                                     grade: Optional[str] = None,
-                                    branch: Optional[str] = None) -> List[dict]:
+                                    branch: Optional[str] = None,
+                                    include_teachers: bool = True) -> List[dict]:
     """Who hears about a POW: the other teachers of that subject and grade on
     the same campus, plus the SMEs this teacher is mapped to in teacher_sme.
 
@@ -1532,6 +1557,10 @@ def get_pow_notification_recipients(db: Session, teacher_email: str, subject: st
     whole-subject view; an inbox is not.
 
     The author themselves is excluded - they just saved it.
+
+    include_teachers=False narrows it to the SMEs alone, which is who the TBS
+    MOM notification goes to: the MOM is the SME's cue to record remarks and
+    close the POW, and is no business of the other section teachers.
     """
     recipients = {}
 
@@ -1546,7 +1575,7 @@ def get_pow_notification_recipients(db: Session, teacher_email: str, subject: st
     # The teachers who share this class. A POW is shared across the section
     # teachers of a subject+grade (see get_pow_cards), so the people who need to
     # know it changed are exactly the people who may fill in a section of it.
-    if grade not in (None, ""):
+    if include_teachers and grade not in (None, ""):
         assigned = _teachers_by_subject_grade(db, {})
         want_branch = normalize_branch(branch or "")
         for member in subjects_in_group(subject or ""):
