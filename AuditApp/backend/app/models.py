@@ -1,5 +1,5 @@
 import datetime
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Date, Text, ForeignKey, UniqueConstraint, JSON
+from sqlalchemy import Column, Integer, Float, String, Boolean, DateTime, Date, Text, ForeignKey, UniqueConstraint, JSON
 from sqlalchemy.orm import relationship
 from .database import Base
 
@@ -142,3 +142,107 @@ class SpaObservation(Base):
 
     auditor = relationship("User", foreign_keys=[auditor_id])
     teacher = relationship("User", foreign_keys=[teacher_id])
+
+
+# --- ROLE FITMENT REPORT (probation evaluation for leadership) -----------------
+# A separate observation format from Classroom/SPA: a probation "Role Fitment Report"
+# for one employee, filled across 4 periods (1st / 3rd / 6th / 11th month) over the
+# probation year. Only leadership designations (see ROLE_FITMENT_DESIGNATIONS in
+# main.py) can see/create these. Header identity is snapshotted from users +
+# staff_master at creation so the report stays correct even if those change later.
+class RoleFitmentReport(Base):
+    __tablename__ = "role_fitment_reports"
+
+    id = Column(Integer, primary_key=True, index=True)
+    # The employee being evaluated (their app account, if they have one).
+    employee_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    employee_name = Column(String, nullable=False)
+    employee_code = Column(String, nullable=True)      # staff_master.employee_id
+    designation = Column(String, nullable=True)
+    department = Column(String, nullable=True)          # users.subject
+    branch = Column(String, nullable=True)              # users.location / staff_master.branch
+    date_of_joining = Column(Date, nullable=True)
+    supervisor_name = Column(String, nullable=True)     # observer fills
+    hod_name = Column(String, nullable=True)            # observer fills
+    principal_name = Column(String, nullable=True)      # auto from branch, editable
+    academic_year = Column(String, nullable=True)
+    status = Column(String, default="in_progress")      # in_progress | completed
+
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
+    employee = relationship("User", foreign_keys=[employee_user_id])
+    creator = relationship("User", foreign_keys=[created_by])
+    evaluations = relationship("RoleFitmentEvaluation", back_populates="report", cascade="all, delete-orphan")
+    final_remarks = relationship("RoleFitmentFinalRemark", back_populates="report", cascade="all, delete-orphan")
+
+
+class RoleFitmentEvaluation(Base):
+    """One observer's assessment block for a period — each observer (HOD / Principal /
+    Block Head) scores the parameters and gives a remark independently."""
+    __tablename__ = "role_fitment_evaluations"
+    __table_args__ = (UniqueConstraint("report_id", "period", "observer_type", name="uq_rf_report_period_observer"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    report_id = Column(Integer, ForeignKey("role_fitment_reports.id"), nullable=False)
+    period = Column(String, nullable=False)             # first_month|third_month|sixth_month|ninth_month
+    observer_type = Column(String, nullable=True)       # hod | principal | block_head
+    evaluation_date = Column(Date, nullable=True)
+    average_score = Column(Float, nullable=True)        # avg of the period's parameter scores (out of 5)
+    evaluated_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
+    report = relationship("RoleFitmentReport", back_populates="evaluations")
+    evaluator = relationship("User", foreign_keys=[evaluated_by])
+    scores = relationship("RoleFitmentScore", back_populates="evaluation", cascade="all, delete-orphan")
+    remarks = relationship("RoleFitmentRemark", back_populates="evaluation", cascade="all, delete-orphan")
+
+
+class RoleFitmentScore(Base):
+    __tablename__ = "role_fitment_scores"
+    __table_args__ = (UniqueConstraint("evaluation_id", "parameter_key", name="uq_rf_eval_param"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    evaluation_id = Column(Integer, ForeignKey("role_fitment_evaluations.id"), nullable=False)
+    parameter_key = Column(String, nullable=False)      # e.g. 'understanding_of_role'
+    score = Column(Integer, nullable=True)              # 0..5
+
+    evaluation = relationship("RoleFitmentEvaluation", back_populates="scores")
+
+
+class RoleFitmentRemark(Base):
+    """Append-only remark log — every remark entered is kept (with author + timestamp),
+    so nothing is lost when a later contributor edits their remark."""
+    __tablename__ = "role_fitment_remarks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    evaluation_id = Column(Integer, ForeignKey("role_fitment_evaluations.id"), nullable=False)
+    remark_type = Column(String, nullable=False)        # hod|principal|block_head|overall_recommendation|final_recommendation
+    remark_text = Column(Text, nullable=False)
+    remark_date = Column(Date, nullable=True)           # date this remark author set for their entry
+    author_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    author_name = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    evaluation = relationship("RoleFitmentEvaluation", back_populates="remarks")
+    author = relationship("User", foreign_keys=[author_user_id])
+
+
+class RoleFitmentFinalRemark(Base):
+    """Report-level 'Final Recommendation for next Academic Year' — an append-only thread any
+    observer / management / HR can add to; HR can close the report with their remark."""
+    __tablename__ = "role_fitment_final_remarks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    report_id = Column(Integer, ForeignKey("role_fitment_reports.id"), nullable=False)
+    remark_text = Column(Text, nullable=False)
+    remark_date = Column(Date, nullable=True)
+    author_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    author_name = Column(String, nullable=True)
+    author_designation = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    report = relationship("RoleFitmentReport", back_populates="final_remarks")
+    author = relationship("User", foreign_keys=[author_user_id])
