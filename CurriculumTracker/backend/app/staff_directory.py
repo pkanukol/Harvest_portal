@@ -135,6 +135,18 @@ def parse_teaching_sections(entries, fallback_subject: str = "") -> list:
     return out
 
 
+# Accounts in staff_roles that are not real staff. Dropped here, at the single
+# point every screen reads the directory through, so they cannot turn up as a
+# class's teacher, in a POW's shared visibility, or on a notification - the APM
+# asked for them to be ignored completely (2026-09-15). staff_roles belongs to
+# the other project and is read-only to this app, so they are filtered on read
+# rather than removed at source.
+IGNORED_EMAILS = {
+    "testteacher@harvestinternationalschool.in",   # "Test Teacher", 5 class assignments
+    "staff.dlp@harvestinternationalschool.in",     # "Test - All Roles"
+}
+
+
 def _fetch() -> dict:
     # Service key when configured — that project's policies only admit the
     # `authenticated` role, so the publishable (anon) key reads back nothing.
@@ -151,7 +163,7 @@ def _fetch() -> dict:
     by_email = {}
     for row in rows:
         email = _normalize(row.get("email"))
-        if not email or row.get("active") is False:
+        if not email or row.get("active") is False or email in IGNORED_EMAILS:
             continue
         subjects = row.get("subjects") or []
         if isinstance(subjects, str):
