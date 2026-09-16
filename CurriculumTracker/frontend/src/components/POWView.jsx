@@ -95,7 +95,15 @@ export default function POWView({ token, user, powId, onBack, onDone, onEditPlan
   // Deliberately NOT tied to the final save: the TBS discussion happens after
   // the POW is finalised, which is what the missing-MOM reminder chases.
   const isTbsMomLocked = !canEditTbsMom;
-  const hasImpl = [implA, implB, implC, implD, implE, implF].some((v) => v && v.trim().length > 0);
+  // Is there anything for the SME to close out? The legacy per-section fields,
+  // OR the per-session records every modern POW actually uses, OR a TBS MOM.
+  // Reading only the first meant an SME never saw "Confirm & Close" on a POW
+  // filed the current way - the close-out was unreachable.
+  const hasImpl =
+    [implA, implB, implC, implD, implE, implF].some((v) => v && v.trim().length > 0)
+    || Object.values(sessionImpl).some(
+         (v) => (v.remarks || "").trim() || v.completed_on || v.correction_on)
+    || Boolean((pow.tbs_mom || "").trim());
   const cctYes = (pow.cct_topic_yn || "").toLowerCase() === "yes";
 
   async function saveTeacherImpl() {
@@ -464,6 +472,14 @@ export default function POWView({ token, user, powId, onBack, onDone, onEditPlan
               />
               CCQ discussed
             </label>
+          )}
+          {/* The MOM is what the SME was emailed about, so it is repeated here
+              rather than leaving them to scroll back up for it. */}
+          {(pow.tbs_mom || "").trim() && (
+            <div className="form-group" style={{ marginTop: 12 }}>
+              <label className="form-label">TBS MOM recorded by the teacher</label>
+              <div className="readonly-field tbs-mom-recorded">{pow.tbs_mom}</div>
+            </div>
           )}
           <div className="form-group" style={{ marginTop: 12 }}>
             <label className="form-label">SME Remarks</label>
