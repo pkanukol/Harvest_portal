@@ -774,6 +774,136 @@ async def get_alerts(
     return {"type": "none", "items": []}
 
 
+# --- ROLE FITMENT REPORT ROUTES ---
+
+# Designations allowed to see/create Role Fitment (probation) reports. "Block Head" is a
+# Coordinator; Head Mistress is included for when that designation exists. Lower-cased for
+# a case-insensitive check against users.designation.
+ROLE_FITMENT_DESIGNATIONS = {
+    "chairman", "managing director", "principal", "vice principal",
+    "coordinator", "hod", "dlp manager", "apm", "head mistress", "curriculum head", "hr",
+}
+
+
+def _has_role_fitment_access(user: models.User) -> bool:
+    return (user.designation or "").strip().lower() in ROLE_FITMENT_DESIGNATIONS
+
+
+def require_role_fitment(current_user: models.User = Depends(auth.get_current_user)):
+    if not _has_role_fitment_access(current_user):
+        raise HTTPException(status_code=403, detail="Role Fitment reports are restricted to leadership")
+    return current_user
+
+
+@app.get("/api/role-fitment/access")
+async def role_fitment_access(current_user: models.User = Depends(auth.get_current_user)):
+    # Lets the frontend show/hide the feature without triggering a 403.
+    return {"allowed": _has_role_fitment_access(current_user)}
+
+
+@app.get("/api/role-fitment/staff", response_model=List[schemas.RoleFitmentStaffOption])
+async def role_fitment_staff(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(require_role_fitment),
+):
+    return crud.get_role_fitment_staff_options(db)
+
+
+@app.get("/api/role-fitment/reports", response_model=List[schemas.RoleFitmentListItem])
+async def list_role_fitment(
+    branch: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(require_role_fitment),
+):
+    return crud.list_role_fitment_reports(db, branch)
+
+
+@app.post("/api/role-fitment/reports", response_model=schemas.RoleFitmentReportOut)
+async def create_role_fitment(
+    body: schemas.RoleFitmentReportCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(require_role_fitment),
+):
+    return crud.create_role_fitment_report(db, body, current_user.id)
+
+
+@app.get("/api/role-fitment/reports/{report_id}", response_model=schemas.RoleFitmentReportOut)
+async def get_role_fitment(
+    report_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(require_role_fitment),
+):
+    rep = crud.get_role_fitment_report(db, report_id)
+    if not rep:
+        raise HTTPException(status_code=404, detail="Report not found")
+    return rep
+
+
+@app.put("/api/role-fitment/reports/{report_id}/header", response_model=schemas.RoleFitmentReportOut)
+async def update_role_fitment_header_route(
+    report_id: int,
+    body: schemas.RoleFitmentHeaderUpdate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(require_role_fitment),
+):
+    rep = crud.update_role_fitment_header(db, report_id, body)
+    if not rep:
+        raise HTTPException(status_code=404, detail="Report not found")
+    return rep
+
+
+@app.post("/api/role-fitment/reports/{report_id}/evaluations", response_model=schemas.RoleFitmentReportOut)
+async def save_role_fitment_block(
+    report_id: int,
+    body: schemas.RoleFitmentBlockIn,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(require_role_fitment),
+):
+    rep = crud.get_role_fitment_report(db, report_id)
+    if not rep:
+        raise HTTPException(status_code=404, detail="Report not found")
+    return crud.upsert_role_fitment_block(db, report_id, body, current_user)
+
+
+@app.post("/api/role-fitment/reports/{report_id}/final-remark", response_model=schemas.RoleFitmentReportOut)
+async def add_role_fitment_final_remark_route(
+    report_id: int,
+    body: schemas.RoleFitmentFinalRemarkIn,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(require_role_fitment),
+):
+    rep = crud.get_role_fitment_report(db, report_id)
+    if not rep:
+        raise HTTPException(status_code=404, detail="Report not found")
+    if not (body.remark_text or "").strip():
+        raise HTTPException(status_code=400, detail="Remark cannot be empty")
+    return crud.add_role_fitment_final_remark(db, report_id, body, current_user)
+
+
+@app.get("/api/role-fitment/coverage")
+async def role_fitment_coverage(
+    branch: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(require_role_fitment),
+):
+    return crud.get_role_fitment_coverage(db, branch)
+
+
+@app.delete("/api/role-fitment/reports/{report_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_role_fitment(
+    report_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(require_role_fitment),
+):
+    rep = crud.get_role_fitment_report(db, report_id)
+    if not rep:
+        raise HTTPException(status_code=404, detail="Report not found")
+    if rep.created_by != current_user.id:
+        raise HTTPException(status_code=403, detail="You can only delete reports you created")
+    crud.delete_role_fitment_report(db, report_id)
+    return None
+
+
 @app.get("/api/health")
 async def health_check():
     return {"status": "ok"}
