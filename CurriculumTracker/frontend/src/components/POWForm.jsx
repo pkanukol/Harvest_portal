@@ -128,7 +128,15 @@ export default function POWForm({ token, user, mode, prefillPow, branch = "", on
     if (!isEdit || hydrated.current || rows.length === 0) return;
     const saved = prefillPow?.sessions || [];
     const chapterName = (saved[0] || {}).chapter || prefillPow?.topic || "";
-    const row = rows.find((r) => r.chapter_name === chapterName);
+    const forChapter = rows.filter((r) => r.chapter_name === chapterName);
+    // A chapter often spans two months - Grade 3 Maths "Division" runs August
+    // AND September - so the FIRST planner row for it is the wrong answer. The
+    // month the POW was written for is the month its own week falls in; only
+    // when the chapter is not planned then do we fall back to its first.
+    const weekMonth = prefillPow?.week_start
+      ? new Date(`${prefillPow.week_start}T00:00:00`).toLocaleString("en-US", { month: "long" })
+      : "";
+    const row = forChapter.find((r) => r.month === weekMonth) || forChapter[0];
     if (row) {
       if (streams.length > 1) setStream(row.subject || "");
       if (row.month) setMonth(row.month);
@@ -363,7 +371,12 @@ export default function POWForm({ token, user, mode, prefillPow, branch = "", on
   function sessionsInChapter(chapterName, inMonth) {
     const list = inMonth && inMonth !== month ? chaptersInMonth(inMonth) : chaptersForDiscipline;
     const row = list.find((r) => r.chapter_name === chapterName);
-    return (row && row.sessions) || 0;
+    if (row && row.sessions) return row.sessions;
+    // The chapter may sit outside the month showing above - a session keeps its
+    // own chapter whatever the picker says - and a chapter's session count is
+    // the same figure in every month it spans, so any row for it will do.
+    const anywhere = scopedRows.find((r) => r.chapter_name === chapterName && r.sessions);
+    return (anywhere && anywhere.sessions) || 0;
   }
 
   const planMonth = (pi) => plans[pi].month || month;
@@ -424,17 +437,27 @@ export default function POWForm({ token, user, mode, prefillPow, branch = "", on
     setPlans((prev) => prev.filter((_, i) => i !== pi));
   }
 
+  // Changing a picker clears what hangs off it - but NEVER while editing a
+  // saved POW, where wiping the plans throws away work already recorded. On a
+  // new POW the plans are only what the teacher has typed this minute; on an
+  // edit they are the POW itself. The session rows keep their own chapter
+  // either way (see the chapter dropdown, which always offers its own value).
+  function clearPlans() {
+    if (isEdit) return;
+    setPlans([{ sections: [], sessions: [], month: "" }]);
+  }
+
   function onStreamChange(value) {
     setStream(value);
-    setDiscipline(""); setChapter(""); setTopicPick(""); setSubtopicPick(""); setPlans([{ sections: [], sessions: [] }]);
+    setDiscipline(""); setChapter(""); setTopicPick(""); setSubtopicPick(""); clearPlans();
   }
   function onMonthChange(value) {
     setMonth(value);
-    setDiscipline(""); setChapter(""); setTopicPick(""); setSubtopicPick(""); setPlans([{ sections: [], sessions: [] }]);
+    setDiscipline(""); setChapter(""); setTopicPick(""); setSubtopicPick(""); clearPlans();
   }
   function onDisciplineChange(value) {
     setDiscipline(value);
-    setChapter(""); setTopicPick(""); setSubtopicPick(""); setPlans([{ sections: [], sessions: [] }]);
+    setChapter(""); setTopicPick(""); setSubtopicPick(""); clearPlans();
   }
   // The POW's own chapter is the first session's - there is no separate
   // week-level pick any more, since every session names its own chapter and
@@ -446,7 +469,7 @@ export default function POWForm({ token, user, mode, prefillPow, branch = "", on
 
   function onChapterChange(value) {
     setChapter(value);
-    setTopicPick(""); setSubtopicPick(""); setPlans([{ sections: [], sessions: [] }]);
+    setTopicPick(""); setSubtopicPick(""); clearPlans();
   }
   function onTopicPickChange(value) {
     setTopicPick(value);
@@ -770,8 +793,15 @@ export default function POWForm({ token, user, mode, prefillPow, branch = "", on
                           }}
                         >
                           <option value="">Select a chapter…</option>
-                          {chaptersInMonth(plan.month || month).map((r) => (
-                            <option key={r.chapter_name} value={r.chapter_name}>{r.chapter_name}</option>
+                          {/* Its own chapter is always in the list, even when
+                              the month above no longer plans it - otherwise the
+                              select falls blank and a saved session reads as
+                              lost when it is only out of scope. */}
+                          {Array.from(new Set([
+                            ...chaptersInMonth(plan.month || month).map((r) => r.chapter_name),
+                            ...(sess.chapter ? [sess.chapter] : []),
+                          ])).map((name) => (
+                            <option key={name} value={name}>{name}</option>
                           ))}
                         </select>
                       </div>
