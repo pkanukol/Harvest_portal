@@ -140,4 +140,32 @@ export const api = {
 
   getSpaAuditList: (token, location) =>
     request(`/spa-dashboard/audit-list?location=${encodeURIComponent(location)}`, { token }),
+
+  // --- Role Fitment (probation) reports ---
+  roleFitmentAccess: (token) => request("/role-fitment/access", { token }),
+
+  getRoleFitmentStaff: (token) => request("/role-fitment/staff", { token }),
+
+  listRoleFitmentReports: (token, branch) =>
+    request(`/role-fitment/reports${branch ? `?branch=${encodeURIComponent(branch)}` : ""}`, { token }),
+
+  getRoleFitmentReport: (token, id) => request(`/role-fitment/reports/${id}`, { token }),
+
+  createRoleFitmentReport: (token, body) =>
+    request("/role-fitment/reports", { method: "POST", token, body }),
+
+  updateRoleFitmentHeader: (token, id, body) =>
+    request(`/role-fitment/reports/${id}/header`, { method: "PUT", token, body }),
+
+  saveRoleFitmentBlock: (token, id, body) =>
+    request(`/role-fitment/reports/${id}/evaluations`, { method: "POST", token, body }),
+
+  addRoleFitmentFinalRemark: (token, id, body) =>
+    request(`/role-fitment/reports/${id}/final-remark`, { method: "POST", token, body }),
+
+  getRoleFitmentCoverage: (token, branch) =>
+    request(`/role-fitment/coverage${branch ? `?branch=${encodeURIComponent(branch)}` : ""}`, { token }),
+
+  deleteRoleFitmentReport: (token, id) =>
+    request(`/role-fitment/reports/${id}`, { method: "DELETE", token }),
 };
