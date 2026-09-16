@@ -165,12 +165,11 @@ export default function RoleFitmentPage({ token, user }) {
 
   const loadList = async () => {
     setListLoading(true); setError("");
+    // Coverage (scans all staff) is heavier — fetch it in the background so the reports
+    // list paints as soon as it's ready instead of waiting on both.
+    api.getRoleFitmentCoverage(token).then(setCoverage).catch(() => {});
     try {
-      const [reps, cov] = await Promise.all([
-        api.listRoleFitmentReports(token),
-        api.getRoleFitmentCoverage(token).catch(() => null),
-      ]);
-      setReports(reps); setCoverage(cov);
+      setReports(await api.listRoleFitmentReports(token));
     } catch (e) { setError(e.message); }
     finally { setListLoading(false); }
   };
