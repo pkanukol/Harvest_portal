@@ -53,9 +53,19 @@ def _rows_html(pairs) -> str:
 
 async def send_pow_notification(recipients: list, teacher_name: str, action: str,
                                 subject: str, grade: str, week: str, topic: str,
-                                subtopic: str, sessions: str, status_label: str):
-    """One email per recipient. `action` is "created" or "updated"; recipients
-    are the teacher's mapped SMEs plus the Curriculum Heads."""
+                                subtopic: str, sessions: str, status_label: str,
+                                note: str = "", extra_pairs: list = None):
+    """One email per recipient.
+
+    Only two moments send anything, confirmed with the APM on 2026-09-15: a POW
+    being CREATED (to the SME who must approve it, and to the other teachers of
+    that subject and grade as an intimation), and its TBS MOM being filled in
+    (to the SME, who then records remarks and closes it). Nothing goes out for
+    an edit, an approval or the teacher's final save - an inbox full of
+    "updated" is an inbox nobody reads.
+
+    `note` is the one line saying what the reader is being asked to do.
+    """
     if not recipients:
         logger.info("No POW notification recipients for %s — nothing sent", teacher_name)
         return
@@ -65,13 +75,15 @@ async def send_pow_notification(recipients: list, teacher_name: str, action: str
         ("Teacher", teacher_name), ("Subject", subject), ("Grade", grade),
         ("Week", week), ("Chapter", topic), ("Topic / Sub topic", subtopic),
         ("Sessions this week", sessions), ("Status", status_label),
-    ]
-    text = f"{heading}\n\n" + "\n".join(f"{k}: {v}" for k, v in pairs if v) + \
+    ] + list(extra_pairs or [])
+    text = f"{heading}\n\n" + (f"{note}\n\n" if note else "") + \
+           "\n".join(f"{k}: {v}" for k, v in pairs if v) + \
            f"\n\nOpen the Curriculum Tracker: {settings.APP_URL}\n"
     html = (
         f'<div style="font-family:system-ui,-apple-system,Segoe UI,sans-serif;font-size:14px;color:#0f172a">'
         f'<p style="font-size:15px;font-weight:700;color:#1d4ed8">{heading}</p>'
-        f'<table style="border-collapse:collapse;font-size:13px">{_rows_html(pairs)}</table>'
+        + (f'<p style="margin:0 0 12px">{note}</p>' if note else "")
+        + f'<table style="border-collapse:collapse;font-size:13px">{_rows_html(pairs)}</table>'
         f'<p style="margin-top:16px"><a href="{settings.APP_URL}" '
         f'style="background:#1d4ed8;color:#fff;padding:8px 16px;border-radius:6px;'
         f'text-decoration:none;font-size:13px">Open Curriculum Tracker</a></p>'
