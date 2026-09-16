@@ -11,6 +11,8 @@ import SpaDetailDrawer from "./components/SpaDetailDrawer";
 import SpaObservationForm from "./components/SpaObservationForm";
 import SuccessView from "./components/SuccessView";
 import TeacherView from "./components/TeacherView";
+import RoleFitmentPage from "./components/RoleFitmentPage";
+import { canUseRoleFitment } from "./constants/roleFitment";
 import { useAuth } from "./context/AuthContext";
 
 export default function App() {
@@ -265,6 +267,8 @@ export default function App() {
   const hasReceivedReports = teacherReports.length > 0 || spaTeacherReports.length > 0;
   const showMyReportsNav =
     isAuthenticated && user?.role !== "teacher" && (takesClasses || hasReceivedReports) && view !== "my-reports";
+  // Role Fitment (probation) reports — leadership designations only.
+  const showRoleFitmentNav = isAuthenticated && canUseRoleFitment(user) && view !== "role-fitment";
 
   return (
     <>
@@ -279,6 +283,8 @@ export default function App() {
           onSpaDashboard={() => setView("spa-dashboard")}
           showMyReportsNav={showMyReportsNav}
           onMyReports={() => setView("my-reports")}
+          showRoleFitmentNav={showRoleFitmentNav}
+          onRoleFitment={() => setView("role-fitment")}
           onLogout={handleLogout}
         />
       )}
@@ -375,6 +381,10 @@ export default function App() {
                 spaReportsError={spaReportsError}
                 onOpenSpaReport={(obsId) => openSpaDrawer(obsId)}
               />
+            )}
+
+            {view === "role-fitment" && canUseRoleFitment(user) && (
+              <RoleFitmentPage token={token} user={user} />
             )}
 
             {view === "spa-dashboard" && user.role !== "teacher" && (
