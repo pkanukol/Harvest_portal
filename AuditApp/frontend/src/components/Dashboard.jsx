@@ -4,7 +4,7 @@ import { esc, formatDateStr, ratingClass, scoreColorClass } from "../utils/helpe
 
 // Leadership/oversight designations that get the SME Activity Report button —
 // mirrors auth.LEADERSHIP_DESIGNATIONS on the backend, which actually enforces this.
-const LEADERSHIP_DESIGNATIONS = new Set(["chairman", "managing director", "apm", "principal", "curriculum head"]);
+const LEADERSHIP_DESIGNATIONS = new Set(["chairman", "managing director", "apm", "principal", "curriculum head", "dlp manager"]);
 
 export default function Dashboard({
   token,
