@@ -1,6 +1,6 @@
 from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import func, or_, and_, select
-from datetime import datetime, timezone
+from sqlalchemy import func, or_, and_, select, text
+from datetime import datetime, timezone, date
 import string
 import random
 from . import models, schemas, auth
@@ -696,3 +696,236 @@ def get_spa_audit_list(db: Session, location: str, sme_user_id: int = None):
         }
         for obs in observations
     ]
+
+
+# --- ROLE FITMENT REPORT CRUD ---
+def _principal_name_for_branch(principals, branch):
+    """Best-effort principal for a branch. The two principals both carry location
+    'Both', so we key off their email/name containing the branch (principal.kodathi@,
+    principal.attibele@), then fall back to an exact non-'Both' location match."""
+    if not branch:
+        return None
+    b = branch.strip().lower()
+    for p in principals:
+        if b in (p.email or "").lower() or b in (p.name or "").lower():
+            return p.name
+    for p in principals:
+        if (p.location or "").strip().lower() == b:
+            return p.name
+    return None
+
+# Designations never subject to a Role Fitment (probation) report — excluded from the
+# picker and the coverage "others" list.
+EXCLUDED_FROM_FITMENT = {"chairman", "managing director"}
+
+def _current_ay_bounds(today=None):
+    """Academic year runs May 1 -> April 30 of the next year."""
+    today = today or date.today()
+    start_year = today.year if today.month >= 5 else today.year - 1
+    return date(start_year, 5, 1), date(start_year + 1, 4, 30)
+
+def _joined_this_year(doj):
+    if not doj:
+        return False
+    s, e = _current_ay_bounds()
+    return s <= doj <= e
+
+def _doj_sort_key(iso_or_date):
+    # Sort most-recent-first, with unknown DOJ last.
+    return (iso_or_date is not None, str(iso_or_date) if iso_or_date else "")
+
+def get_role_fitment_staff_options(db: Session):
+    """Selectable employees, enriched from staff_master (employee_id, date_of_joining,
+    branch) + branch principal. Excludes Chairman/MD, sorted most-recently-joined first,
+    with a `joined_this_year` flag (this academic year = May..April)."""
+    sm_by_email = {}
+    for r in db.execute(text(
+        "SELECT email, employee_id, date_of_joining, branch FROM staff_master"
+    )).mappings().all():
+        e = (r["email"] or "").strip().lower()
+        if e and e not in sm_by_email:
+            sm_by_email[e] = r
+    principals = db.query(models.User).filter(models.User.designation.ilike("Principal")).all()
+
+    options = []
+    for u in db.query(models.User).all():
+        if (u.designation or "").strip().lower() in EXCLUDED_FROM_FITMENT:
+            continue
+        sm = sm_by_email.get((u.email or "").strip().lower())
+        branch = (sm["branch"] if sm and sm["branch"] else u.location)
+        doj = sm["date_of_joining"] if sm else None
+        options.append({
+            "user_id": u.id, "name": u.name, "role": u.role,
+            "designation": u.designation, "department": u.subject, "branch": branch,
+            "employee_code": sm["employee_id"] if sm else None,
+            "date_of_joining": doj,
+            "joined_this_year": _joined_this_year(doj),
+            "principal_name": _principal_name_for_branch(principals, branch),
+        })
+    options.sort(key=lambda o: _doj_sort_key(o["date_of_joining"]), reverse=True)
+    return options
+
+def get_role_fitment_coverage(db: Session, branch: str = None):
+    """Staff (teacher / SME / others) with NO Role Fitment report yet. Excludes Chairman/MD
+    from 'others'; each person carries subject + DOJ, sorted most-recently-joined first,
+    flagged if they joined this academic year."""
+    reported_ids = {
+        r[0] for r in db.query(models.RoleFitmentReport.employee_user_id)
+        .filter(models.RoleFitmentReport.employee_user_id.isnot(None)).all()
+    }
+    sm_by_email = {}
+    for r in db.execute(text("SELECT email, branch, date_of_joining FROM staff_master")).mappings().all():
+        e = (r["email"] or "").strip().lower()
+        if e and e not in sm_by_email:
+            sm_by_email[e] = r
+
+    cats = {"teacher": [], "sme": [], "others": []}
+    for u in db.query(models.User).all():
+        if u.id in reported_ids:
+            continue
+        if (u.designation or "").strip().lower() in EXCLUDED_FROM_FITMENT:
+            continue
+        sm = sm_by_email.get((u.email or "").strip().lower())
+        resolved_branch = (sm["branch"] if sm and sm["branch"] else u.location)
+        doj = sm["date_of_joining"] if sm else None
+        if branch and not ((resolved_branch or "").lower() == branch.lower() or (u.location or "") == "Both"):
+            continue
+        cat = "teacher" if u.role == "teacher" else ("sme" if u.role == "sme" else "others")
+        cats[cat].append({
+            "user_id": u.id, "name": u.name, "subject": u.subject,
+            "designation": u.designation, "branch": resolved_branch,
+            "date_of_joining": doj.isoformat() if doj else None,
+            "joined_this_year": _joined_this_year(doj),
+        })
+    for k in cats:
+        cats[k].sort(key=lambda p: _doj_sort_key(p["date_of_joining"]), reverse=True)
+    return {k: {"count": len(v), "people": v} for k, v in cats.items()}
+
+def get_role_fitment_report(db: Session, report_id: int):
+    return db.query(models.RoleFitmentReport).options(
+        joinedload(models.RoleFitmentReport.creator),
+        joinedload(models.RoleFitmentReport.evaluations).joinedload(models.RoleFitmentEvaluation.scores),
+        joinedload(models.RoleFitmentReport.evaluations).joinedload(models.RoleFitmentEvaluation.remarks),
+        joinedload(models.RoleFitmentReport.final_remarks),
+    ).filter(models.RoleFitmentReport.id == report_id).first()
+
+def add_role_fitment_final_remark(db: Session, report_id: int, body: schemas.RoleFitmentFinalRemarkIn, user):
+    """Append a report-level Final Recommendation remark (any observer / management / HR).
+    `close=True` also marks the report completed."""
+    db.add(models.RoleFitmentFinalRemark(
+        report_id=report_id, remark_text=body.remark_text.strip(), remark_date=body.remark_date,
+        author_user_id=user.id, author_name=user.name, author_designation=user.designation,
+    ))
+    if body.close:
+        rep = db.query(models.RoleFitmentReport).filter(models.RoleFitmentReport.id == report_id).first()
+        if rep:
+            rep.status = "completed"
+    db.commit()
+    return get_role_fitment_report(db, report_id)
+
+def create_role_fitment_report(db: Session, data: schemas.RoleFitmentReportCreate, creator_id: int):
+    rep = models.RoleFitmentReport(
+        employee_user_id=data.employee_user_id,
+        employee_name=data.employee_name,
+        employee_code=data.employee_code,
+        designation=data.designation,
+        department=data.department,
+        branch=data.branch,
+        date_of_joining=data.date_of_joining,
+        supervisor_name=data.supervisor_name,
+        hod_name=data.hod_name,
+        principal_name=data.principal_name,
+        academic_year=data.academic_year,
+        created_by=creator_id,
+    )
+    db.add(rep)
+    db.commit()
+    db.refresh(rep)
+    return get_role_fitment_report(db, rep.id)
+
+def list_role_fitment_reports(db: Session, branch: str = None):
+    q = db.query(models.RoleFitmentReport).options(
+        joinedload(models.RoleFitmentReport.creator),
+        joinedload(models.RoleFitmentReport.evaluations),
+    )
+    if branch:
+        q = q.filter(models.RoleFitmentReport.branch == branch)
+    reports = q.order_by(models.RoleFitmentReport.created_at.desc()).all()
+    items = []
+    for r in reports:
+        periods_done = sum(
+            1 for e in r.evaluations if e.evaluation_date or e.average_score is not None
+        )
+        items.append({
+            "id": r.id,
+            "employee_name": r.employee_name,
+            "designation": r.designation,
+            "department": r.department,
+            "branch": r.branch,
+            "status": r.status,
+            "created_at": r.created_at,
+            "creator_name": r.creator.name if r.creator else "",
+            "periods_done": periods_done,
+        })
+    return items
+
+def update_role_fitment_header(db: Session, report_id: int, update: schemas.RoleFitmentHeaderUpdate):
+    rep = db.query(models.RoleFitmentReport).filter(models.RoleFitmentReport.id == report_id).first()
+    if not rep:
+        return None
+    for field in ("supervisor_name", "hod_name", "principal_name", "date_of_joining", "academic_year", "status"):
+        val = getattr(update, field)
+        if val is not None:
+            setattr(rep, field, val)
+    db.commit()
+    return get_role_fitment_report(db, report_id)
+
+def delete_role_fitment_report(db: Session, report_id: int):
+    rep = db.query(models.RoleFitmentReport).filter(models.RoleFitmentReport.id == report_id).first()
+    if not rep:
+        return False
+    db.delete(rep)  # cascade removes evaluations -> scores + remarks
+    db.commit()
+    return True
+
+def upsert_role_fitment_block(db: Session, report_id: int, body: schemas.RoleFitmentBlockIn, user):
+    """Save one observer's block for a period (their date + 3 parameter scores + remark),
+    keyed by (report, period, observer_type). Recomputes that observer's average and
+    appends the remark (append-only log) when it's non-empty and changed."""
+    ev = db.query(models.RoleFitmentEvaluation).filter_by(
+        report_id=report_id, period=body.period, observer_type=body.observer_type
+    ).first()
+    if not ev:
+        ev = models.RoleFitmentEvaluation(
+            report_id=report_id, period=body.period, observer_type=body.observer_type,
+        )
+        db.add(ev)
+        db.flush()
+    if body.evaluation_date is not None:
+        ev.evaluation_date = body.evaluation_date
+    ev.evaluated_by = user.id
+
+    existing = {s.parameter_key: s for s in db.query(models.RoleFitmentScore).filter_by(evaluation_id=ev.id).all()}
+    for s in body.scores:
+        if s.score is None:
+            continue
+        if s.parameter_key in existing:
+            existing[s.parameter_key].score = s.score
+        else:
+            db.add(models.RoleFitmentScore(evaluation_id=ev.id, parameter_key=s.parameter_key, score=s.score))
+    db.flush()
+
+    all_scores = [s.score for s in db.query(models.RoleFitmentScore).filter_by(evaluation_id=ev.id).all() if s.score is not None]
+    ev.average_score = round(sum(all_scores) / len(all_scores), 2) if all_scores else None
+
+    txt = (body.remark_text or "").strip()
+    if txt:
+        latest = db.query(models.RoleFitmentRemark).filter_by(evaluation_id=ev.id).order_by(models.RoleFitmentRemark.created_at.desc()).first()
+        if not latest or latest.remark_text != txt or latest.remark_date != body.evaluation_date:
+            db.add(models.RoleFitmentRemark(
+                evaluation_id=ev.id, remark_type=body.observer_type, remark_text=txt,
+                remark_date=body.evaluation_date, author_user_id=user.id, author_name=user.name,
+            ))
+
+    db.commit()
+    return get_role_fitment_report(db, report_id)
