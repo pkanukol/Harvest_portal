@@ -5,7 +5,6 @@ from fastapi import FastAPI, BackgroundTasks, Depends, HTTPException, Request, s
 from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
-from sqlalchemy import func
 
 from .config import settings
 from .database import engine, Base, get_db, run_migrations
@@ -707,21 +706,18 @@ def get_pow(
 
 
 def _notify_pow(background: BackgroundTasks, db: Session, pow_entry: models.PowEntry,
-                teacher_name: str, action: str, notify_teacher: bool = False) -> None:
+                teacher_name: str, action: str, include_teachers: bool = True,
+                note: str = "", extra_pairs: list = None) -> None:
     """Queued as a background task so email latency never delays the save, and
-    a Resend outage can't fail the request."""
+    a Resend outage can't fail the request.
+
+    Called from exactly two places - see email_service_resend
+    .send_pow_notification for why.
+    """
     recipients = crud.get_pow_notification_recipients(
         db, pow_entry.teacher_email, pow_entry.subject, pow_entry.grade, pow_entry.branch,
+        include_teachers=include_teachers,
     )
-    if notify_teacher:
-        # An approval is news for the author above anyone else: it is what
-        # tells them they may start recording implementation.
-        author = db.query(models.User).filter(
-            func.lower(models.User.email) == (pow_entry.teacher_email or "").lower()
-        ).first()
-        if author and author.email:
-            recipients.append({"email": author.email, "name": author.name or author.email,
-                               "why": "POW author"})
     background.add_task(
         email_service_resend.send_pow_notification,
         recipients=recipients,
@@ -734,6 +730,8 @@ def _notify_pow(background: BackgroundTasks, db: Session, pow_entry: models.PowE
         subtopic=pow_entry.subtopic or "",
         sessions=pow_entry.lp_session_num or "",
         status_label=crud.STATUS_LABELS.get(pow_entry.status, pow_entry.status),
+        note=note,
+        extra_pairs=extra_pairs,
     )
 
 
@@ -748,7 +746,13 @@ def create_pow(
     if dup:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="A POW already exists for this week, subject, grade, topic and sub-topic.")
     pow_entry = crud.create_pow(db, current_user.email, req)
-    _notify_pow(background, db, pow_entry, current_user.name, "created")
+    _notify_pow(
+        background, db, pow_entry, current_user.name, "created",
+        note=("The SME is asked to review and approve this plan. Once it is approved, every "
+              "teacher of this class records the implementation for their own sections in this "
+              "same POW, the following week. No further email is sent about this POW, so please "
+              "open it in the Curriculum Tracker when the week is done."),
+    )
     return {"success": True, "id": pow_entry.id}
 
 
@@ -777,7 +781,8 @@ def update_pow_plan(
         crud.update_pow_plan(db, pow_entry, req)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
-    _notify_pow(background, db, pow_entry, current_user.name, "updated")
+    # Deliberately silent: the plan is still a draft, and a mail per revision
+    # is noise. The SME sees it when they open it to approve.
     return {"success": True, "id": pow_entry.id}
 
 
@@ -797,7 +802,6 @@ def approve_pow_plan(
         crud.approve_pow_plan(db, pow_entry, current_user.email, req.sme_name, req.remarks)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
-    _notify_pow(background, db, pow_entry, current_user.name, "plan approved", notify_teacher=True)
     return {"success": True}
 
 
@@ -836,8 +840,23 @@ def update_pow_implementation(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="This POW is finalised — only its TBS MOM can still be updated, and only by a teacher of this subject.",
             )
+    # Whether a MOM was already on record BEFORE this save decides whether the
+    # SME hears about it: the mail is for the minute being written, not for
+    # every later save that happens to carry the same text along.
+    had_mom = bool((pow_entry.tbs_mom or "").strip())
     crud.update_pow_implementation(db, pow_entry, req)
-    _notify_pow(background, db, pow_entry, current_user.name, "updated")
+
+    # The only other mail this app sends. Not the final save, not the section
+    # implementation - just the TBS MOM, which is the SME's cue to record
+    # remarks and close the POW.
+    if not had_mom and (pow_entry.tbs_mom or "").strip():
+        _notify_pow(
+            background, db, pow_entry, current_user.name, "TBS MOM added",
+            include_teachers=False,
+            note=("The teacher has recorded the TBS minutes below. Please add your remarks "
+                  "and close this POW."),
+            extra_pairs=[("TBS MOM", (pow_entry.tbs_mom or "").strip())],
+        )
     return {"success": True, "final_save": req.final_save}
 
 
