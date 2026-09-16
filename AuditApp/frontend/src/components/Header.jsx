@@ -1,4 +1,4 @@
-export default function Header({ user, showDashboardNav, onDashboard, showSpaNav, onSpaDashboard, showMyReportsNav, onMyReports, onLogout, headerSub }) {
+export default function Header({ user, showDashboardNav, onDashboard, showSpaNav, onSpaDashboard, showMyReportsNav, onMyReports, showRoleFitmentNav, onRoleFitment, onLogout, headerSub }) {
   if (!user) return null;
 
   return (
@@ -24,6 +24,11 @@ export default function Header({ user, showDashboardNav, onDashboard, showSpaNav
           {showMyReportsNav && (
             <button className="btn btn-dashboard" onClick={onMyReports}>
               &#128203; My Reports
+            </button>
+          )}
+          {showRoleFitmentNav && (
+            <button className="btn btn-dashboard" onClick={onRoleFitment}>
+              &#128101; Role Fitment
             </button>
           )}
         </div>
