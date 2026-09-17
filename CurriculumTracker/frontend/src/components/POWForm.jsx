@@ -161,12 +161,21 @@ export default function POWForm({ token, user, mode, prefillPow, branch = "", on
         is_revision: Boolean(x.is_revision),
       });
     });
-    const monthOf = (name) => (rows.find((r) => r.chapter_name === name) || {}).month || "";
+    // EVERY month a chapter is planned in, not just the first one found - the
+    // same trap as above: Grade 3 Maths "Division" is planned in August and in
+    // September, and taking the first made a September plan claim August, whose
+    // chapter list then offered Subtraction and Multiplication.
+    const monthsOf = (name) =>
+      rows.filter((r) => r.chapter_name === name).map((r) => r.month).filter(Boolean);
+    const formMonth = (row || {}).month || weekMonth || month;
     const built = [...groups.values()].map((p) => {
-      // A plan left on an earlier month's chapter keeps that month, so its own
-      // chapter and session-number lists still offer the right things.
-      const own = monthOf((p.sessions[0] || {}).chapter);
-      return { ...p, month: own && own !== (row || {}).month ? own : "" };
+      // A plan names its own month ONLY when its chapter is not planned in the
+      // month at the top of the form - that is what the per-plan month is for,
+      // a section still working through an earlier month's chapter. When the
+      // chapter belongs to the form's month, the plan follows the form.
+      const chapterMonths = monthsOf((p.sessions[0] || {}).chapter);
+      const own = chapterMonths.includes(formMonth) ? "" : (chapterMonths[0] || "");
+      return { ...p, month: own };
     });
     if (built.length) setPlans(built);
     hydrated.current = true;
