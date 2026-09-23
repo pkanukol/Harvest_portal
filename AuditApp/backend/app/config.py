@@ -6,8 +6,14 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
 
     ANTHROPIC_API_KEY: str = ""
-    #APP_URL: str = "https://harvest-ta.onrender.com"
-    APP_URL: str = "https://harvest-dlp-portal.onrender.com"
+    # Where email notifications send people. The standalone app is now embedded
+    # in this Netlify shell as the actual front door, so this is a flat link,
+    # not a deep link into a specific page.
+    APP_URL: str = "https://his-academy360.netlify.app"
+    # Where the "View report / Open" buttons in notification emails point — the class
+    # observation module in the Elevate360 ERP. Its own setting so a stale APP_URL env var
+    # (which had caused wrong email links before) can't override it.
+    CLASSOBS_URL: str = "https://elevate360india.com/classobs"
 
     RESEND_API_KEY: str = ""
     RESEND_FROM_EMAIL: str = ""
@@ -19,7 +25,6 @@ class Settings(BaseSettings):
 
     SUPABASE_URL: str = "https://aouvxdfamzprykezeovl.supabase.co"
     SUPABASE_ANON_KEY: str = "sb_publishable_rIfo8DPrbyOmU006ii3onw_sDRWJwvE"
-    PORTAL_URL: str = "https://harvest-portal.onrender.com/portal/login.html"
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 
