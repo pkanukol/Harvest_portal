@@ -805,6 +805,46 @@ def approve_pow_plan(
     return {"success": True}
 
 
+@app.get("/api/pow/{pow_id}/ccq")
+def get_pow_ccq(
+    pow_id: int,
+    db: Session = Depends(get_db),
+    _user: auth.CurrentUser = Depends(auth.get_current_user),
+):
+    """This week's CCQ result for each section of the POW, read live from the
+    other project's `reports` table - see app.ccq for why that table and not
+    cct_sessions."""
+    pow_entry = crud.get_pow(db, pow_id)
+    if not pow_entry:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="POW not found")
+    return crud.ccq_for_pow(db, pow_entry)
+
+
+@app.post("/api/pow/{pow_id}/ccq-reason")
+def save_pow_ccq_reason(
+    pow_id: int,
+    req: schemas.CcqReasonRequest,
+    db: Session = Depends(get_db),
+    current_user: auth.CurrentUser = Depends(auth.get_current_user),
+):
+    """Why a section scored below the pass mark. Written by a teacher of the
+    subject, for as long as the POW's implementation is open to them."""
+    pow_entry = crud.get_pow(db, pow_id)
+    if not pow_entry:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="POW not found")
+    if not crud.teaches_pow_subject(current_user, pow_entry):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only a teacher of this subject can explain a CCQ score.",
+        )
+    try:
+        crud.save_ccq_reason(db, pow_entry, req.section, req.reason or "",
+                             current_user.email, current_user.name)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    return {"success": True}
+
+
 @app.patch("/api/pow/{pow_id}/implementation")
 def update_pow_implementation(
     pow_id: int,
