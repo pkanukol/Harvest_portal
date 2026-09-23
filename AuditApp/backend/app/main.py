@@ -283,7 +283,7 @@ async def finalise_observation(
         auditor_email=finalised_obs.auditor.email,
         school=finalised_obs.school,
         grade=f"{finalised_obs.grade} {finalised_obs.section}",
-        app_url=settings.APP_URL,
+        app_url=settings.CLASSOBS_URL,
     )
     finalised_obs.email_sent = True
     db.commit()
@@ -335,7 +335,7 @@ async def save_remarks(
         teacher_email=current_user.email,
         school=updated_obs.school,
         grade=f"{updated_obs.grade} {updated_obs.section}",
-        app_url=f"{settings.APP_URL}/?page=dashboard",
+        app_url=settings.CLASSOBS_URL,
     )
     return updated_obs
 
@@ -528,7 +528,7 @@ async def finalise_spa_observation_route(
         auditor_email=finalised_obs.auditor.email,
         school=finalised_obs.school,
         activity=finalised_obs.activity,
-        app_url=settings.APP_URL,
+        app_url=settings.CLASSOBS_URL,
     )
     finalised_obs.email_sent = True
     db.commit()
