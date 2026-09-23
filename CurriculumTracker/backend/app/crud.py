@@ -4,7 +4,7 @@ import calendar
 from typing import Optional, List
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import func, or_, true as sql_true
-from . import models, staff_directory
+from . import models, staff_directory, ccq
 from .config import settings
 
 IST_OFFSET = datetime.timedelta(hours=5, minutes=30)
@@ -1441,6 +1441,161 @@ def update_pow_implementation(db: Session, pow_entry: models.PowEntry, data) -> 
     return pow_entry
 
 
+def pow_sections(pow_entry) -> list:
+    """Every section this POW covers, from its sessions and its section plans -
+    the same set the implementation grid shows."""
+    letters = {sp.section for sp in (pow_entry.section_plans or []) if sp.section}
+    for x in (pow_entry.sessions or []):
+        letters.update(y.strip().upper()[:1] for y in (x.sections or "").split(",") if y.strip())
+    return sorted(l for l in letters if l)
+
+
+def ccq_for_pow(db: Session, pow_entry: models.PowEntry) -> dict:
+    """The CCQ result for each section of this POW's week, with whatever the
+    teacher has already written about a low one.
+
+    Only meaningful when the POW said a CCQ was coming (cct_topic_yn == Yes);
+    the caller decides whether to ask. A section with no result is reported as
+    not yet conducted rather than as zero - the test may simply be later in the
+    week, and it can be filled in afterwards.
+    """
+    try:
+        grade_num = int(str(pow_entry.grade).strip())
+    except (TypeError, ValueError):
+        grade_num = 0
+    # The CCT starts at Grade 5; below it there is nothing to show and nothing
+    # to chase.
+    if grade_num < ccq.MIN_GRADE:
+        return {
+            "pow_id": pow_entry.id, "expected": False, "pass_mark": ccq.PASS_MARK,
+            "below_min_grade": True, "min_grade": ccq.MIN_GRADE,
+            "week": [], "sections": [],
+        }
+
+    scores = ccq.section_scores(
+        pow_entry.subject, pow_entry.grade, pow_entry.branch,
+        pow_entry.week_start.isoformat() if pow_entry.week_start else "",
+        pow_entry.week_end.isoformat() if pow_entry.week_end else "",
+    )
+    saved = {
+        r.section: r for r in
+        db.query(models.CcqReason).filter(models.CcqReason.pow_id == pow_entry.id).all()
+    }
+
+    sections = pow_sections(pow_entry)
+
+    # A grouped paper ("G8-Group Hindi_ ...") is sat by several sections at
+    # once, so the grade gets ONE row and the sections get none - splitting a
+    # single average between them would invent per-section figures that were
+    # never measured.
+    grouped = scores.get(ccq.GRADE_KEY)
+    if grouped:
+        note = saved.get(ccq.GRADE_KEY)
+        return {
+            "pow_id": pow_entry.id,
+            "expected": (pow_entry.cct_topic_yn or "").strip().lower() == "yes",
+            "pass_mark": ccq.PASS_MARK,
+            "grouped": True,
+            "week": [
+                pow_entry.week_start.isoformat() if pow_entry.week_start else None,
+                pow_entry.week_end.isoformat() if pow_entry.week_end else None,
+            ],
+            "sections": [{
+                "section": ccq.GRADE_KEY,
+                "label": f"Grade {pow_entry.grade} (all sections together)",
+                "state": "conducted",
+                "conducted": True,
+                "pct": grouped["pct"],
+                "students": grouped["students"],
+                "test_name": grouped["test_name"],
+                "taken_on": grouped["taken_on"],
+                "status": grouped.get("status", ""),
+                "below": grouped["below"],
+                "reason": (note.reason or "") if note else "",
+                "reason_author": (note.author_name or "") if note else "",
+            }],
+        }
+    # Which of these classes has a CCQ set up at all - what tells "scheduled but
+    # not sat yet" apart from "nobody ever set one up".
+    scheduled = ccq.scheduled_sessions(
+        pow_entry.subject, pow_entry.grade, pow_entry.branch, sections,
+    )
+
+    rows = []
+    for section in sections:
+        hit = scores.get(section)
+        note = saved.get(section)
+        plan = scheduled.get(section)
+        if hit:
+            state = "conducted"
+        elif plan:
+            state = "scheduled"          # set up, results not in yet
+        else:
+            state = "unscheduled"        # no cct_sessions row for this class
+        rows.append({
+            "section": section,
+            "label": f"{pow_entry.grade}{section}",
+            "state": state,
+            "conducted": bool(hit),
+            "pct": hit["pct"] if hit else None,
+            "students": hit["students"] if hit else 0,
+            "test_name": (hit or {}).get("test_name") or (note.test_name if note else ""),
+            "taken_on": (hit or {}).get("taken_on"),
+            # The CCT system's own words for where the test stands.
+            "status": (hit or {}).get("status") or (plan or {}).get("status", ""),
+            # Only a conducted test that fell short is asked to explain itself.
+            "below": bool(hit and hit["below"]),
+            "reason": (note.reason or "") if note else "",
+            "reason_author": (note.author_name or "") if note else "",
+        })
+
+    return {
+        "pow_id": pow_entry.id,
+        "expected": (pow_entry.cct_topic_yn or "").strip().lower() == "yes",
+        "pass_mark": ccq.PASS_MARK,
+        "grouped": False,
+        "week": [
+            pow_entry.week_start.isoformat() if pow_entry.week_start else None,
+            pow_entry.week_end.isoformat() if pow_entry.week_end else None,
+        ],
+        "sections": rows,
+    }
+
+
+def save_ccq_reason(db: Session, pow_entry: models.PowEntry, section: str, reason: str,
+                    author_email: str, author_name: str) -> models.CcqReason:
+    """One explanation per section per POW, written over rather than appended."""
+    sec = (section or "").strip().upper()[:1]
+    if not sec:
+        raise ValueError("a reason belongs to a section")
+
+    row = db.query(models.CcqReason).filter(
+        models.CcqReason.pow_id == pow_entry.id,
+        models.CcqReason.section == sec,
+    ).first()
+    if not row:
+        row = models.CcqReason(pow_id=pow_entry.id, section=sec)
+        db.add(row)
+
+    # Stamped with the test and score as they stood, so the note still reads
+    # sensibly if the class later sits a differently-named CCQ.
+    hit = ccq.section_scores(
+        pow_entry.subject, pow_entry.grade, pow_entry.branch,
+        pow_entry.week_start.isoformat() if pow_entry.week_start else "",
+        pow_entry.week_end.isoformat() if pow_entry.week_end else "",
+    ).get(sec)
+    if hit:
+        row.test_name = hit["test_name"]
+        row.pct = hit["pct"]
+    row.reason = (reason or "").strip()
+    row.author_email = author_email
+    row.author_name = author_name
+    row.updated_at = datetime.datetime.utcnow()
+    db.commit()
+    db.refresh(row)
+    return row
+
+
 def save_sme_review(db: Session, pow_entry: models.PowEntry, sme_email: str, data) -> models.SmeReview:
     review = pow_entry.review
     if not review:
@@ -2740,6 +2895,12 @@ def section_progress(db: Session, user_email: str, role: str, subject: str,
         if not sections:
             sections = ["*"]
 
+        # Where a grade's credit can come from at all, so each row can say which
+        # it is standing on. A figure inherited from an SME's marking must not
+        # read as evidence that this teacher did anything.
+        grade_pow_ids = {p.id for entries in pows_by_chapter.values() for p in entries}
+        grade_has_marks = bool(marked_months or marked_labels or marked_full)
+
         for sec in sections:
             done = 0
             chapters_done = 0
@@ -2775,6 +2936,13 @@ def section_progress(db: Session, user_email: str, role: str, subject: str,
                 "sessions": planned_sessions,
                 "sessions_done": done,
                 "sessions_due": due_sessions,
+                # "pow"      - this section recorded its own implementation
+                # "backfill" - inherited from the SME/HOD's coverage marking
+                # "none"     - nothing recorded anywhere
+                "source": ("pow" if sec in {x for v in impl_sections.values() for x in v}
+                           else "backfill" if grade_has_marks else "none"),
+                "own_impl": sec in {x for v in impl_sections.values() for x in v},
+                "class_pows": len(grade_pow_ids),
                 "pct": round(done * 100 / planned_sessions) if planned_sessions else 0,
                 "pct_to_date": round(done * 100 / due_sessions) if due_sessions else 100,
                 "behind": max(0, due_sessions - done),
