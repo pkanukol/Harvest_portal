@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { api } from "../api";
 import { fmtDate } from "../dateUtils";
 
@@ -28,6 +28,12 @@ export default function POWView({ token, user, powId, onBack, onDone, onEditPlan
   const [approvedClosed, setApprovedClosed] = useState(false);
   const [smeName, setSmeName] = useState(user.name || "");
   const [approving, setApproving] = useState(false);
+  // This week's CCQ, per section. Fetched separately from the POW because it
+  // is read live from the other project and may arrive (or change) after the
+  // POW itself was filed.
+  const [ccq, setCcq] = useState(null);
+  const [ccqDrafts, setCcqDrafts] = useState({});
+  const [savingCcq, setSavingCcq] = useState("");
   const [confirmedDate, setConfirmedDate] = useState(() => new Date().toISOString().slice(0, 10));
 
   useEffect(() => {
@@ -66,6 +72,32 @@ export default function POWView({ token, user, powId, onBack, onDone, onEditPlan
       if (res.review?.confirmed_date) setConfirmedDate(res.review.confirmed_date);
     }).catch((err) => setError(err.message));
   }, [token, powId]);
+
+  useEffect(() => {
+    api.getPowCcq(token, powId)
+      .then((res) => {
+        setCcq(res);
+        const drafts = {};
+        (res.sections || []).forEach((x) => { drafts[x.section] = x.reason || ""; });
+        setCcqDrafts(drafts);
+      })
+      // A CCQ lookup failing must never take the POW screen down with it.
+      .catch(() => setCcq(null));
+  }, [token, powId]);
+
+  async function saveCcqReason(section) {
+    setSavingCcq(section);
+    setError("");
+    try {
+      await api.saveCcqReason(token, powId, { section, reason: ccqDrafts[section] || "" });
+      const res = await api.getPowCcq(token, powId);
+      setCcq(res);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSavingCcq("");
+    }
+  }
 
   if (error) return <div className="form-error">{error}</div>;
   if (!pow) return <div className="loading-spinner">Loading…</div>;
@@ -416,6 +448,98 @@ export default function POWView({ token, user, powId, onBack, onDone, onEditPlan
         <div className="hint-text">
           This POW has no sessions recorded, so there is nothing to implement against.
         </div>
+      )}
+
+      {/* Only when the POW said a CCQ was coming. The scores are read from the
+          CCT project's own records rather than typed here, so they cannot
+          disagree with it. */}
+      {ccq?.expected && (ccq.sections || []).length > 0 && (
+        <>
+          <div className="section-title">CCQ this week</div>
+          <div className="hint-text">
+            {ccq.grouped
+              // Several sections sat one paper, so there is one figure for the
+              // grade - splitting it between sections would invent numbers
+              // nobody measured.
+              ? `The sections of this grade sat one paper together, so the score is the grade's.`
+              : "Scored out of the section's own students."}{" "}
+            Taken between {fmtDate(ccq.week[0])} and {fmtDate(ccq.week[1])}. Below{" "}
+            {ccq.pass_mark}% needs a word on why.
+          </div>
+
+          <table className="impl-grid ccq-grid">
+            <thead>
+              <tr>
+                <th>{ccq.grouped ? "Grade" : "Section"}</th>
+                <th>CCQ</th><th>Score</th><th>Taken on</th>
+              </tr>
+            </thead>
+            <tbody>
+              {ccq.sections.map((row) => (
+                <Fragment key={row.section}>
+                  <tr>
+                    <th className="impl-grid-section">{row.label}</th>
+                    <td>{row.test_name || <span className="hint-text">—</span>}</td>
+                    <td>
+                      {row.state === "conducted" ? (
+                        <>
+                          <strong className={row.below ? "annual-behind-text" : ""}>{row.pct}%</strong>
+                          <div className="hint-text">{row.students} students</div>
+                        </>
+                      ) : row.state === "scheduled" ? (
+                        /* A test exists for this class; the results are not in.
+                           Never a zero - it fills itself in when they are. */
+                        <span className="hint-text">
+                          yet to be conducted
+                          {row.status ? <div>{row.status}</div> : null}
+                        </span>
+                      ) : (
+                        /* No CCQ set up for this class at all. */
+                        <span className="hint-text">not approved / scheduled</span>
+                      )}
+                    </td>
+                    <td>{row.taken_on ? fmtDate(row.taken_on) : "—"}</td>
+                  </tr>
+                  {row.below && (
+                    <tr className="ccq-reason-row">
+                      <td colSpan={4}>
+                        <label className="form-label">
+                          {ccq.grouped ? `This grade` : row.label} scored below{" "}
+                          {ccq.pass_mark}% — why?
+                        </label>
+                        {canFillImplementation ? (
+                          <div className="teacher-note-edit">
+                            <textarea
+                              className="form-control"
+                              value={ccqDrafts[row.section] || ""}
+                              placeholder="What held this section back, and what happens next?"
+                              onChange={(e) => setCcqDrafts(
+                                (prev) => ({ ...prev, [row.section]: e.target.value }))}
+                            />
+                            <div className="teacher-note-actions">
+                              <button className="btn btn-primary btn-sm"
+                                      disabled={savingCcq === row.section}
+                                      onClick={() => saveCcqReason(row.section)}>
+                                {savingCcq === row.section ? "Saving…" : "Save"}
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="readonly-field tbs-mom-recorded">
+                            {row.reason || "—"}
+                          </div>
+                        )}
+                        {row.reason && row.reason_author && (
+                          <div className="hint-text">— {row.reason_author}</div>
+                        )}
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              ))}
+            </tbody>
+          </table>
+        </>
       )}
 
       <div className="form-group">
