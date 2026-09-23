@@ -1,8 +1,10 @@
 // The school portal is where every session starts: the Curriculum Tracker has
-// no login of its own, only the SSO handoff from there. Hard-coded rather than
-// read from VITE_PORTAL_URL, because a build that shipped without that variable
-// sent an expired session to a page that cannot sign anyone back in.
-const PORTAL_URL = "https://elevate360india.com/";
+// no login of its own, only the SSO handoff from there. Pointed at the portal's
+// curriculum entry, so a re-login lands back on this app rather than the portal
+// home. Hard-coded rather than read from VITE_PORTAL_URL, because a build that
+// shipped without that variable sent an expired session to a page that cannot
+// sign anyone back in.
+const PORTAL_URL = "https://elevate360india.com/curriculum";
 
 export default function LoginView({ error }) {
   return (
