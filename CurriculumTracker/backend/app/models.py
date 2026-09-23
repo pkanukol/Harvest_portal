@@ -326,6 +326,34 @@ class TeacherProgressNote(Base):
                         onupdate=datetime.datetime.utcnow)
 
 
+class CcqReason(Base):
+    """Why one section scored below the CCQ pass mark, in its teacher's words.
+
+    Kept against the POW and the section, because that is the week the test
+    belongs to - the same class can sit another CCQ a fortnight later and the
+    reason for one says nothing about the other. The score itself is never
+    stored: it lives in the other project's `reports` table and is read fresh,
+    so a correction there is reflected here rather than frozen.
+    """
+    __tablename__ = "ccq_reasons"
+    __table_args__ = (
+        Index("ix_ccq_reason_key", "pow_id", "section", unique=True),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    pow_id = Column(Integer, ForeignKey("pow_entries.id"), nullable=False)
+    section = Column(String(1), nullable=False)
+    # What the test was called when the reason was written, so the note still
+    # makes sense if the class later sits a differently-named CCQ.
+    test_name = Column(String, nullable=True)
+    pct = Column(Integer, nullable=True)
+    reason = Column(Text, nullable=True)
+    author_email = Column(String, nullable=True)
+    author_name = Column(String, nullable=True)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow,
+                        onupdate=datetime.datetime.utcnow)
+
+
 class PlannerTopic(Base):
     """One row per (subject, grade, chapter/topic/subtopic) entry, imported
     from the CurriculumMapping_<subject>_2026_27 Google Sheets (one workbook
