@@ -236,6 +236,12 @@ export const api = {
   approvePowPlan: (token, id, payload) =>
     request(`/pow/${id}/approve-plan`, { method: "POST", token, body: payload }),
 
+  // This week's CCQ result per section, read live from the CCT project.
+  getPowCcq: (token, id) => request(`/pow/${id}/ccq`, { token }),
+
+  saveCcqReason: (token, id, payload) =>
+    request(`/pow/${id}/ccq-reason`, { method: "POST", token, body: payload }),
+
   updatePowImplementation: (token, id, payload) =>
     request(`/pow/${id}/implementation`, { method: "PATCH", token, body: payload }),
 
