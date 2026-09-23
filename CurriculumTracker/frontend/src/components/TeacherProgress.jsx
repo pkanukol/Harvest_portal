@@ -180,6 +180,11 @@ export default function TeacherProgress({ token, user, branch = "", onBack }) {
                         ))}
                         <td>
                           <Bar pct={r.pct_to_date} behind={r.behind} />
+                          {/* Where the figure came from. Five sections reading
+                              "on track" off one SME's coverage marking is true
+                              arithmetic and a false impression of five
+                              teachers - so the row says which it is. */}
+                          <Source source={r.source} />
                         </td>
                         <td className="teacher-note-cell">
                           {editing === r.label ? (
@@ -223,11 +228,23 @@ export default function TeacherProgress({ token, user, branch = "", onBack }) {
 
       <p className="hint-text section-progress-note">
         A class is measured on what it has recorded: its own implementation on a POW, or the
-        coverage an SME marked for the class. Classes read alike until their POWs differ — and
-        where one is ahead or behind, the note is where the reason belongs.
+        coverage an SME marked for the class. Where a row says <em>from SME marking</em>, the figure
+        is the whole grade's and no teacher has recorded anything against it yet — so the sections
+        read alike, and "on track" describes the curriculum, not the teacher. The note is where the
+        reason belongs.
       </p>
     </div>
   );
+}
+
+function Source({ source }) {
+  if (source === "pow") {
+    return <div className="row-source">from this section's POW</div>;
+  }
+  if (source === "backfill") {
+    return <div className="row-source row-source-inherited">from SME marking · no POW</div>;
+  }
+  return <div className="row-source row-source-none">nothing recorded</div>;
 }
 
 function Bar({ pct, behind }) {
