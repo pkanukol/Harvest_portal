@@ -253,6 +253,12 @@ class PowCreateRequest(BaseModel):
     section_plans: List[PowSectionPlanIn] = []
 
 
+class CcqReasonRequest(BaseModel):
+    """The teacher's explanation for a section that scored below the pass mark."""
+    section: str
+    reason: Optional[str] = ""
+
+
 class PlanApprovalRequest(BaseModel):
     """The SME's sign-off on the plan itself, before any teaching is recorded
     against it. Her typed name is required - the approval is a signature, the
