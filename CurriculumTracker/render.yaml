@@ -18,7 +18,14 @@ services:
         sync: false   # service_role key for the staff_roles project (ukpythuclqvjwygqrsds), set in the Render
                       # dashboard - read-only use, and the only way to read that table since its RLS policies
                       # admit the 'authenticated' role only. Leave unset and the curriculum-lag report still
-                      # works, just without class-assignment coverage.
+                      # works, just without class-assignment coverage. The same project holds cct_sessions and
+                      # reports, which the CCQ scores on a POW are read from.
+      - key: RESEND_API_KEY
+        sync: false   # set in the Render dashboard. Declared here so a fresh blueprint deploy does not silently
+                      # drop it: with this or RESEND_FROM_EMAIL missing, POW notifications are SIMULATED into the
+                      # log and the app reports success, so a lost key looks like silence rather than an error.
+      - key: RESEND_FROM_EMAIL
+        sync: false   # sender address on the Resend-verified domain, e.g. curriculum@<verified domain>
 
   # ── Frontend (React / Vite static site) ──────────────────────
   - type: web
