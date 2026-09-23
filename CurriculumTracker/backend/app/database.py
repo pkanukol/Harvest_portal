@@ -73,6 +73,15 @@ def run_migrations():
                     "ALTER TABLE teacher_progress_notes ALTER COLUMN teacher_email DROP NOT NULL"
                 ))
 
+    if "ccq_reasons" in existing_tables:
+        cols = {c["name"] for c in inspector.get_columns("ccq_reasons")}
+        for column, coltype in (("test_name", "VARCHAR"), ("pct", "INTEGER")):
+            if column not in cols:
+                with engine.begin() as conn:
+                    conn.execute(text(
+                        f"ALTER TABLE ccq_reasons ADD COLUMN IF NOT EXISTS {column} {coltype}"
+                    ))
+
     if "sme_reviews" in existing_tables:
         cols = {c["name"] for c in inspector.get_columns("sme_reviews")}
         # The plan-approval gate: the SME signs off what the teacher planned
