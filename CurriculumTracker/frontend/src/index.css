@@ -522,3 +522,15 @@ th { background: var(--bg); color: var(--muted); font-weight: 600; font-size: 11
 /* Several sub-topics per session, as a checklist rather than a dropdown. */
 .subtopic-picker { display: flex; flex-direction: column; gap: 2px; max-height: 140px; overflow-y: auto;
   border: 1px solid var(--line, #d9e2ec); border-radius: 8px; padding: 6px 8px; background: var(--page); }
+
+/* CCQ results for the POW's week: read from the CCT project, never typed here.
+   The reason row sits directly under the section it explains. */
+.ccq-grid td { vertical-align: top; }
+.ccq-reason-row > td { background: var(--warn-bg); padding: 10px 12px; }
+.ccq-reason-row .form-label { color: #8a6212; }
+
+/* Where a Teacher Progress row's figure came from. Deliberately quiet - it
+   qualifies the bar above it rather than competing with it. */
+.row-source { font-size: 10px; color: var(--muted); margin-top: 4px; }
+.row-source-inherited { color: #8a6212; }
+.row-source-none { color: var(--red); }
