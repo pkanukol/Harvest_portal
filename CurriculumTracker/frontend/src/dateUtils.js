@@ -26,8 +26,7 @@ export function isPastWeek(weekStartISO) {
   return ws < mon;
 }
 
-export function nextWeekDates() {
-  const today = new Date();
+export function nextWeekDates(today = new Date()) {
   const day = today.getDay();
   let daysToMon = day === 0 ? 1 : 8 - day;
   const mon = new Date(today);
@@ -35,6 +34,26 @@ export function nextWeekDates() {
   const fri = new Date(mon);
   fri.setDate(mon.getDate() + 4);
   return { mon, fri };
+}
+
+/** A date as YYYY-MM-DD from its own calendar day - toISO reads it in UTC, which
+ *  in India puts a Monday before 5:30 am on the Sunday. */
+export function isoLocal(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/**
+ * The weeks a POW can be written for: next week and the three after it
+ * (the APM, Oct 2026 - a teacher plans ahead, not only for next week).
+ * Monday to Friday, as YYYY-MM-DD.
+ */
+export function upcomingWeeks(count = 4, today = new Date()) {
+  const { mon: first } = nextWeekDates(today);
+  return Array.from({ length: count }, (_, i) => {
+    const mon = new Date(first.getFullYear(), first.getMonth(), first.getDate() + 7 * i);
+    const fri = new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() + 4);
+    return { start: isoLocal(mon), end: isoLocal(fri) };
+  });
 }
 
 export function toISO(d) {
