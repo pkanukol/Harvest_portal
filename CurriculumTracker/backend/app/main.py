@@ -777,6 +777,16 @@ def update_pow_plan(
                 "until the SME approves it."
             ),
         )
+    # Moving a plan to another week (or renaming its chapter) must not land it
+    # on a twin - the same rule create_pow keeps, this POW itself aside.
+    dup = crud.find_duplicate_pow(
+        db, req.subject or pow_entry.subject, req.grade or pow_entry.grade,
+        req.week_start or pow_entry.week_start.isoformat(), req.topic or pow_entry.topic or "",
+        req.subtopic if req.subtopic is not None else (pow_entry.subtopic or ""),
+    )
+    if dup and dup.id != pow_entry.id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="A POW already exists for this week, subject, grade, topic and sub-topic.")
     try:
         crud.update_pow_plan(db, pow_entry, req)
     except ValueError as exc:
