@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
 import { GRADES } from "../grades";
-import { nextWeekDates, toISO, fmtDate, MONTHS } from "../dateUtils";
+import { upcomingWeeks, fmtDate, MONTHS } from "../dateUtils";
 
 // mode: "new" (current/future week, no implementation section) |
 // "edit" (revise a plan the SME has not approved yet - same form, same fields,
@@ -21,7 +21,18 @@ export default function POWForm({ token, user, mode, prefillPow, branch = "", on
   const isFinalised = ["final", "reviewed", "approved"].includes(prefillPow?.status);
   // The MOM window: open after the final save, closed once it has been saved.
   const tbsMomOpen = isFinalised && !(prefillPow?.tbs_mom || "").trim();
-  const { mon, fri } = nextWeekDates();
+  // A POW is written for next week or any of the three after it, and while
+  // it waits for the SME its author may move it to another of them (the APM,
+  // Oct 2026). A plan being edited opens on its own week, kept in the list
+  // even when it is no longer one of the four, so nothing moves by itself.
+  const weeks = (() => {
+    const ahead = upcomingWeeks(4);
+    const own = isEdit && prefillPow?.week_start ? { start: prefillPow.week_start, end: prefillPow.week_end } : null;
+    return own && !ahead.some((w) => w.start === own.start) ? [own, ...ahead] : ahead;
+  })();
+  const nextWeek = upcomingWeeks(1)[0].start;
+  const [weekStart, setWeekStart] = useState(isEdit && prefillPow?.week_start ? prefillPow.week_start : weeks[0].start);
+  const week = weeks.find((w) => w.start === weekStart) || weeks[0];
 
   // users.subject holds one subject, but staff_roles knows some teachers take
   // two (Science and English, Maths and Computer Science) — so the subject is
@@ -565,8 +576,8 @@ export default function POWForm({ token, user, mode, prefillPow, branch = "", on
         branch,
         subject: stream || subject,
         grade,
-        week_start: isEdit ? prefillPow.week_start : toISO(mon),
-        week_end: isEdit ? prefillPow.week_end : toISO(fri),
+        week_start: week.start,
+        week_end: week.end,
         topic: primaryChapter,
         subtopic: [primaryTopic, primarySubtopic].filter(Boolean).join(" — "),
         lp_session_num: lpSessionNum,
@@ -661,7 +672,13 @@ export default function POWForm({ token, user, mode, prefillPow, branch = "", on
             <div className="form-row">
               <div className="form-group">
                 <label className="form-label">Week</label>
-                <input className="form-control readonly-field" value={`${fmtDate(toISO(mon))} – ${fmtDate(toISO(fri))}`} readOnly />
+                <select className="form-control" value={weekStart} onChange={(e) => setWeekStart(e.target.value)}>
+                  {weeks.map((w) => (
+                    <option key={w.start} value={w.start}>
+                      {fmtDate(w.start)} – {fmtDate(w.end)}{w.start === nextWeek ? " (next week)" : ""}
+                    </option>
+                  ))}
+                </select>
               </div>
               <div className="form-group">
                 <label className="form-label">Month</label>
