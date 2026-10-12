@@ -742,7 +742,8 @@ def create_pow(
     db: Session = Depends(get_db),
     current_user: auth.CurrentUser = Depends(auth.require_pow_author),
 ):
-    dup = crud.find_duplicate_pow(db, req.subject, req.grade, req.week_start, req.topic, req.subtopic or "")
+    dup = crud.find_duplicate_pow(db, req.subject, req.grade, req.week_start, req.topic, req.subtopic or "",
+                                  branch=crud.pow_branch_for(db, current_user.email, req))
     if dup:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="A POW already exists for this week, subject, grade, topic and sub-topic.")
     pow_entry = crud.create_pow(db, current_user.email, req)
@@ -783,6 +784,7 @@ def update_pow_plan(
         db, req.subject or pow_entry.subject, req.grade or pow_entry.grade,
         req.week_start or pow_entry.week_start.isoformat(), req.topic or pow_entry.topic or "",
         req.subtopic if req.subtopic is not None else (pow_entry.subtopic or ""),
+        branch=crud.normalize_branch(req.branch or "") or pow_entry.branch,
     )
     if dup and dup.id != pow_entry.id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
