@@ -1117,14 +1117,21 @@ def get_tbs_mom_alerts(db: Session, user_email: str, role: str) -> list:
 
 # ─── POW create / get / update ──────────────────────────────────────────────
 
-def find_duplicate_pow(db: Session, subject: str, grade: str, week_start: str, topic: str, subtopic: str) -> Optional[models.PowEntry]:
+def find_duplicate_pow(db: Session, subject: str, grade: str, week_start: str, topic: str, subtopic: str,
+                       branch: Optional[str] = None) -> Optional[models.PowEntry]:
     """Application-level duplicate check (not a DB constraint), mirroring
     createPow()'s manual scan — subtopic is a variable-order comma-joined
     string a DB unique constraint couldn't safely dedupe. Scoped by
     subject/grade/week/chapter only, NOT by teacher_email — since POWs are
     now shared across every teacher of a subject (see get_pow_cards), a
     second section-teacher must find and open the existing card rather than
-    create a duplicate."""
+    create a duplicate.
+
+    And by CAMPUS (the APM, 12 Oct 2026): each campus plans its own week, and
+    a teacher cannot see another campus's card, so Attibele's Grade 6 Symmetry
+    POW refused Kodathi's with nothing to open. A POW with no campus recorded
+    still counts everywhere - its campus is unknown, not different."""
+    campus = normalize_branch(branch or "")
     candidates = db.query(models.PowEntry).filter(
         func.lower(models.PowEntry.subject) == subject.lower(),
         models.PowEntry.grade == str(grade),
@@ -1132,9 +1139,17 @@ def find_duplicate_pow(db: Session, subject: str, grade: str, week_start: str, t
         func.lower(models.PowEntry.topic) == topic.lower(),
     ).all()
     for c in candidates:
+        if campus and c.branch and normalize_branch(c.branch) != campus:
+            continue
         if (c.subtopic or "").lower() == (subtopic or "").lower():
             return c
     return None
+
+
+def pow_branch_for(db: Session, teacher_email: str, data) -> Optional[str]:
+    """The campus a new POW is filed for - what create_pow stamps on it."""
+    chosen = normalize_branch(getattr(data, "branch", "") or "")
+    return chosen if chosen in BRANCHES else teacher_branch(db, teacher_email)
 
 
 def _all_pow_sections(data) -> list:
@@ -1166,10 +1181,9 @@ def teacher_branch(db: Session, email: str) -> Optional[str]:
 def create_pow(db: Session, teacher_email: str, data) -> models.PowEntry:
     # What the author had selected wins over what their record says: a 'Both'
     # account has no single campus to fall back on.
-    chosen = normalize_branch(getattr(data, "branch", "") or "")
     pow_entry = models.PowEntry(
         teacher_email=teacher_email.lower(),
-        branch=chosen if chosen in BRANCHES else teacher_branch(db, teacher_email),
+        branch=pow_branch_for(db, teacher_email, data),
         subject=data.subject,
         grade=data.grade,
         week_start=datetime.date.fromisoformat(data.week_start),
